@@ -19,4 +19,17 @@ Rain may trigger thunder:
 - Occasional lightning point‑light near the player, brief flashes tint the directional light and sky
 - Procedural thunder sound after a distance‑based delay
 
+### Weather affixes (gameplay impact)
+- **Rain**: enemy detection range reduced (e.g., ~20% shorter aggro distance)
+- **Snow**: enemy ground speed reduced by ~10%
+- **Thunderstorm**: brief global flash can stagger basic enemies for ~0.15s
+- Future affixes to consider: strong wind alters particle drift; overcast increases spawn density slightly; fog pockets reduce visibility locally
+
+### Arena seeds
+- Deterministic arena layout via seed input/toggle
+- Curated seed list for repeatable challenge runs; display seed in HUD
+
+### Spawn visualization (deferred)
+- Keep current invisible spawns; no portals/denial fields for now.
+
 

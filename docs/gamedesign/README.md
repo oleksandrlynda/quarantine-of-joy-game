@@ -8,6 +8,8 @@ This folder contains the initial game design documentation for Block Strike 3D, 
 - [World & Weather](./world.md)
 - [UI & HUD](./ui-hud.md)
 - [Roadmap](./roadmap.md)
+ - [Bosses](./bosses.md)
+ - [Obstacles](./obstacles.md)
 
 These docs reflect the current implementation in `src/` and can evolve with the project.
 

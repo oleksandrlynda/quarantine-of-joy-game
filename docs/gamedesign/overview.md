@@ -14,4 +14,13 @@
 
 **Session length**: 3–10 minutes per run.
 
+**Highlights**
+- Enemy variety (melee, ranged, tanks, flyers) with boss waves every 5 levels
+- Semi‑auto rifle baseline; future weapon variants for distinct playstyles
+- Dynamic weather and lightweight affixes that change tactics
+- Player expression via advanced movement (stamina, dash, slide, air‑control)
+- Between‑wave choices (modifiers) and daily seeded challenges for replayability
+ - Reactive audio/music layers synced to streaks and weather
+ - Hype Meter (Combo)‑driven micro‑rewards that lightly heal, reload, or refresh ammo to sustain momentum
+
 

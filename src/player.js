@@ -25,6 +25,10 @@ export class PlayerController {
     this.baseFov = 75;
     this.sprintFov = 82;
 
+    // Collision helpers
+    this.objectBBs = this.objects.map(o => new THREE.Box3().setFromObject(o));
+    this.colliderHalf = new THREE.Vector3(0.35, 0.9, 0.35); // approx capsule half extents
+
     // Listeners
     window.addEventListener('keydown', (e)=>{
       this.keys.add(e.code);
@@ -35,6 +39,12 @@ export class PlayerController {
       this.keys.delete(e.code);
       if(e.code==='ControlLeft' || e.code==='ControlRight') this.crouching = false;
     });
+  }
+
+  refreshColliders(objects){
+    const THREE = this.THREE;
+    this.objects = objects;
+    this.objectBBs = this.objects.map(o => new THREE.Box3().setFromObject(o));
   }
 
   resetPosition(x=0, y=1.7, z=8){
@@ -71,13 +81,20 @@ export class PlayerController {
     const desiredFov = sprinting ? this.sprintFov : this.baseFov;
     this.camera.fov += (desiredFov - this.camera.fov) * 0.12; this.camera.updateProjectionMatrix();
 
-    // Attempt move with collision
-    const next = o.position.clone().add(this.velXZ.clone().multiplyScalar(dt));
-    const blocked = this.objects.some(obj=>{
-      const bb = new THREE.Box3().setFromObject(obj).expandByScalar(0.2);
-      return bb.containsPoint(new THREE.Vector3(next.x, o.position.y, next.z));
-    });
-    if(!blocked) o.position.copy(next);
+    // Attempt move with collision (axis-separated slide)
+    const step = this.velXZ.clone().multiplyScalar(dt);
+    const pos = o.position.clone();
+    const tryAxis = (dx, dz)=>{
+      const nx = pos.x + dx, nz = pos.z + dz;
+      const min = new THREE.Vector3(nx - this.colliderHalf.x, 0.2, nz - this.colliderHalf.z);
+      const max = new THREE.Vector3(nx + this.colliderHalf.x, 1.9, nz + this.colliderHalf.z);
+      const pbb = new THREE.Box3(min, max);
+      for(const obb of this.objectBBs){ if(pbb.intersectsBox(obb)) return false; }
+      pos.x += dx; pos.z += dz; return true;
+    };
+    tryAxis(step.x, 0);
+    tryAxis(0, step.z);
+    o.position.x = pos.x; o.position.z = pos.z;
 
     // Gravity, ground, head-bob
     const baseHeight = this.crouching ? 1.25 : 1.7;

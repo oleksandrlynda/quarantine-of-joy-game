@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" href="assets/icons/favicon.svg" type="image/svg+xml" />
+<meta name="theme-color" content="#0b1220" />
 <title>Block Strike 3D</title>
 <link rel="stylesheet" href="styles/styles.css" />
 </head>
@@ -12,6 +14,13 @@
     <div class="pill">HP: <span id="hp">100</span></div>
     <div class="pill">Ammo: <span id="ammo">30</span>/<span id="mag">60</span></div>
     <div class="pill">Score: <span id="score">0</span></div>
+    <div class="pill">Best: <span id="best">0</span></div>
+    <div class="pill" id="combo"><span id="comboLabel">Combo: x1.0</span><div id="comboBar"></div></div>
+    <div class="pill">Wave: <span id="wave">1</span></div>
+    <div class="pill tiny" id="seedPill">Seed: <span id="seed"></span>
+      <button class="mini" id="copySeed" title="Copy share URL">Copy</button>
+      <button class="mini" id="newSeed" title="New seed">New</button>
+    </div>
     <div class="pill" id="mute">🔊</div>
   </div>
   <div class="row" style="justify-content:flex-end">
@@ -19,6 +28,7 @@
   </div>
 </div>
 <div id="crosshair"></div>
+<div id="promoPulse"></div>
 <div id="center"><div id="panel">
   <h1>Block <span>Strike</span> 3D</h1>
   <div>Lightweight FPS inspired by Counter‑Strike; simple blocks, fast rounds.</div>

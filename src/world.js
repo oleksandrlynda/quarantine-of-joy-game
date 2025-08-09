@@ -1,7 +1,7 @@
 // World setup: renderer, scene, camera, sky, lights, arena, materials
 // Export a factory to build and return references used by the game
 
-export function createWorld(THREE){
+export function createWorld(THREE, rng = Math.random){
   // Renderer
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -101,11 +101,7 @@ export function createWorld(THREE){
     mkWall(wallT, wallH, 80, -40, wallH/2, 0);
     mkWall(wallT, wallH, 80,  40, wallH/2, 0);
 
-    for(let i=0;i<18;i++){
-      const b = new THREE.Mesh(new THREE.BoxGeometry(2+Math.random()*2, 2+Math.random()*2, 2+Math.random()*2), mats.crate);
-      b.position.set((Math.random()*70-35)|0, b.geometry.parameters.height/2, (Math.random()*70-35)|0);
-      scene.add(b); objects.push(b);
-    }
+    // Crates and other procedural obstacles are now managed by ObstacleManager
   }
 
   makeArena();

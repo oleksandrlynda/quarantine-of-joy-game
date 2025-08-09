@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0b1220"/>
+      <stop offset="100%" stop-color="#1a2435"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="0.4"/>
+    </filter>
+  </defs>
+
+  <!-- Background rounded square -->
+  <rect x="2" y="2" width="60" height="60" rx="12" fill="url(#bg)"/>
+
+  <!-- Blocky arena motif (simple isometric blocks) -->
+  <g transform="translate(10,30)">
+    <path d="M0 8 L12 2 L24 8 L12 14 Z" fill="#2b3b55"/>
+    <path d="M12 14 L24 8 L24 20 L12 26 Z" fill="#324460"/>
+    <path d="M12 14 L0 8 L0 20 L12 26 Z" fill="#223149"/>
+  </g>
+
+  <!-- Crosshair -->
+  <g stroke="#ffffff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round" filter="url(#soft)">
+    <circle cx="32" cy="32" r="11.5" fill="none"/>
+    <path d="M32 18 L32 24"/>
+    <path d="M32 40 L32 46"/>
+    <path d="M18 32 L24 32"/>
+    <path d="M40 32 L46 32"/>
+    <circle cx="32" cy="32" r="1.8" fill="#ffffff" stroke="none"/>
+  </g>
+
+  <!-- Accent highlight -->
+  <circle cx="47" cy="17" r="4" fill="#ffb21f"/>
+</svg>
+
