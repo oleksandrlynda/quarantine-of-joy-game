@@ -2,6 +2,11 @@
 
 [Play Now](https://oleksandrlynda.github.io/quarantine-of-joy-game/)
 
+Concepts:
+
+Game:
+<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/be462f5f-fb36-436c-8660-0a6afecfeb84" />
+
 Enemies:
  - Rusher (meele)
  Role: Fast glass‑cannon charger that forces repositioning; pure melee.
