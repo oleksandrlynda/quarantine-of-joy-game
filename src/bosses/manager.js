@@ -207,6 +207,13 @@ export class BossManager {
       }
       this.addRoots.delete(root);
     }
+    // Also purge any lingering boss auxiliaries (e.g., pods/nodes) so waves don't stall
+    for (const root of Array.from(this.enemyManager.enemies)) {
+      const t = root?.userData?.type || '';
+      if (t.startsWith('boss_pod') || t.startsWith('boss_node')) {
+        this.enemyManager.remove(root);
+      }
+    }
     // Callback to external listeners
     if (typeof this._onDeathCb === 'function') this._onDeathCb(this.wave);
     // Boss reference cleared; next wave progression will happen via EnemyManager.remove when alive reaches 0

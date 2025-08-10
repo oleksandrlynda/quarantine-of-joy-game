@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <g fill="currentColor">
+    <!-- Slide/Barrel -->
+    <rect x="14" y="26" width="28" height="6" rx="1"/>
+    <rect x="42" y="28" width="8" height="2" rx="1"/>
+    <!-- Trigger guard -->
+    <path d="M24 32 h10 a4 4 0 0 1 0 8 h-3 a3 3 0 0 1 -3 -3 v-5 z"/>
+    <!-- Grip -->
+    <path d="M30 36 h10 v10 a2 2 0 0 1 -2 2 h-6 a2 2 0 0 1 -2 -2 v-10 z"/>
+    <!-- Rear body -->
+    <rect x="18" y="30" width="8" height="4" rx="1"/>
+  </g>
+</svg>
+
+

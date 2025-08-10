@@ -28,10 +28,10 @@ export class EnemyManager {
     // Stats/colors; note type names map to classes below
     this.typeConfig = {
       grunt:  { type: 'grunt',  hp: 100, speedMin: 2.4, speedMax: 3.2, color: 0xef4444, kind: 'melee' },
-      rusher: { type: 'rusher', hp:  60, speedMin: 3.4, speedMax: 4.9, color: 0xf97316, kind: 'melee' },
+      rusher: { type: 'rusher', hp:  60, speedMin: 6.4, speedMax: 8.9, color: 0xf97316, kind: 'melee' },
       tank:   { type: 'tank',   hp: 220, speedMin: 1.6, speedMax: 2.0, color: 0x2563eb, kind: 'melee' },
-      shooter:{ type: 'shooter',hp:  80, speedMin: 2.2, speedMax: 2.8, color: 0x10b981, kind: 'shooter' },
-      flyer:  { type: 'flyer',  hp:  40, speedMin: 5.4, speedMax: 6.6, color: 0xa855f7, kind: 'flyer' },
+      shooter:{ type: 'shooter',hp:  150, speedMin: 2.2, speedMax: 2.8, color: 0x10b981, kind: 'shooter' },
+      flyer:  { type: 'flyer',  hp:  40, speedMin: 12.4, speedMax: 15.6, color: 0xa855f7, kind: 'flyer' },
       // Boss adds
       gruntling: { type: 'gruntling', hp: 20, speedMin: 3.2, speedMax: 4.0, color: 0xfb7185, kind: 'melee' }
     };
@@ -261,7 +261,7 @@ export class EnemyManager {
       return;
     }
 
-    const count = 3 + this.wave;
+    const count = 10 + this.wave;
     const types = this._getWaveTypes(this.wave, count);
     this.alive += count;
     if (this.onWave) this.onWave(this.wave, count);

@@ -161,6 +161,12 @@ Wave & Spawn
 - Wave size: 3 + currentWave
 - Spawn min distance: 12 units; LOS bias to out‑of‑sight/occluded spots; ring preference edge→mid, legacy fallback
 
+Weapons & Inputs
+- Slots: Primary (1) and Sidearm (2); start kit Rifle + Pistol
+- Offers: even waves starting at 2; no back‑to‑back swaps if you swapped last offer
+- Swap conversion: floor(0.5 × old reserve) + new default reserve; decline top‑up +20% reserve (clamped)
+- Boss weapon rewards: smaller bonuses — Refine (+5% mag / −5% bloom / +7% falloff, capped per run) or New Primary (1.25× reserve)
+
 ---
 
 ## Saturation System (Narrative Integration)

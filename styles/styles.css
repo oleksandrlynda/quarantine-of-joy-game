@@ -5,6 +5,10 @@ body{margin:0; overflow:hidden; font-family: Inter, system-ui, -apple-system, Se
 #hud{ position:fixed; inset:0; pointer-events:none; display:flex; flex-direction:column; justify-content:space-between; padding:10px; }
 .row{ display:flex; gap:10px; align-items:center; }
 .pill{ pointer-events:auto; backdrop-filter: blur(10px); background:var(--panel); border:2px solid #00000018; border-radius:14px; padding:8px 12px; font-weight:800; box-shadow:0 10px 30px #00000022; }
+.weapon-rifle{ color:#0ea5e9; }
+.weapon-smg{ color:#10b981; }
+.weapon-shotgun{ color:#ef4444; }
+.weapon-dmr{ color:#f59e0b; }
 .pill.tiny{ font-weight:700; }
 .mini{ margin-left:6px; padding:4px 8px; border-radius:10px; font-weight:800; cursor:pointer; border:1px solid #00000022; background:#ffffffb0; }
 #center{ position:fixed; inset:0; display:grid; place-items:center; }

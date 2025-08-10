@@ -12,7 +12,7 @@
 <div id="hud">
   <div class="row">
     <div class="pill">HP: <span id="hp">100</span></div>
-    <div class="pill">Ammo: <span id="ammo">30</span>/<span id="mag">60</span></div>
+    <div class="pill">Ammo: <img id="weaponIcon" class="wicon" alt="" /> <span id="weapon">Rifle</span> — <span id="ammo">30</span>/<span id="mag">60</span></div>
     <div class="pill">Score: <span id="score">0</span></div>
     <div class="pill">Best: <span id="best">0</span></div>
     <div class="pill" id="combo"><span id="comboLabel">Combo: x1.0</span><div id="comboBar"></div></div>
@@ -29,6 +29,21 @@
 </div>
 <div id="crosshair"></div>
 <div id="promoPulse"></div>
+<div id="offer" style="display:none">
+  <div class="card">
+    <h3>Armory Offer</h3>
+    <div id="offerChoices" class="choices"></div>
+    <div class="actions"><button class="secondary" id="offerDecline">Keep current (+reserve)</button></div>
+  </div>
+  <style>
+    #offer{ position:fixed; inset:0; display:grid; place-items:center; background:rgba(0,0,0,0.35); pointer-events:auto; }
+    #offer .card{ background:#ffffffee; border-radius:18px; padding:16px; width:min(92%,520px); box-shadow:0 20px 70px #00000055; text-align:center }
+    #offer .choices{ display:flex; gap:12px; justify-content:center; flex-wrap:wrap; margin:10px 0 }
+    .choice{ display:flex; align-items:center; gap:8px; padding:10px 12px; border-radius:12px; border:2px solid #00000018; background:#fff; cursor:pointer; box-shadow:0 8px 24px #00000022; }
+    .choice img{ width:28px; height:28px }
+    .wicon{ width:16px; height:16px; vertical-align:middle; margin-right:4px }
+  </style>
+</div>
 <div id="center"><div id="panel">
   <h1>Block <span>Strike</span> 3D</h1>
   <div>Lightweight FPS inspired by Counter‑Strike; simple blocks, fast rounds.</div>

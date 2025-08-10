@@ -13,6 +13,12 @@ export class Effects {
 
     // Promotion pulse element (simple DOM overlay to avoid heavy post)
     this._promoEl = document.getElementById('promoPulse');
+
+    // Muzzle flash quad (reused)
+    this._muzzle = null;
+    this._muzzleTTL = 0;
+    this._muzzleMax = 0.06;
+    this.muzzleEnabled = false; // hide muzzle flash for now
   }
 
   update(dt){
@@ -27,11 +33,49 @@ export class Effects {
         this._alive.splice(i,1);
       }
     }
+    // Muzzle flash fade (attached to camera)
+    if (this._muzzle) {
+      if (this._muzzleTTL > 0) {
+        this._muzzleTTL = Math.max(0, this._muzzleTTL - dt);
+        const k = Math.max(0, Math.min(1, this._muzzleTTL / this._muzzleMax));
+        if (this._muzzle.material.uniforms) this._muzzle.material.uniforms.uAlpha.value = 0.8 * k;
+      } else if (this._muzzle.material.uniforms && this._muzzle.material.uniforms.uAlpha.value !== 0) {
+        this._muzzle.material.uniforms.uAlpha.value = 0;
+      }
+    }
     // Overlay decay
     if(this.hitStrength > 0){
       this.hitStrength = Math.max(0, this.hitStrength - dt*1.8);
       this.overlay.material.uniforms.uStrength.value = this.hitStrength;
     }
+  }
+
+  spawnMuzzleFlash(strength=1){
+    if (!this.muzzleEnabled) return; // disabled
+    const THREE = this.THREE;
+    if (!this._muzzle){
+      const g = new THREE.PlaneGeometry(1, 1);
+      const m = new THREE.ShaderMaterial({
+        transparent:true,
+        depthTest:false,
+        depthWrite:false,
+        blending:THREE.AdditiveBlending,
+        side:THREE.DoubleSide,
+        uniforms:{ uAlpha:{value:0.0}, uColor:{value:new THREE.Color(0xffe08a)}, uEllipse:{value:0.35} },
+        vertexShader:`varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+        fragmentShader:`precision mediump float; varying vec2 vUv; uniform vec3 uColor; uniform float uAlpha; uniform float uEllipse; void main(){ vec2 p = vUv - 0.5; p.x *= uEllipse; float d = length(p) * 2.0; float a = uAlpha * pow(max(0.0, 1.0 - clamp(d, 0.0, 1.0)), 2.2); if(a < 0.001) discard; gl_FragColor = vec4(uColor, a); }`
+      });
+      this._muzzle = new THREE.Mesh(g, m);
+      this._muzzle.position.set(0, -0.05, -0.25); // near camera
+      this._muzzle.scale.set(0.12, 0.05, 1); // elongated oval
+      this._muzzle.rotation.z = Math.random() * Math.PI;
+      this.camera.add(this._muzzle);
+      this._muzzle.renderOrder = 9999;
+    }
+    this._muzzle.material.uniforms.uAlpha.value = Math.min(1, 0.6 * strength + 0.2);
+    this._muzzle.rotation.z = Math.random() * Math.PI;
+    this._muzzle.scale.set(0.10 + Math.random()*0.05, 0.035 + Math.random()*0.03, 1);
+    this._muzzleTTL = this._muzzleMax;
   }
 
   // Subtle screen-edge chroma pulse when combo tier increases

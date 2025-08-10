@@ -15,12 +15,12 @@ export class ShooterEnemy {
     body.userData = { type: cfg.type, head, hp: cfg.hp };
     this.root = body;
     this.speed = cfg.speedMin + Math.random() * (cfg.speedMax - cfg.speedMin);
-    this.preferredRange = { min: 12, max: 18 };
-    this.engageRange = { min: 24, max: 36 };
+    this.preferredRange = { min: 24, max: 36 };
+    this.engageRange = { min: 48, max: 72 };
 
     // Firing cadence and telegraph
     this.cooldown = 0;                               // time until next windup can start
-    this.baseCadence = 1.6 + Math.random() * 0.6;    // 1.6–2.2s between shots
+    this.baseCadence = 0.68 + Math.random() * 0.6;    // 1.6–2.2s between shots
     this.windupTime = 0;                             // time spent charging current shot
     this.windupRequired = 0.5 + Math.random() * 0.2; // 0.5–0.7s telegraph
     this.strafeDir = Math.random() < 0.5 ? 1 : -1;
@@ -29,6 +29,19 @@ export class ShooterEnemy {
     this.projectiles = [];
     this._raycaster = new THREE.Raycaster();
     this._aimLine = null;                            // telegraph line during windup
+
+    // Peek/relocate behavior state
+    this.shotsThisBurst = 0;
+    this.maxBurst = 3 + ((Math.random() * 2) | 0);   // 3–4 shots per burst
+    this.relocating = false;
+    this.relocateTarget = null;
+    this.relocateTimer = 0;
+    this.relocateTimeout = 2.2 + Math.random() * 0.8; // seconds to give up and resume
+    this.relocateDistance = 8 + Math.random() * 4;     // 8–12 units lateral move
+    // On-hit micro-juke
+    this._hitJukeTime = 0;
+    this._hitJukeDir = new this.THREE.Vector3();
+    this._lastFwd = new this.THREE.Vector3(0,0,1);
   }
 
   update(dt, ctx) {
@@ -40,10 +53,38 @@ export class ShooterEnemy {
     const playerPos = ctx.player.position.clone();
     const toPlayer = playerPos.clone().sub(e.position);
     const dist = toPlayer.length();
+    const hasLOS = this._hasLineOfSight(e, playerPos, ctx.objects);
+    const playerStationary = (ctx.blackboard && (ctx.blackboard.playerSpeed || 0) < 0.8);
 
-    // 2) Movement: approach/retreat only when inside engage range; maintain standoff, strafe when in band
+    // 2) Movement: maintain standoff, peek when LOS blocked, relocate after bursts
     const desired = new THREE.Vector3();
-    if (dist < this.preferredRange.min - 1) {
+    if (this.relocating) {
+      // Relocation overrides normal behavior
+      this.relocateTimer += dt;
+      if (!this.relocateTarget) {
+        this._beginRelocation(playerPos, toPlayer);
+      }
+      if (this.relocateTarget) {
+        const toAnchor = this.relocateTarget.clone().sub(e.position); toAnchor.y = 0;
+        const d = toAnchor.length();
+        if (d > 0.0001) desired.add(toAnchor.normalize());
+        if (d < 0.75 || this.relocateTimer >= this.relocateTimeout) {
+          this.relocating = false; this.relocateTarget = null; this.relocateTimer = 0;
+          // small cooldown before next windup so it doesn't insta-fire on arrival
+          this.cooldown = Math.max(this.cooldown, 0.4 + Math.random() * 0.3);
+        }
+      }
+    } else if (!hasLOS && dist <= this.engageRange.max) {
+      // Try to find a peek direction that reveals LOS around nearby cover
+      const peekDir = this._computePeekDesiredDir(e.position, playerPos, ctx.objects, toPlayer.clone());
+      if (peekDir && peekDir.lengthSq() > 0) desired.add(peekDir);
+      else {
+        // fallback to circling to vary angle even if peek not found
+        const fwd = toPlayer.clone().setY(0); if (fwd.lengthSq()>0) fwd.normalize();
+        const side = new THREE.Vector3(-fwd.z, 0, fwd.x).multiplyScalar(this.strafeDir);
+        desired.add(side);
+      }
+    } else if (dist < this.preferredRange.min - 1) {
       // backpedal
       toPlayer.y = 0; if (toPlayer.lengthSq() > 0) desired.add(toPlayer.normalize().multiplyScalar(-1));
     } else if (dist > this.preferredRange.max + 1) {
@@ -52,11 +93,21 @@ export class ShooterEnemy {
         toPlayer.y = 0; if (toPlayer.lengthSq() > 0) desired.add(toPlayer.normalize());
       }
     } else {
-      // strafe around player within preferred band
+      // strafe around player; if regrouping, widen standoff toward 22–28 and orbit until allies catch up
       toPlayer.y = 0; if (toPlayer.lengthSq() > 0) {
         const fwd = toPlayer.normalize();
         const side = new THREE.Vector3(-fwd.z, 0, fwd.x).multiplyScalar(this.strafeDir);
-        desired.add(side);
+        const regroup = ctx.blackboard && ctx.blackboard.regroup;
+        if (regroup) {
+          // push toward 22–28m ring
+          const targetMin = 22, targetMax = 28;
+          const target = (targetMin + targetMax) * 0.5;
+          if (dist < targetMin) desired.add(fwd.clone().multiplyScalar(-1.2));
+          else if (dist > targetMax) desired.add(fwd.clone().multiplyScalar(1.0));
+          desired.add(side.multiplyScalar(1.2));
+        } else {
+          desired.add(side);
+        }
         // occasionally switch strafe dir
         if (this.switchCooldown > 0) this.switchCooldown -= dt; else if (Math.random() < 0.01) { this.strafeDir *= -1; this.switchCooldown = 1.2; }
       }
@@ -65,7 +116,18 @@ export class ShooterEnemy {
     // Obstacle avoidance + separation
     const avoid = desired.lengthSq() > 0 ? ctx.avoidObstacles(e.position, desired, 1.6) : desired;
     const sep = ctx.separation(e.position, 1.2, e);
+    // Cache forward used by movement to orient hit-jukes
+    if (toPlayer.lengthSq() > 0) {
+      const fwdCache = toPlayer.clone().setY(0);
+      if (fwdCache.lengthSq()>0) this._lastFwd.copy(fwdCache.normalize());
+    }
+
     const steer = desired.clone().add(avoid.multiplyScalar(1.2)).add(sep.multiplyScalar(0.8));
+    // Apply on-hit micro-juke impulse
+    if (this._hitJukeTime > 0 && this._hitJukeDir.lengthSq() > 0) {
+      this._hitJukeTime = Math.max(0, this._hitJukeTime - dt);
+      steer.add(this._hitJukeDir.clone().multiplyScalar(1.1));
+    }
 
     if (steer.lengthSq() > 0) {
       steer.y = 0; steer.normalize();
@@ -77,12 +139,13 @@ export class ShooterEnemy {
     if (this.cooldown > 0) this.cooldown -= dt;
 
     const inBand = dist >= this.preferredRange.min && dist <= this.preferredRange.max;
-    const hasLOS = this._hasLineOfSight(e, playerPos, ctx.objects);
     if (inBand && hasLOS && this.cooldown <= 0) {
       // Telegraph with head glow and aim line; keep checking LOS
       this.windupTime += dt;
       this._setHeadGlow(true);
       this._updateAimLine(playerPos, ctx.scene, 0x10b981);
+      // Mark suppression while telegraphing at a stationary, exposed player
+      if (ctx.blackboard && playerStationary) ctx.blackboard.suppression = true;
       if (!hasLOS) {
         // cancel windup if LOS broken
         this.windupTime = 0;
@@ -97,6 +160,17 @@ export class ShooterEnemy {
         // re-roll cadence and windup for variance
         this.baseCadence = 1.6 + Math.random() * 0.6;
         this.windupRequired = 0.5 + Math.random() * 0.2;
+        // Mark suppression immediately after firing if target was stationary and exposed
+        if (ctx.blackboard && playerStationary) ctx.blackboard.suppression = true;
+        // Burst/relocate: after a few shots, force a lateral relocate to a new angle
+        if (this.shotsThisBurst >= this.maxBurst && !this.relocating) {
+          this.relocating = true;
+          this.relocateTarget = null;
+          this.relocateTimer = 0;
+          this.shotsThisBurst = 0;
+          // brief disengage by cancelling any residual telegraph
+          this._updateAimLine(null, ctx.scene);
+        }
       }
     } else {
       if (this.windupTime > 0) {
@@ -140,6 +214,18 @@ export class ShooterEnemy {
       maxLife: 2.5,
       damage: 22
     });
+    this.shotsThisBurst += 1;
+  }
+
+  onHit(damage, isHead) {
+    // Short lateral juke on hit (0.12–0.2s)
+    const base = 0.12 + Math.random() * 0.08;
+    this._hitJukeTime = Math.max(this._hitJukeTime, base);
+    // pick random lateral relative to facing toward player
+    const fwd = this._lastFwd.lengthSq() > 0 ? this._lastFwd.clone() : new this.THREE.Vector3(0,0,1);
+    const side = new this.THREE.Vector3(-fwd.z, 0, fwd.x);
+    const sideSign = Math.random() < 0.5 ? 1 : -1;
+    this._hitJukeDir.copy(side.multiplyScalar(sideSign));
   }
 
   _updateProjectiles(dt, ctx) {
@@ -202,6 +288,53 @@ export class ShooterEnemy {
       // fallback: scale head a bit during windup
       head.scale.setScalar(active ? 1.08 : 1.0);
     }
+  }
+
+  _hasLineOfSightFrom(originPos, targetPos, objects) {
+    const THREE = this.THREE;
+    const origin = new THREE.Vector3(originPos.x, originPos.y + 1.4, originPos.z);
+    const dir = targetPos.clone().sub(origin);
+    const dist = dir.length();
+    if (dist <= 0.0001) return true;
+    dir.normalize();
+    this._raycaster.set(origin, dir);
+    this._raycaster.far = dist - 0.1;
+    const hits = this._raycaster.intersectObjects(objects, false);
+    return !(hits && hits.length > 0);
+  }
+
+  _computePeekDesiredDir(fromPos, playerPos, objects, toPlayerVec) {
+    // Sample lateral offsets to try to reveal LOS around cover
+    const THREE = this.THREE;
+    const fwd = toPlayerVec.setY(0); if (fwd.lengthSq() === 0) return null; fwd.normalize();
+    const left = new THREE.Vector3(-fwd.z, 0, fwd.x);
+    const right = left.clone().multiplyScalar(-1);
+    const step = 0.9; // meters per sample
+    const maxSamples = 8; // try up to ~7.2m each side
+    let bestDir = null;
+    let bestScore = -Infinity;
+    for (const dir of [left, right]) {
+      for (let i = 1; i <= maxSamples; i++) {
+        const cand = fromPos.clone().add(dir.clone().multiplyScalar(step * i));
+        // Prefer candidates that gain LOS
+        const los = this._hasLineOfSightFrom(cand, playerPos, objects);
+        const score = (los ? 10 : 0) - i * 0.3; // bias closer peeks
+        if (score > bestScore) {
+          bestScore = score; bestDir = cand.clone().sub(fromPos).setY(0).normalize();
+        }
+        if (los) break; // stop further in this direction once LOS achieved
+      }
+    }
+    return bestDir;
+  }
+
+  _beginRelocation(playerPos, toPlayer) {
+    const THREE = this.THREE;
+    const fwd = toPlayer.clone().setY(0); if (fwd.lengthSq() > 0) fwd.normalize();
+    const side = new THREE.Vector3(-fwd.z, 0, fwd.x).multiplyScalar(Math.random() < 0.5 ? 1 : -1);
+    // move laterally relative to current position to change angle on the player
+    const target = this.root.position.clone().add(side.multiplyScalar(this.relocateDistance));
+    this.relocateTarget = target;
   }
 
   _updateAimLine(targetPos, scene, color = 0x10b981) {
