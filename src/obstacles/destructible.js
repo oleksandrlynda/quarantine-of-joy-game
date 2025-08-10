@@ -56,6 +56,10 @@ export class Destructible {
 
   damage(amount) {
     if (!this.root) return { destroyed: false };
+    // Make yellow crates indestructible
+    if (this.type === 'crate') {
+      return { destroyed: false };
+    }
     this.hp -= amount;
     if (this.hp <= 0) {
       return { destroyed: true, type: this.type };

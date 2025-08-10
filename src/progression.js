@@ -13,6 +13,7 @@ export class Progression {
     this.offerOpen = false;
     this._offerHandlersBound = false;
     this.bossKills = 0; // track number of defeated bosses this run
+    this.sidearmOfferShown = false;
   }
 
   _loadUnlocks(){
@@ -57,6 +58,12 @@ export class Progression {
     if (wave >= 6 && (wave % 2) === 0){
       if (this.offerCooldown > 0) { this.offerCooldown -= 1; }
       else { this._presentOffer(); }
+    }
+
+    // Sidearm offer at wave 20+: Pistol vs Grenade launcher, once per run
+    if (!this.sidearmOfferShown && wave >= 20){
+      this._presentSidearmOffer();
+      this.sidearmOfferShown = true;
     }
   }
 
@@ -117,6 +124,33 @@ export class Progression {
       window.addEventListener('keydown', this._offerKeyHandler);
       this._offerHandlersBound = true;
     }
+  }
+
+  _presentSidearmOffer(){
+    if (!this.offerEl || !this.choicesEl) return;
+    const sidearms = this.ws.getSidearms ? this.ws.getSidearms() : [];
+    if (!sidearms.length) return;
+    this.choicesEl.innerHTML = '';
+    for (const p of sidearms){
+      const d = this.doc.createElement('div'); d.className = 'choice';
+      const img = this.doc.createElement('img'); img.alt = p.name; img.src = this._iconFor(p.name === 'Grenade' ? 'Pistol' : p.name);
+      const label = this.doc.createElement('div'); label.textContent = p.name;
+      d.appendChild(img); d.appendChild(label);
+      d.onclick = () => {
+        // Replace sidearm slot (slot 2). Ensure inventory has at least 2
+        const cur = this.ws.inventory;
+        if (cur.length === 1) cur.push(new (p.make().constructor)());
+        else cur[1] = p.make();
+        this.ws.currentIndex = Math.min(this.ws.currentIndex, 0); // keep primary selected
+        this.ws.updateHUD?.();
+        this._closeOffer(true);
+      };
+      this.choicesEl.appendChild(d);
+    }
+    this.offerEl.style.display = '';
+    this.offerOpen = true;
+    this.onPause(true);
+    try { this.controls?.unlock?.(); } catch {}
   }
 
   _decline(){

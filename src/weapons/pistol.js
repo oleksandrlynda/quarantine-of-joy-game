@@ -8,7 +8,7 @@ export class Pistol extends Weapon {
       mode: 'semi',
       fireDelayMs: 260, // quick single shot
       magSize: 6,
-      reserve: 24
+      reserve: 50
     });
     this._baseSpread = 0.0035; // slightly less accurate than rifle
     this._bloom = 0;
@@ -34,7 +34,13 @@ export class Pistol extends Weapon {
     const end = res.endPoint || origin.clone().add(dir.clone().multiplyScalar(70));
 
     if (res.type === 'enemy' && res.enemyRoot) {
-      const dmg = 75;
+      try { window._HUD && window._HUD.showHitmarker && window._HUD.showHitmarker(); } catch(_) {}
+      // Damage model: 2 bullets to head, 5 to torso, 10-15 to limbs
+      // Compute per-hit damage given current enemy HP targets (assume grunt 100)
+      let dmg;
+      if (res.isHead || res.bodyPart === 'head') dmg = 50;         // 2 hits to kill 100 HP
+      else if (res.bodyPart === 'arm' || res.bodyPart === 'leg') dmg = 8; // 12–13 hits for 100 HP
+      else dmg = 20; // torso ~5 hits
       res.enemyRoot.userData.hp -= dmg;
       effects?.spawnBulletImpact?.(end, res.hitFace?.normal);
       if (S && S.impactFlesh) S.impactFlesh();
@@ -46,7 +52,7 @@ export class Pistol extends Weapon {
         if (S && S.enemyDeath) S.enemyDeath(res.enemyRoot?.userData?.type || 'grunt');
         pickups?.maybeDrop?.(res.enemyRoot.position.clone());
         enemyManager.remove(res.enemyRoot);
-        const base = res.isHead ? 150 : 100;
+        const base = (res.isHead || res.bodyPart==='head') ? 150 : 100;
         const finalScore = Math.round(base * (ctx.combo?.multiplier || 1));
         addScore?.(finalScore);
         addComboAction?.(1);

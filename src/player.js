@@ -33,6 +33,16 @@ export class PlayerController {
     this.baseFov = 75;
     this.sprintFov = 82;
 
+    // Stamina system
+    this.staminaMax = 100;
+    this.stamina = this.staminaMax;
+    this.staminaRegenPerSec = 18;     // per design: 18/s
+    this.staminaSprintCostPerSec = 12;// per design: ~12/s while sprinting
+    this.staminaJumpCost = 15;        // per design: ~15 per jump
+    this.staminaRegenDelay = 0.5;     // seconds after last spend
+    this._staminaRegenCooldown = 0;   // countdown timer until regen resumes
+    this.lowStaminaThreshold = 15;    // cannot jump below this; reduced sprint speed when low
+
     // Recoil (softer, spring-damped)
     this.recoilPitchOffset = 0;     // radians (current offset)
     this.appliedRecoilPitch = 0;    // last-applied value to camera this frame
@@ -45,11 +55,21 @@ export class PlayerController {
     // Collision helpers
     this.objectBBs = this.objects.map(o => new THREE.Box3().setFromObject(o));
     this.colliderHalf = new THREE.Vector3(0.35, 0.9, 0.35); // approx capsule half extents
+    this.fullHeight = this.colliderHalf.y * 2; // ~1.8m
+    this._groundRaycaster = new THREE.Raycaster();
 
     // Listeners
     window.addEventListener('keydown', (e)=>{
       this.keys.add(e.code);
-      if(e.code === 'Space' && this.canJump){ this.velocityY = 7; this.canJump = false; }
+      if(e.code === 'Space' && this.canJump){
+        // Block jump if not enough stamina
+        if (this.stamina >= this.staminaJumpCost) {
+          this.velocityY = 7;
+          this.canJump = false;
+          // Spend stamina for jump
+          this._spendStamina(this.staminaJumpCost);
+        }
+      }
       if(e.code==='ControlLeft' || e.code==='ControlRight') this.crouching = true;
     });
     window.addEventListener('keyup', (e)=>{
@@ -66,7 +86,9 @@ export class PlayerController {
 
   resetPosition(x=0, y=1.7, z=8){
     const o = this.controls.getObject();
-    o.position.set(x,y,z);
+    // Find nearest free spot if requested point is blocked
+    const safe = this._findNearestFreePosition(x, y, z);
+    o.position.set(safe.x, safe.y, safe.z);
     this.velocityY = 0;
     this.velXZ.set(0,0,0);
   }
@@ -84,8 +106,12 @@ export class PlayerController {
     if (this.keys.has('KeyA')) wish.add(right.clone().multiplyScalar(-1));
     if (this.keys.has('KeyD')) wish.add(right);
 
-    const sprinting = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
-    const targetSpeed = this.moveSpeed * (sprinting ? 1.6 : 1.0) * (this.crouching ? 0.55 : 1.0);
+    const wantsSprint = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
+    const hasStaminaForSprint = this.stamina > 0.5; // allow minor underflow guard
+    const effectiveSprint = wantsSprint && hasStaminaForSprint;
+    // Low stamina penalty: reduced sprint speed if stamina below threshold
+    const sprintMultiplier = effectiveSprint ? ((this.stamina <= this.lowStaminaThreshold) ? 1.2 : 1.6) : 1.0;
+    const targetSpeed = this.moveSpeed * sprintMultiplier * (this.crouching ? 0.55 : 1.0);
 
     if (wish.lengthSq() > 0) {
       wish.normalize().multiplyScalar(targetSpeed);
@@ -94,6 +120,20 @@ export class PlayerController {
     } else {
       const damp = Math.max(0, 1 - this.damping * dt);
       this.velXZ.multiplyScalar(damp);
+    }
+
+    // Stamina drain/regeneration
+    // Drain only while actively sprinting and actually trying to move
+    if (wantsSprint && wish.lengthSq() > 0 && this.velXZ.lengthSq() > 0.0001) {
+      const drain = this.staminaSprintCostPerSec * dt;
+      this._spendStamina(drain);
+    } else {
+      // Count down regen cooldown
+      if (this._staminaRegenCooldown > 0) this._staminaRegenCooldown = Math.max(0, this._staminaRegenCooldown - dt);
+      // Regen if cooldown elapsed
+      if (this._staminaRegenCooldown === 0 && this.stamina < this.staminaMax) {
+        this.stamina = Math.min(this.staminaMax, this.stamina + this.staminaRegenPerSec * dt);
+      }
     }
 
     // Spring-damped return toward 0 for soft motion
@@ -112,7 +152,7 @@ export class PlayerController {
     }
 
     // FOV handling combines sprint FOV and recoil kick
-    const desiredFovBase = sprinting ? this.sprintFov : this.baseFov;
+    const desiredFovBase = effectiveSprint ? this.sprintFov : this.baseFov;
     // No recoil FOV kick by default; ensure sprint FOV is preserved
     const desiredFov = desiredFovBase;
     this.camera.fov += (desiredFov - this.camera.fov) * 0.18; this.camera.updateProjectionMatrix();
@@ -120,22 +160,65 @@ export class PlayerController {
     // Attempt move with collision (axis-separated slide)
     const step = this.velXZ.clone().multiplyScalar(dt);
     const pos = o.position.clone();
+    // Cache ground at start and thresholds for step/jump assist
+    const groundAt = this._groundHeightAt(pos.x, pos.z);
+    const stepUpMax = 0.12 * this.fullHeight;  // ≤12%: auto step
+    const jumpAssistMax = 0.30 * this.fullHeight; // ≤30%: auto jump
     const tryAxis = (dx, dz)=>{
       const nx = pos.x + dx, nz = pos.z + dz;
-      const min = new THREE.Vector3(nx - this.colliderHalf.x, 0.2, nz - this.colliderHalf.z);
-      const max = new THREE.Vector3(nx + this.colliderHalf.x, 1.9, nz + this.colliderHalf.z);
+      // Compute player's current feet Y based on eye height (supports mid-air jump movement)
+      const eye = this.crouching ? 1.25 : 1.7;
+      const feetY = (o.position.y - eye);
+      const min = new THREE.Vector3(nx - this.colliderHalf.x, Math.max(0.0, feetY + 0.05), nz - this.colliderHalf.z);
+      const max = new THREE.Vector3(nx + this.colliderHalf.x, feetY + this.fullHeight, nz + this.colliderHalf.z);
       const pbb = new THREE.Box3(min, max);
-      for(const obb of this.objectBBs){ if(pbb.intersectsBox(obb)) return false; }
+      for(const obb of this.objectBBs){
+        if(pbb.intersectsBox(obb)){
+          // Collision at current eye height; allow attempt to step if target ground is only slightly higher
+          const newGround = this._groundHeightAt(nx, nz);
+          const rise = Math.max(0, newGround - groundAt);
+          if (rise > 0 && rise <= jumpAssistMax + 1e-3) {
+            // Tentatively allow horizontal move; vertical resolution will be handled below
+            pos.x = nx; pos.z = nz; return true;
+          }
+          return false;
+        }
+      }
       pos.x += dx; pos.z += dz; return true;
     };
     tryAxis(step.x, 0);
     tryAxis(0, step.z);
-    o.position.x = pos.x; o.position.z = pos.z;
+    // Step-up assist: if the ground height increased by a small step, climb it; otherwise auto-jump for medium ledges
+    const newGround = this._groundHeightAt(pos.x, pos.z);
+    const rise = Math.max(0, newGround - groundAt);
+    if (rise > 0) {
+      if (rise <= stepUpMax + 1e-3) {
+        // Snap onto the higher ground while preserving eye offset
+        o.position.x = pos.x; o.position.z = pos.z;
+        const eye = this.crouching ? 1.25 : 1.7;
+        o.position.y = newGround + eye;
+        this.velocityY = 0; this.canJump = true;
+      } else if (rise <= jumpAssistMax + 1e-3) {
+        // Auto-jump if we can; helps climb short ledges without pressing Space
+        if (this.canJump && this.stamina >= this.staminaJumpCost) {
+          o.position.x = pos.x; o.position.z = pos.z;
+          this.velocityY = 7; this.canJump = false; this._spendStamina(this.staminaJumpCost);
+        } else { /* if cannot jump now, still allow horizontal position and gravity will handle */
+          o.position.x = pos.x; o.position.z = pos.z;
+        }
+      } else {
+        o.position.x = pos.x; o.position.z = pos.z;
+      }
+    } else {
+      o.position.x = pos.x; o.position.z = pos.z;
+    }
 
     // Gravity, ground, head-bob
-    const baseHeight = this.crouching ? 1.25 : 1.7;
+    const eyeHeight = this.crouching ? 1.25 : 1.7;
+    const groundNow = this._groundHeightAt(o.position.x, o.position.z);
+    const desiredEyeY = groundNow + eyeHeight;
     this.velocityY -= this.gravity * dt; o.position.y += this.velocityY * dt;
-    if (o.position.y <= baseHeight) { o.position.y = baseHeight; this.velocityY = 0; this.canJump = true; }
+    if (o.position.y <= desiredEyeY) { o.position.y = desiredEyeY; this.velocityY = 0; this.canJump = true; }
     const speed2D = this.velXZ.length();
     if (this.canJump && speed2D > 0.2) { o.position.y += Math.sin(performance.now()*0.02) * 0.03; }
   }
@@ -143,6 +226,90 @@ export class PlayerController {
   // External API for weapons: vertical-only kick (applied as a velocity impulse)
   applyRecoil({ pitchRad = 0 } = {}){
     this.recoilPitchVel += pitchRad * this.recoilImpulse;
+  }
+
+  // Public helpers for HUD
+  getStamina01(){ return Math.max(0, Math.min(1, this.stamina / this.staminaMax)); }
+  getStamina(){ return this.stamina; }
+
+  // --- Internal stamina helpers ---
+  _spendStamina(amount){
+    this.stamina = Math.max(0, this.stamina - amount);
+    this._staminaRegenCooldown = this.staminaRegenDelay;
+  }
+
+  // --- Spawn safety helpers ---
+  _isPositionFree(x, y, z){
+    const THREE = this.THREE;
+    const half = this.colliderHalf;
+    const min = new THREE.Vector3(x - half.x, 0.2, z - half.z);
+    const max = new THREE.Vector3(x + half.x, 1.9, z + half.z);
+    const pbb = new THREE.Box3(min, max);
+    for (const obb of this.objectBBs) { if (pbb.intersectsBox(obb)) return false; }
+    return true;
+  }
+
+  _findNearestFreePosition(x, y, z){
+    const THREE = this.THREE;
+    const baseY = y != null ? y : 1.7;
+    // Quick accept
+    if (this._isPositionFree(x, baseY, z)) return new THREE.Vector3(x, baseY, z);
+    // Clamp search inside arena inner margin
+    const min = -38 + this.colliderHalf.x;
+    const max =  38 - this.colliderHalf.x;
+    const clamp = (v)=> Math.max(min, Math.min(max, v));
+    const directions = [];
+    const dirCount = 16; // 22.5° steps
+    for (let i=0;i<dirCount;i++){
+      const a = (i/dirCount) * Math.PI * 2;
+      directions.push({ dx: Math.cos(a), dz: Math.sin(a) });
+    }
+    const step = 1.0; // search step in world units
+    const maxRadius = 24; // do not search entire arena
+    for (let r = step; r <= maxRadius; r += step){
+      for (const d of directions){
+        const nx = clamp(x + d.dx * r);
+        const nz = clamp(z + d.dz * r);
+        if (this._isPositionFree(nx, baseY, nz)) return new THREE.Vector3(nx, baseY, nz);
+      }
+    }
+    // Fallback to center front if everything else fails
+    const fx = 0, fz = 8;
+    if (this._isPositionFree(fx, baseY, fz)) return new THREE.Vector3(fx, baseY, fz);
+    return new THREE.Vector3(x, baseY, z);
+  }
+
+  // Compute supporting ground height at XZ using AABBs (top faces). Returns world Y of ground top.
+  _groundHeightAt(x, z){
+    const THREE = this.THREE;
+    // First try precise raycast downward from above player footprint center
+    const origin = new THREE.Vector3(x, 10.0, z);
+    const dir = new THREE.Vector3(0,-1,0);
+    try {
+      this._groundRaycaster.set(origin, dir);
+      this._groundRaycaster.far = 20;
+      const hits = this._groundRaycaster.intersectObjects(this.objects, false);
+      if (hits && hits.length) {
+        // pick highest hit below origin
+        let top = 0;
+        for (const h of hits) { if (h.point && h.point.y > top) top = h.point.y; }
+        if (top != null) return top;
+      }
+    } catch(_) {}
+    // Fallback to AABB sampling of footprint
+    const half = this.colliderHalf;
+    const probeMinX = x - half.x;
+    const probeMaxX = x + half.x;
+    const probeMinZ = z - half.z;
+    const probeMaxZ = z + half.z;
+    let maxTop = 0;
+    for (const obb of this.objectBBs){
+      if (probeMaxX < obb.min.x || probeMinX > obb.max.x) continue;
+      if (probeMaxZ < obb.min.z || probeMinZ > obb.max.z) continue;
+      const top = obb.max.y;
+      if (top > maxTop) maxTop = top;
+    }
+    return maxTop;
   }
 }
 

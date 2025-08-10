@@ -22,6 +22,7 @@ export class ObstacleManager {
     this.pickups = null;
     this.onScore = null; // (points)=>void
     this.onPlayerDamage = null; // (amount)=>void
+    this.onCollidersChanged = null; // (colliders: THREE.Object3D[])=>void
 
     // debris pooling
     this._debrisPool = [];
@@ -124,6 +125,116 @@ export class ObstacleManager {
     }
   }
 
+  // Load a deterministic map from JSON and place obstacles exactly as specified.
+  // Returns { playerSpawn?: THREE.Vector3, enemySpawnPoints?: THREE.Vector3[] }
+  loadFromMap(map, objects) {
+    this.clear();
+    this.objects = objects;
+    const THREE = this.THREE;
+    const result = { playerSpawn: null, enemySpawnPoints: [] };
+
+    if (!map || typeof map !== 'object') return result;
+
+    // Optional: interior static walls/blocks (non-destructible)
+    // Schema: walls: [{ shape:'box', w,h,d, x,y,z, rotY }]
+    if (Array.isArray(map.walls)) {
+      for (const w of map.walls) {
+        if (!w || w.shape !== 'box') continue;
+        const width = Number(w.w) || 1;
+        const height = Number(w.h) || 1;
+        const depth = Number(w.d) || 1;
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), this.mats?.wall || new THREE.MeshLambertMaterial({ color: 0x8ecae6 }));
+        mesh.position.set(Number(w.x) || 0, Number(w.y) || (height * 0.5), Number(w.z) || 0);
+        if (w.rotY) mesh.rotation.y = Number(w.rotY) || 0;
+        mesh.castShadow = true; mesh.receiveShadow = true;
+        this.scene.add(mesh);
+        this.obstacles.add(mesh);
+        if (this.objects) this.objects.push(mesh);
+      }
+    }
+
+    // Ramps (static, non-destructible)
+    // Schema: ramps: [{ w,h,d, steps, x,y,z, rotY }]
+    if (Array.isArray(map.ramps)) {
+      for (const r of map.ramps) {
+        if (!r) continue;
+        const w = Number(r.w) || 4;
+        const steps = Math.max(1, Math.floor(Number(r.steps) || 6));
+        // Support either total h/d or per-step stepH/stepD
+        const stepH = (r.stepH != null) ? Number(r.stepH) : ((Number(r.h) || 2) / steps);
+        const stepD = (r.stepD != null) ? Number(r.stepD) : ((Number(r.d) || 6) / steps);
+        const rotY = Number(r.rotY) || 0;
+        const x = Number(r.x) || 0;
+        const z = Number(r.z) || 0;
+        // y is the bottom of the ramp (not the center)
+        const y = (r.y != null) ? Number(r.y) : 0;
+        const group = this._buildRamp({ w, steps, stepH, stepD, rotY, x, y, z });
+        if (group) {
+          this.scene.add(group);
+          this.obstacles.add(group);
+          if (this.objects) this.objects.push(group);
+        }
+      }
+    }
+
+    // Destructible placements
+    // Schema: obstacles: [{ type:'crate'|'barricade'|'barrel', x,y,z, rotY? }]
+    if (Array.isArray(map.obstacles)) {
+      for (const o of map.obstacles) {
+        if (!o || !o.type) continue;
+        const yDefault = o.type === 'barrel' ? 0.6 : 1.0;
+        const inst = new Destructible({ THREE: this.THREE, mats: this.mats, type: o.type, position: new this.THREE.Vector3(Number(o.x)||0, (o.y!=null?Number(o.y):yDefault), Number(o.z)||0) });
+        if (inst && inst.root) {
+          if (o.rotY) inst.root.rotation.y = Number(o.rotY) || 0;
+          this._addDestructible(inst);
+        }
+      }
+    }
+
+    // Optional enemy spawn pads
+    if (Array.isArray(map.enemySpawns)) {
+      for (const s of map.enemySpawns) {
+        if (!s) continue;
+        const v = new THREE.Vector3(Number(s.x)||0, (s.y!=null?Number(s.y):0.8), Number(s.z)||0);
+        result.enemySpawnPoints.push(v);
+      }
+    }
+
+    // Optional player spawn
+    if (map.playerSpawn && typeof map.playerSpawn === 'object') {
+      const p = map.playerSpawn;
+      result.playerSpawn = new THREE.Vector3(Number(p.x)||0, (p.y!=null?Number(p.y):1.7), Number(p.z)||8);
+    }
+
+    // Notify consumers that colliders changed
+    this._notifyCollidersChanged();
+    return result;
+  }
+
+  _buildRamp({ w, steps = 6, stepH = 0.3, stepD = 1.0, rotY = 0, x = 0, y = 0, z = 0 }) {
+    const THREE = this.THREE;
+    const group = new THREE.Group();
+    const mat = this.mats?.wall || new THREE.MeshLambertMaterial({ color: 0x8ecae6 });
+    const totalH = steps * stepH;
+    const totalD = steps * stepD;
+    for (let i = 0; i < steps; i++) {
+      const sx = w;
+      const sy = stepH;
+      const sz = stepD * (i + 1);
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), mat);
+      const px = 0;
+      // Build from bottom: base at y, so each step sits directly on previous with no gaps
+      const py = y + (sy * 0.5) + (stepH * i);
+      const pz = (sz * 0.5) - (totalD * 0.5) + stepD * i;
+      mesh.position.set(px, py, pz);
+      mesh.castShadow = true; mesh.receiveShadow = true;
+      group.add(mesh);
+    }
+    group.rotation.y = rotY;
+    group.position.set(x, 0, z);
+    return group;
+  }
+
   clear() {
     if (!this.obstacles.size) return;
     for (const o of this.obstacles) {
@@ -139,6 +250,7 @@ export class ObstacleManager {
     // clear maze
     if (this.maze) this.maze.clear(this.scene);
     this._mazeMeshes = [];
+    this._notifyCollidersChanged();
   }
 
   update(dt) {
@@ -192,6 +304,8 @@ export class ObstacleManager {
       if (this.objects) this.objects.push(m);
     }
     this._lastMazeSeed = mazeSeed;
+    // Notify consumers that colliders changed
+    this._notifyCollidersChanged();
   }
 
   _getSpawnRingPoints() {
@@ -216,6 +330,8 @@ export class ObstacleManager {
     this.obstacles.add(inst.root);
     this.rootToDestructible.set(inst.root, inst);
     if (this.objects) this.objects.push(inst.root);
+    // Notify consumers that colliders changed
+    this._notifyCollidersChanged();
   }
 
   handleHit(hitObject, damage) {
@@ -241,6 +357,9 @@ export class ObstacleManager {
     }
     this.obstacles.delete(root);
     this.rootToDestructible.delete(root);
+
+    // Notify consumers that colliders changed
+    this._notifyCollidersChanged();
 
     // score
     if (this.onScore) this.onScore(10);
@@ -277,6 +396,8 @@ export class ObstacleManager {
     if (idx !== -1) this.objects.splice(idx, 1);
     this.obstacles.delete(root);
     this.rootToDestructible.delete(root);
+    // Notify consumers that colliders changed
+    this._notifyCollidersChanged();
     return true;
   }
 
@@ -357,6 +478,15 @@ export class ObstacleManager {
       }
     }
     return kills;
+  }
+
+  // Broadcast that the shared collidable objects changed. Main can wire this to refresh player/enemy AABBs.
+  _notifyCollidersChanged() {
+    try {
+      if (typeof this.onCollidersChanged === 'function') {
+        this.onCollidersChanged(this.objects || []);
+      }
+    } catch(_) {}
   }
 }
 

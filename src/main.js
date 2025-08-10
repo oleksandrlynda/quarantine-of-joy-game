@@ -12,6 +12,7 @@ import { Music } from './music.js';
 import { SFX } from './sfx.js';
 import { SONGS } from './musicLibrary.js';
 import { WeaponSystem } from './weapons/system.js';
+import { startEditor } from './editor.js';
 import { Progression } from './progression.js';
 
 // ------ Seeded RNG + URL persistence ------
@@ -50,10 +51,40 @@ if (newSeedBtn) {
 
 // ------ World (renderer, scene, camera, lights, sky, materials, arena) ------
 const { renderer, scene, camera, skyMat, hemi, dir, mats, objects } = createWorld(THREE, rng);
+const wantEditor = (new URL(window.location.href)).searchParams.get('editor') === '1';
 
-// Obstacles (deterministic per seed)
+// Obstacles / Level loading (deterministic per seed or explicit map)
 const obstacleManager = new ObstacleManager(THREE, scene, mats);
-obstacleManager.generate(seed, objects);
+let levelInfo = null;
+const levelParam = params.get('level');
+if (levelParam) {
+  try {
+    // Expect a JSON blob or a relative path under assets/levels
+    if (levelParam.trim().startsWith('{')) {
+      const map = JSON.parse(levelParam);
+      levelInfo = obstacleManager.loadFromMap(map, objects);
+    } else {
+      // Synchronous fetch is not available; kick async and block wave start until loaded
+      // Start a fetch but meanwhile place nothing yet; we will continue after load
+      // For simplicity, attempt to fetch and then proceed. If it fails, fall back to procedural.
+      // Note: this top-level await style via IIFE
+      await (async ()=>{
+        const res = await fetch(`assets/levels/${levelParam.replace(/[^a-zA-Z0-9-_\.]/g,'')}`);
+        if (res.ok) {
+          const map = await res.json();
+          levelInfo = obstacleManager.loadFromMap(map, objects);
+        } else {
+          obstacleManager.generate(seed, objects);
+        }
+      })();
+    }
+  } catch(_e){
+    // On any error, fall back to procedural
+    obstacleManager.generate(seed, objects);
+  }
+} else {
+  obstacleManager.generate(seed, objects);
+}
 // Update player collider list now that obstacles have been added
 // (player constructed below will read from updated objects)
 
@@ -85,6 +116,10 @@ const enemyManager = new EnemyManager(
     return { position: pos, forward: f };
   }
 );
+// If map provided explicit enemy spawns, feed them to manager
+if (levelInfo && Array.isArray(levelInfo.enemySpawnPoints) && levelInfo.enemySpawnPoints.length) {
+  enemyManager.customSpawnPoints = levelInfo.enemySpawnPoints;
+}
 const effects = new Effects(THREE, scene, camera);
 const pickups = new Pickups(THREE, scene);
 
@@ -100,6 +135,11 @@ obstacleManager.onPlayerDamage = (amount) => {
   if (effects && typeof effects.onPlayerHit === 'function') effects.onPlayerHit(amount);
   updateHUD();
 };
+// When obstacles change, refresh colliders for both player and enemies
+obstacleManager.onCollidersChanged = (objs) => {
+  try { if (player && typeof player.refreshColliders === 'function') player.refreshColliders(objs); } catch(_) {}
+  try { if (enemyManager && typeof enemyManager.refreshColliders === 'function') enemyManager.refreshColliders(objs); } catch(_) {}
+};
 
 // ------ Gun / Shooting ------
 let hp=100, score=0, best=0, paused=false;
@@ -108,8 +148,18 @@ let lastMeleeVfxAt = -1;
 const MELEE_SFX_COOLDOWN = 0.25; // seconds
 const MELEE_VFX_COOLDOWN = 0.10; // seconds; allow gentle pulsing while holding contact
 const hpEl = document.getElementById('hp'), ammoEl = document.getElementById('ammo'), magEl = document.getElementById('mag'), scoreEl = document.getElementById('score'), bestEl = document.getElementById('best'), waveEl = document.getElementById('wave');
+const staminaBarEl = document.getElementById('staminaBar');
 const weaponNameEl = document.getElementById('weapon');
 const weaponIconEl = document.getElementById('weaponIcon');
+const hpPillEl = document.getElementById('hpPill');
+const ammoPillEl = document.getElementById('ammoPill');
+const waveBarEl = document.getElementById('waveBar');
+const remainingEl = document.getElementById('remaining');
+const hitmarkerEl = document.getElementById('hitmarker');
+const bossHudEl = document.getElementById('bossHud');
+const bossNameEl = document.getElementById('bossName');
+const bossHpBarEl = document.getElementById('bossHpBar');
+const toastsEl = document.getElementById('toasts');
 
 // Best score persistence
 const BEST_KEY = 'bs3d_best_score';
@@ -172,6 +222,42 @@ function updateHUD(){
   }
   hpEl.textContent=hp; ammoEl.textContent=ammoVal; magEl.textContent=reserveVal; scoreEl.textContent=score; if (bestEl) bestEl.textContent = best; if(waveEl) waveEl.textContent = enemyManager.wave;
   updateComboLabel();
+  // Stamina HUD
+  if (staminaBarEl && player && typeof player.getStamina01 === 'function') {
+    const pct = Math.max(0, Math.min(1, player.getStamina01()));
+    staminaBarEl.style.width = `${(pct*100).toFixed(1)}%`;
+  }
+  // Low state cues
+  if (hpPillEl){ hpPillEl.classList.remove('low','crit'); if (hp <= 25) { hpPillEl.classList.add('crit'); } else if (hp <= 50) { hpPillEl.classList.add('low'); } }
+  if (ammoPillEl){ ammoPillEl.classList.remove('need-reload'); if (ammoVal <= 0) ammoPillEl.classList.add('need-reload'); }
+  // Wave progress
+  if (waveBarEl && typeof enemyManager.waveStartingAlive === 'number'){
+    const total = Math.max(1, enemyManager.waveStartingAlive);
+    const remaining = Math.max(0, enemyManager.alive|0);
+    const done01 = Math.max(0, Math.min(1, 1 - (remaining / total)));
+    waveBarEl.style.width = `${(done01*100).toFixed(1)}%`;
+  }
+  if (remainingEl) { remainingEl.textContent = Math.max(0, enemyManager.alive|0); }
+  // Hide remaining when boss active
+  try {
+    const bossActive = !!(enemyManager && enemyManager.bossManager && enemyManager.bossManager.active && enemyManager.bossManager.boss);
+    const wrap = document.getElementById('remainingWrap');
+    if (wrap) wrap.style.display = bossActive ? 'none' : '';
+    // Boss HUD
+    if (bossHudEl) {
+      if (bossActive) {
+        bossHudEl.style.display = '';
+        const boss = enemyManager.bossManager.boss;
+        const name = (boss && boss.root && boss.root.userData && boss.root.userData.type) ? String(boss.root.userData.type).replace(/^boss_/, '').replace(/_/g,' ') : 'Boss';
+        if (bossNameEl) bossNameEl.textContent = name;
+        const maxHp = enemyManager.bossManager._musicBossMaxHp || boss?.root?.userData?.maxHp || boss?.root?.userData?.hp || 1;
+        const curHp = Math.max(0, Math.min(maxHp, boss?.root?.userData?.hp || maxHp));
+        if (bossHpBarEl) bossHpBarEl.style.width = `${((curHp/maxHp)*100).toFixed(1)}%`;
+      } else {
+        bossHudEl.style.display = 'none';
+      }
+    }
+  } catch(_) {}
 }
 
 function addScore(points){
@@ -185,11 +271,15 @@ function addScore(points){
 updateHUD();
 
 // update HUD when a new wave starts and when remaining enemies changes
-enemyManager.onWave = () => {
+enemyManager.onWave = (_wave, startingAlive) => {
+  // record startingAlive for progress bar
+  enemyManager.waveStartingAlive = startingAlive || 0;
   updateHUD();
   pickups.onWave(enemyManager.wave);
   if (player.refreshColliders) player.refreshColliders(objects);
   if (progression) progression.onWave(enemyManager.wave);
+  // Toast
+  showToast(`Wave ${_wave} start`);
 };
 enemyManager.onRemaining = () => updateHUD();
 
@@ -272,6 +362,27 @@ function step(){
     gameTime += dt;
     // player movement update
     player.update(dt);
+    // Update stamina HUD every frame
+    if (staminaBarEl && player && typeof player.getStamina01 === 'function') {
+      const pct = Math.max(0, Math.min(1, player.getStamina01()));
+      staminaBarEl.style.width = `${(pct*100).toFixed(1)}%`;
+    }
+    // Fatigue visuals + breath SFX when low stamina
+    if (effects && typeof effects.setFatigue === 'function' && player && typeof player.getStamina01 === 'function'){
+      const s01 = player.getStamina01();
+      // Map low stamina to fatigue: start at <= 0.3, max at 0
+      const fatigue = Math.max(0, Math.min(1, (0.3 - s01) / 0.3));
+      effects.setFatigue(fatigue);
+      // Breath SFX gating
+      if (S && S.startBreath && S.stopBreath){
+        if (fatigue > 0.05){
+          S.startBreath();
+          if (S._breath && typeof S._breath.setExhausted === 'function') S._breath.setExhausted(fatigue);
+        } else {
+          S.stopBreath();
+        }
+      }
+    }
 
     // enemies AI
     const fo = controls.getObject();
@@ -304,9 +415,9 @@ function step(){
     effects.update(dt);
 
     // pickups update (magnet + animation)
-    pickups.update(dt, controls.getObject().position, (type, amount) => {
-      if (type === 'ammo') { if (weaponSystem) weaponSystem.onAmmoPickup(amount); }
-      else if (type === 'med') { hp = Math.min(100, hp + amount); if (S && S.ui) S.ui('pickup'); }
+    pickups.update(dt, controls.getObject().position, (type, amount, where) => {
+      if (type === 'ammo') { if (weaponSystem) weaponSystem.onAmmoPickup(amount); showToast('+Ammo'); }
+      else if (type === 'med') { hp = Math.min(100, hp + amount); if (S && S.ui) S.ui('pickup'); showToast('+HP'); }
       updateHUD();
     });
 
@@ -402,7 +513,15 @@ function reset(){ // clear enemies
   enemyManager.reset();
   pickups.resetAll(); pickups.onWave(enemyManager.wave);
   hp=100; score=0; paused=false; gameOver=false; resetCombo(); if (weaponSystem) weaponSystem.reset(); updateHUD();
-  player.resetPosition(0,1.7,8);
+  if (levelInfo && levelInfo.playerSpawn) {
+    player.resetPosition(levelInfo.playerSpawn.x, levelInfo.playerSpawn.y, levelInfo.playerSpawn.z);
+  } else {
+    player.resetPosition(0,1.7,8);
+  }
+  // Refill stamina on reset
+  try { player.stamina = player.staminaMax; } catch(_) {}
+  try { effects.setFatigue(0); } catch(_) {}
+  try { S.stopBreath(); } catch(_) {}
 }
 
 playBtn.onclick = ()=>{ panel.parentElement.style.display='none'; controls.lock(); reset(); music.start(); };
@@ -415,11 +534,32 @@ controls.addEventListener('unlock', ()=>{
   retryBtn.style.display='';
 });
 
-// Start with a wave ready so there's action immediately after lock
-enemyManager.startWave();
+// Start with a wave ready so there's action immediately after lock (skip in editor)
+if (!wantEditor) enemyManager.startWave();
 
 // Ensure audio resume on first input (mobile/desktop)
 window.addEventListener('pointerup', ()=> S.ensure(), {once:true});
+
+// ---- Hitmarker helpers ----
+function showHitmarker(){
+  if (!hitmarkerEl) return;
+  hitmarkerEl.classList.remove('hitmarker-show');
+  // force reflow
+  // eslint-disable-next-line no-unused-expressions
+  hitmarkerEl.offsetHeight;
+  hitmarkerEl.classList.add('hitmarker-show');
+}
+// Expose small API for weapons to indicate hit/kill/headshot if desired later
+try { window._HUD = { showHitmarker }; } catch(_) {}
+
+// Toast system
+function showToast(text){
+  if (!toastsEl) return;
+  const el = document.createElement('div'); el.className = 'toast'; el.textContent = text;
+  toastsEl.appendChild(el);
+  setTimeout(()=>{ el.classList.add('out'); setTimeout(()=>{ try{ toastsEl.removeChild(el);}catch(_){ } }, 240); }, 1200);
+}
+try { if (window && window._HUD) { window._HUD.toast = (t)=> showToast(t); } } catch(_) {}
 
 // Boss music transitions
 if (enemyManager && enemyManager.bossManager) {
@@ -452,6 +592,9 @@ if (enemyManager && enemyManager.bossManager) {
   };
   const originalOnBossDeath = bm._onBossDeath.bind(bm);
   bm._onBossDeath = () => {
+    // Capture boss position before original handler clears references
+    let dropPos = null;
+    try { dropPos = bm?.boss?.root?.position?.clone?.() || null; } catch(_) { dropPos = null; }
     originalOnBossDeath();
     // Leave boss mode: restore main playlist and volume
     music.exitBossMode();
@@ -460,6 +603,18 @@ if (enemyManager && enemyManager.bossManager) {
     // Advance to next non-boss track
     currentSongIndex = (currentSongIndex + 1) % SONGS.length;
     loadCurrentSong();
+
+    // Guaranteed boss drops: 1 ammo and 1 medkit
+    try {
+      if (dropPos && pickups && typeof pickups.spawn === 'function') {
+        const p1 = dropPos.clone();
+        const p2 = dropPos.clone();
+        // Small offset so they don't overlap perfectly
+        p1.x += 0.8; p2.x -= 0.8;
+        pickups.spawn('ammo', p1);
+        pickups.spawn('med', p2);
+      }
+    } catch(_) { /* ignore drop errors */ }
 
     // Progression gating: unlock rifle after first boss, DMR after second
     try {
@@ -471,6 +626,17 @@ if (enemyManager && enemyManager.bossManager) {
       }
     } catch(_){ }
   };
+}
+
+// --- Boot editor after world init ---
+if ((new URL(window.location.href)).searchParams.get('editor') === '1') {
+  try { document.getElementById('hud').style.display = 'none'; } catch(_){}
+  try { document.getElementById('center').style.display = 'none'; } catch(_){}
+  try { music.stop?.(); } catch(_){}
+  // Lazy import already done at top; just start
+  import('./editor.js').then(mod => {
+    try { mod.startEditor({ THREE, scene, camera, renderer, mats, objects }); } catch(_) {}
+  }).catch(_=>{});
 }
 
 

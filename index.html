@@ -11,12 +11,13 @@
 <body>
 <div id="hud">
   <div class="row">
-    <div class="pill">HP: <span id="hp">100</span></div>
-    <div class="pill">Ammo: <img id="weaponIcon" class="wicon" alt="" /> <span id="weapon">Rifle</span> — <span id="ammo">30</span>/<span id="mag">60</span></div>
+    <div class="pill" id="hpPill">HP: <span id="hp">100</span></div>
+    <div class="pill" id="ammoPill">Ammo: <img id="weaponIcon" class="wicon" alt="" /> <span id="weapon">Rifle</span> — <span id="ammo">30</span>/<span id="mag">60</span></div>
     <div class="pill">Score: <span id="score">0</span></div>
     <div class="pill">Best: <span id="best">0</span></div>
     <div class="pill" id="combo"><span id="comboLabel">Combo: x1.0</span><div id="comboBar"></div></div>
-    <div class="pill">Wave: <span id="wave">1</span></div>
+    <div class="pill" id="wavePill">Wave: <span id="wave">1</span> <span id="remainingWrap" class="tiny" style="margin-left:6px">(<span id="remaining">0</span> left)</span><div id="waveBar"></div></div>
+    <div class="pill" id="stamina">Stamina<div id="staminaBar"></div></div>
     <div class="pill tiny" id="seedPill">Seed: <span id="seed"></span>
       <button class="mini" id="copySeed" title="Copy share URL">Copy</button>
       <button class="mini" id="newSeed" title="New seed">New</button>
@@ -26,13 +27,19 @@
   <div class="row" style="justify-content:flex-end">
     <div class="pill tiny">WASD move • Mouse aim • Click shoot • R reload • Shift sprint • Ctrl crouch • Space jump • P pause</div>
   </div>
- </div>
- <div id="crosshair">
+  </div>
+  <div id="crosshair">
    <div class="seg top"></div>
    <div class="seg bottom"></div>
    <div class="seg left"></div>
    <div class="seg right"></div>
  </div>
+  <div id="hitmarker"></div>
+  <div id="bossHud" style="display:none">
+    <div id="bossName" class="tiny"></div>
+    <div class="bossBar"><div id="bossHpBar"></div></div>
+  </div>
+  <div id="toasts"></div>
 <div id="promoPulse"></div>
 <div id="offer" style="display:none">
   <div class="card">

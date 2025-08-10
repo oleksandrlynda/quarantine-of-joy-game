@@ -29,8 +29,11 @@ export class DMR extends Weapon {
     const end = res.endPoint || camPos.clone().add(camDir.clone().multiplyScalar(100));
 
     if (res.type === 'enemy' && res.enemyRoot) {
-      const isHead = !!res.isHead;
-      const dmg = isHead ? 175 : 85;
+      try { window._HUD && window._HUD.showHitmarker && window._HUD.showHitmarker(); } catch(_) {}
+      const isHead = !!(res.isHead || res.bodyPart==='head');
+      const part = res.bodyPart;
+      const base = isHead ? 175 : ((part==='arm'||part==='leg') ? 35 : 85);
+      const dmg = base;
       res.enemyRoot.userData.hp -= dmg;
       // stronger knockback and brief slow on hit (non-boss)
       const push = camDir.clone().multiplyScalar(0.35);
@@ -58,7 +61,10 @@ export class DMR extends Weapon {
       const origin2 = res.endPoint.clone().add(dir.clone().multiplyScalar(0.1));
       const res2 = performHitscan({ THREE, camera, raycaster, enemyManager, objects, origin: origin2, dir, range: 4 });
       if (res2.type === 'enemy' && res2.enemyRoot && res2.enemyRoot !== res.enemyRoot) {
-        const dmg2 = 0.65 * (res2.isHead ? 150 : 75);
+        const isHead2 = !!(res2.isHead || res2.bodyPart==='head');
+        const part2 = res2.bodyPart;
+        const base2d = isHead2 ? 150 : ((part2==='arm'||part2==='leg') ? 32 : 75);
+        const dmg2 = 0.65 * base2d;
         res2.enemyRoot.userData.hp -= dmg2;
         effects?.spawnBulletImpact?.(res2.endPoint, res2.hitFace?.normal);
         if (S && S.impactFlesh) S.impactFlesh();
@@ -67,8 +73,8 @@ export class DMR extends Weapon {
           effects?.enemyDeath?.(res2.enemyRoot.position.clone());
           pickups?.maybeDrop?.(res2.enemyRoot.position.clone());
           enemyManager.remove(res2.enemyRoot);
-          const base2 = res2.isHead ? 150 : 100;
-          const finalScore2 = Math.round(base2 * (ctx.combo?.multiplier || 1));
+          const base2s = isHead2 ? 150 : 100;
+          const finalScore2 = Math.round(base2s * (ctx.combo?.multiplier || 1));
           addScore?.(finalScore2);
           addComboAction?.(0.75);
            if (S && S.enemyDeath) S.enemyDeath(res2.enemyRoot?.userData?.type || 'grunt');

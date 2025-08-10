@@ -4,7 +4,7 @@ body{margin:0; overflow:hidden; font-family: Inter, system-ui, -apple-system, Se
       background: radial-gradient(120% 120% at 50% 0%, #aee9ff, #e9d5ff 60%, #ffe4ea);}
 #hud{ position:fixed; inset:0; pointer-events:none; display:flex; flex-direction:column; justify-content:space-between; padding:10px; }
 .row{ display:flex; gap:10px; align-items:center; }
-.pill{ pointer-events:auto; backdrop-filter: blur(10px); background:var(--panel); border:2px solid #00000018; border-radius:14px; padding:8px 12px; font-weight:800; box-shadow:0 10px 30px #00000022; }
+.pill{ pointer-events:auto; backdrop-filter: blur(10px); background:var(--panel); border:2px solid #00000018; border-radius:14px; padding:8px 12px; font-weight:800; box-shadow:0 10px 30px #00000022; position:relative; }
 .weapon-rifle{ color:#0ea5e9; }
 .weapon-smg{ color:#10b981; }
 .weapon-shotgun{ color:#ef4444; }
@@ -37,5 +37,39 @@ button{ cursor:pointer; border:0; border-radius:14px; padding:12px 16px; font-we
 @keyframes promoPulse { 0%{ box-shadow: inset 0 0 0 0 rgba(34,197,94,0.0) } 30%{ box-shadow: inset 0 0 0 8px rgba(34,197,94,0.25) } 100%{ box-shadow: inset 0 0 0 0 rgba(34,197,94,0.0) } }
 #promoPulse{ position:fixed; inset:0; pointer-events:none; border:6px solid transparent; mix-blend-mode: overlay; animation: none; }
 .pulseActive{ animation: promoPulse 320ms ease-out; border-color: rgba(34,197,94,0.35); }
+
+/* Stamina pill */
+#stamina{ position:relative; overflow:hidden; min-width:120px; }
+#staminaBar{ position:absolute; left:0; bottom:0; height:4px; background:linear-gradient(90deg,#60a5fa,#a5b4fc); width:100%; transition: width 0.12s linear; }
+
+/* Wave pill progress */
+#wavePill{ position:relative; overflow:hidden; }
+#waveBar{ position:absolute; left:0; bottom:0; height:4px; background:linear-gradient(90deg,#22c55e,#86efac); width:0%; transition: width 0.12s linear; }
+
+/* Low state cues */
+.low{ outline:2px solid var(--warn); box-shadow:0 0 0 2px #ef444422 inset; }
+.crit{ outline:2px solid #991b1b; box-shadow:0 0 0 2px #991b1b22 inset; }
+.need-reload{ outline:2px solid #f59e0b; }
+
+/* Hit marker */
+#hitmarker{ position:fixed; left:50%; top:50%; width:28px; height:28px; margin:-14px 0 0 -14px; pointer-events:none; opacity:0; transform:scale(0.8); }
+#hitmarker::before, #hitmarker::after{ content:""; position:absolute; left:50%; top:50%; width:18px; height:18px; border-right:3px solid #16a34a; border-bottom:3px solid #16a34a; transform-origin:center; opacity:inherit; }
+#hitmarker::before{ transform: translate(-50%,-50%) rotate(45deg); }
+#hitmarker::after{ transform: translate(-50%,-50%) rotate(225deg); }
+.hitmarker-show{ animation: hm 180ms ease-out; }
+@keyframes hm{ 0%{ opacity:0; transform:scale(0.7);} 40%{ opacity:1; transform:scale(1.0);} 100%{ opacity:0; transform:scale(1.1);} }
+
+/* Boss HUD */
+#bossHud{ position:fixed; left:50%; top:100px; transform:translateX(-50%); pointer-events:none; text-align:center; z-index:3; }
+#bossHud .bossBar{ width:min(70vw,600px); height:10px; border-radius:999px; background:#ffffffcc; border:2px solid #00000022; overflow:hidden; box-shadow:0 10px 30px #00000026; }
+#bossHpBar{ height:100%; width:100%; background:linear-gradient(90deg,#ef4444,#f59e0b); }
+#bossName{ margin-bottom:6px; font-weight:900; text-shadow:0 2px 6px #00000033; }
+
+/* Toasts */
+#toasts{ position:fixed; right:14px; top:90px; display:flex; flex-direction:column; gap:8px; pointer-events:none; z-index:4; }
+.toast{ background:#ffffffee; border:2px solid #00000018; border-radius:12px; padding:8px 12px; font-weight:800; box-shadow:0 10px 30px #00000022; opacity:0; transform:translateY(-6px); animation: toastIn 180ms ease-out forwards; }
+@keyframes toastIn{ to{ opacity:1; transform:translateY(0);} }
+.toast.out{ animation: toastOut 200ms ease-in forwards; }
+@keyframes toastOut{ to{ opacity:0; transform:translateY(-6px);} }
 
 

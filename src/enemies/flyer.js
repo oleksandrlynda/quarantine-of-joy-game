@@ -1,16 +1,12 @@
+import { createWingedDrone } from '../assets/winged_drone.js';
 export class FlyerEnemy {
   constructor({ THREE, mats, cfg, spawnPos }) {
     this.THREE = THREE;
     this.cfg = cfg;
 
-    const baseMat = mats.enemy.clone();
-    baseMat.color = new THREE.Color(cfg.color);
-
-    // Compact body for aerial unit
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.8, 0.9), baseMat);
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 0.6), mats.head.clone());
-    head.position.y = 0.9;
-    body.add(head);
+    // Model: winged drone asset
+    const built = createWingedDrone({ THREE, mats, scale: 1.0 });
+    const body = built.root; const head = built.head; this._animRefs = built.refs || {};
     body.position.copy(spawnPos);
     body.userData = { type: cfg.type, head, hp: cfg.hp };
 
@@ -65,6 +61,10 @@ export class FlyerEnemy {
     this.jukeCooldown = 0;                             // time until next juke allowed
     this.jukeTime = 0;                                  // remaining juke duration
     this.jukeDir = new this.THREE.Vector3();            // world-XZ juke direction
+
+    // Orientation smoothing
+    this._lastPos = spawnPos.clone();
+    this._yaw = 0; this._pitch = 0; this._roll = 0; this._desiredRoll = 0;
   }
 
   update(dt, ctx) {
@@ -84,6 +84,17 @@ export class FlyerEnemy {
       this.oscPhase += this.oscSpeed * dt;
       const targetAlt = this.cruiseAltitude + Math.sin(this.oscPhase) * this.oscAmp;
       e.position.y += (targetAlt - e.position.y) * Math.min(1, dt * 4);
+      // Wing idle flutter based on oscillation
+      try {
+        const lw = this._animRefs?.leftWing, rw = this._animRefs?.rightWing;
+        if (lw && rw) {
+          const flap = Math.sin(this._t * 6.0) * 0.22; // faster gentle flap
+          lw.rotation.z = -0.15 + flap; rw.rotation.z = 0.15 - flap;
+          // subtle forward/back sweep for life
+          const sweep = Math.sin(this._t * 3.2) * 0.06;
+          lw.rotation.y = sweep; rw.rotation.y = -sweep;
+        }
+      } catch(_){}
     }
 
     // Compute pursuit vector (horizontal) toward player
@@ -126,6 +137,19 @@ export class FlyerEnemy {
         steer.add(avoid.multiplyScalar(1.2));
         steer.add(sep.multiplyScalar(0.7));
         if (steer.lengthSq() > 0) { steer.y = 0; steer.normalize(); e.position.add(steer.multiplyScalar(this.speed * dt)); }
+        // Bank wings during turns
+        try {
+          const lw = this._animRefs?.leftWing, rw = this._animRefs?.rightWing;
+          if (lw && rw) {
+            const bank = Math.max(-0.6, Math.min(0.6, (steer.x * 2.2)));
+            const flap = Math.sin(this._t * 6.0) * 0.22;
+            lw.rotation.z = -0.15 + flap + bank; rw.rotation.z = 0.15 - flap + bank;
+            // keep slight sweep during cruise
+            const sweep = Math.sin(this._t * 3.2) * 0.06;
+            lw.rotation.y = sweep; rw.rotation.y = -sweep;
+            this._desiredRoll = bank * 0.5;
+          }
+        } catch(_){}
 
         // Try initiating dive
         if (this.cooldown <= 0 && dist <= this.triggerDist && this._hasLineOfSight(e.position, playerPos, ctx.objects)) {
@@ -175,6 +199,11 @@ export class FlyerEnemy {
         steer.add(ctx.avoidObstacles(e.position, steer, this.avoidProbe).multiplyScalar(1.0));
         steer.add(sep.multiplyScalar(0.6));
         if (steer.lengthSq() > 0) { steer.y = 0; steer.normalize(); e.position.add(steer.multiplyScalar(this.speed * 0.95 * dt)); }
+        // Strafe telegraph wing tilt
+        try {
+          const lw = this._animRefs?.leftWing, rw = this._animRefs?.rightWing;
+          if (lw && rw) { const sign = this._windupStrafeSign; lw.rotation.z = -0.25 * sign; rw.rotation.z = 0.25 * sign; lw.rotation.y = 0; rw.rotation.y = 0; }
+        } catch(_){}
 
         const closeToAnchor = toAnchor.length() <= 0.85; // allow more slack so avoidance doesn't repel
         // Repath anchor if taking too long (flip side)
@@ -216,6 +245,11 @@ export class FlyerEnemy {
           this.timeInState = 0; this.diveTime = 0;
           this._dealtDamageThisDive = false;
           this._setHeadGlow(false);
+          // Wings tuck slightly on dive
+          try {
+            const lw = this._animRefs?.leftWing, rw = this._animRefs?.rightWing;
+            if (lw && rw) { lw.rotation.z = -0.02; rw.rotation.z = 0.02; lw.rotation.y = -0.95; rw.rotation.y = 0.95; }
+          } catch(_){}
         }
         break;
       }
@@ -271,10 +305,31 @@ export class FlyerEnemy {
           this.state = 'cruise';
           this.timeInState = 0;
           this.cooldown = this.cooldownBase; // re-arm dive
+          try {
+            const lw = this._animRefs?.leftWing, rw = this._animRefs?.rightWing;
+            if (lw && rw) { lw.rotation.z = -0.15; rw.rotation.z = 0.15; lw.rotation.y = 0; rw.rotation.y = 0; }
+          } catch(_){}
         }
         break;
       }
     }
+
+    // Smoothly orient body to current velocity vector (yaw/pitch) and desired roll
+    const moved = e.position.clone().sub(this._lastPos);
+    if (moved.lengthSq() > 0.00004) {
+      const yaw = Math.atan2(moved.x, moved.z);
+      const horiz = new this.THREE.Vector3(moved.x, 0, moved.z);
+      const pitch = -Math.atan2(moved.y, Math.max(0.0001, horiz.length())) * 0.6;
+      // Lerp angles for smoothness (wrap yaw)
+      const wrap = (a)=>{ while(a>Math.PI) a-=2*Math.PI; while(a<-Math.PI) a+=2*Math.PI; return a; };
+      let dy = wrap(yaw - this._yaw);
+      this._yaw = wrap(this._yaw + Math.max(-0.2, Math.min(0.2, dy)));
+      this._pitch += (pitch - this._pitch) * Math.min(1, dt * 6);
+    }
+    // Roll follows desired bank with damping
+    this._roll += (this._desiredRoll - this._roll) * Math.min(1, dt * 5);
+    e.rotation.set(this._pitch, this._yaw, this._roll);
+    this._lastPos.copy(e.position);
 
     // Keep inside arena bounds to prevent clipping walls
     e.position.x = Math.max(-this._arenaClamp, Math.min(this._arenaClamp, e.position.x));

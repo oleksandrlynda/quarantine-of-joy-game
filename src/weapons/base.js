@@ -43,9 +43,10 @@ export class Weapon {
   triggerDown(ctx) {
     this._triggerHeld = true;
     if (this.mode === 'semi') {
-      this.tryFire(ctx);
+      // if empty, allow caller HUD to show reload state
+      if (!this.tryFire(ctx) && ctx && ctx.updateHUD) ctx.updateHUD();
     } else if (this.mode === 'auto') {
-      this.tryFire(ctx);
+      if (!this.tryFire(ctx) && ctx && ctx.updateHUD) ctx.updateHUD();
     }
   }
 

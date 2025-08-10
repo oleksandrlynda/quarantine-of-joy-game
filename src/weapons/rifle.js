@@ -55,12 +55,15 @@ export class Rifle extends Weapon {
     const res = performHitscan({ THREE, camera, raycaster, enemyManager, objects, origin, dir, range: effectiveRange });
     let end = res.endPoint || origin.clone().add(dir.clone().multiplyScalar(effectiveRange));
     if (res.type === 'enemy' && res.enemyRoot) {
-      const isHead = !!res.isHead;
+      try { window._HUD && window._HUD.showHitmarker && window._HUD.showHitmarker(); } catch(_) {}
+      const isHead = !!(res.isHead || res.bodyPart==='head');
       // stronger falloff beyond ~35 units
       const dist = res.distance || origin.distanceTo(end);
       const fallStart = 35;
       const fall = dist <= fallStart ? 1.0 : Math.max(0.7, 1 - (dist - fallStart) / (effectiveRange - fallStart));
-      const dmg = (isHead ? 100 : 40) * fall;
+      const part = res.bodyPart;
+      const base = isHead ? 100 : ((part==='arm'||part==='leg') ? 16 : 40);
+      const dmg = base * fall;
       res.enemyRoot.userData.hp -= dmg;
       // pushback
       const dir2 = new THREE.Vector3(); camera.getWorldDirection(dir2);
@@ -74,8 +77,8 @@ export class Rifle extends Weapon {
         if (S && S.enemyDeath) S.enemyDeath(res.enemyRoot?.userData?.type || 'grunt');
         pickups?.maybeDrop?.(res.enemyRoot.position.clone());
         enemyManager.remove(res.enemyRoot);
-        const base = isHead ? 150 : 100;
-        const finalScore = Math.round(base * (ctx.combo?.multiplier || 1));
+        const baseScore = isHead ? 150 : 100;
+        const finalScore = Math.round(baseScore * (ctx.combo?.multiplier || 1));
         addScore?.(finalScore);
         addComboAction?.(1);
       } else {

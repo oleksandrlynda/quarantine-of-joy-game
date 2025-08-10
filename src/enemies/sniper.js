@@ -13,7 +13,8 @@ export class SniperEnemy {
     this.root = body;
 
     this.speed = cfg.speedMin + Math.random() * (cfg.speedMax - cfg.speedMin);
-    this.preferredRange = { min: 22, max: 30 };
+    this.preferredRange = { min: 5, max: 90 };
+    this.engageRange = { min: 48, max: 150 };
 
     this.cooldown = 0;
     this.windup = 0;

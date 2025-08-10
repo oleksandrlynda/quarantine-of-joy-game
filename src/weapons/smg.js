@@ -51,10 +51,13 @@ export class SMG extends Weapon {
     const end = res.endPoint || origin.clone().add(dir.clone().multiplyScalar(this._range));
 
     if (res.type === 'enemy' && res.enemyRoot) {
-      const isHead = !!res.isHead;
+      try { window._HUD && window._HUD.showHitmarker && window._HUD.showHitmarker(); } catch(_) {}
+      const isHead = !!(res.isHead || res.bodyPart==='head');
       const dist = res.distance || origin.distanceTo(end);
       const fall = dist <= this._falloffStart ? 1.0 : Math.max(0.7, 1 - (dist - this._falloffStart) / (this._range - this._falloffStart));
-      const dmg = (isHead ? 45 : 18) * fall;
+      const part = res.bodyPart;
+      const base = isHead ? 45 : ((part==='arm'||part==='leg') ? 10 : 18);
+      const dmg = base * fall;
       res.enemyRoot.userData.hp -= dmg;
       // tiny pushback
       res.enemyRoot.position.add(dir.clone().multiplyScalar(0.12));
@@ -67,8 +70,8 @@ export class SMG extends Weapon {
         if (S && S.enemyDeath) S.enemyDeath(res.enemyRoot?.userData?.type || 'grunt');
         pickups?.maybeDrop?.(res.enemyRoot.position.clone());
         enemyManager.remove(res.enemyRoot);
-        const base = isHead ? 150 : 100;
-        const finalScore = Math.round(base * (ctx.combo?.multiplier || 1));
+        const baseScore = isHead ? 150 : 100;
+        const finalScore = Math.round(baseScore * (ctx.combo?.multiplier || 1));
         addScore?.(finalScore);
         addComboAction?.(1);
       } else {

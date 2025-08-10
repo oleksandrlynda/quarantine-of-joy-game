@@ -15,8 +15,10 @@ export function performHitscan({ THREE, camera, raycaster, enemyManager, objects
     // find root enemy mesh via manager
     let obj = hit.object; while (obj && !enemyManager.enemies.has(obj)) { obj = obj.parent; }
     if (obj) {
-      const isHead = (hit.object === obj.userData.head);
-      return { type: 'enemy', isHead: !!isHead, endPoint: end.clone(), origin, dir, enemyRoot: obj, hitObject: hit.object, hitFace: hit.face, distance: origin.distanceTo(end), remainingPierce: pierce };
+      const isHead = (hit.object === obj.userData.head) || (hit.object?.userData?.bodyPart === 'head');
+      let bodyPart = 'torso';
+      if (hit.object?.userData?.bodyPart) bodyPart = hit.object.userData.bodyPart;
+      return { type: 'enemy', isHead: !!isHead, bodyPart, endPoint: end.clone(), origin, dir, enemyRoot: obj, hitObject: hit.object, hitFace: hit.face, distance: origin.distanceTo(end), remainingPierce: pierce };
     } else {
       // not enemy
       return { type: 'world', endPoint: end.clone(), origin, dir, hitObject: hit.object, hitPoint: hit.point, hitFace: hit.face, distance: origin.distanceTo(end) };

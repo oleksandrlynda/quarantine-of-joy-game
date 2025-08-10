@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Block Strike 3D — Level Editor</title>
+  <link rel="stylesheet" href="styles/styles.css" />
+  <style>
+    body{ margin:0; overflow:hidden; }
+  </style>
+</head>
+<body>
+  <script type="module">
+    import * as THREE from 'https://unpkg.com/three@0.159.0/build/three.module.js';
+    import { createWorld } from './src/world.js';
+    import { startEditor } from './src/editor.js';
+
+    const url = new URL(window.location.href);
+    const params = url.searchParams;
+    const { renderer, scene, camera, mats, objects } = createWorld(THREE, Math.random);
+
+    // Optionally preload a map via ?level=example.json (relative to assets/levels)
+    let initialMap = null;
+    const level = params.get('level');
+    if (level) {
+      try {
+        if (level.trim().startsWith('{')) {
+          initialMap = JSON.parse(level);
+        } else {
+          const res = await fetch(`assets/levels/${level.replace(/[^a-zA-Z0-9-_\.]/g,'')}`);
+          if (res.ok) initialMap = await res.json();
+        }
+      } catch(_) {}
+    }
+
+    startEditor({ THREE, scene, camera, renderer, mats, objects, initialMap });
+  </script>
+</body>
+</html>
+
+

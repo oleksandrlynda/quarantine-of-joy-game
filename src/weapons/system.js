@@ -3,6 +3,7 @@ import { SMG } from './smg.js';
 import { Shotgun } from './shotgun.js';
 import { DMR } from './dmr.js';
 import { Pistol } from './pistol.js';
+import { GrenadePistol } from './grenadepistol.js';
 
 // WeaponSystem orchestrates current weapon, input mapping, and HUD sync
 export class WeaponSystem {
@@ -28,7 +29,7 @@ export class WeaponSystem {
     this.currentIndex = 0; // primary slot index
 
     // Start wave 1 with only a Pistol
-    this.inventory.push(new Pistol());  // Sidearm-only start; primary is acquired later
+    this.inventory.push(new Pistol(), new Rifle());  // Sidearm-only start; primary is acquired later
   }
 
   get current() { return this.inventory[this.currentIndex]; }
@@ -91,7 +92,7 @@ export class WeaponSystem {
 
   triggerDown() {
     const w = this.current; if (!w) return;
-    // if empty, play reload sound instead
+    // if empty, play reload sound instead and flash ammo pill state via HUD update
     if (w.getAmmo() <= 0) { this.S?.reload?.(); this.updateHUD?.(); return; }
     w.triggerDown(this.context());
   }
@@ -139,6 +140,14 @@ export class WeaponSystem {
     if (unlocks?.shotgun) list.push({ name:'Shotgun', make: ()=> new Shotgun() });
     if (unlocks?.dmr) list.push({ name:'DMR', make: ()=> new DMR() });
     return list;
+  }
+
+  // Sidearm offers (wave 20+): Pistol vs GrenadePistol
+  getSidearms(){
+    return [
+      { name:'Pistol', make: ()=> new Pistol() },
+      { name:'Grenade', make: ()=> new GrenadePistol() }
+    ];
   }
 
   onAmmoPickup(amount) {

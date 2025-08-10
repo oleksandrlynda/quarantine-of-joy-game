@@ -3,6 +3,7 @@ import { ShooterEnemy } from './shooter.js';
 import { FlyerEnemy } from './flyer.js';
 import { HealerEnemy } from './healer.js';
 import { SniperEnemy } from './sniper.js';
+import { RusherEnemy } from './rusher.js';
 import { BossManager } from '../bosses/manager.js';
 
 export class EnemyManager {
@@ -24,7 +25,9 @@ export class EnemyManager {
     this.raycaster = new this.THREE.Raycaster();
     this.up = new this.THREE.Vector3(0,1,0);
     this.enemyHalf = new this.THREE.Vector3(0.6, 0.8, 0.6);
+    this.enemyFullHeight = this.enemyHalf.y * 2;
     this.spawnRings = this._computeSpawnRings();
+    this.customSpawnPoints = null; // optional override from map
     this._advancingWave = false;
     this._aiClock = 0; // accumulated AI time for coordination
     this._sniperLastFireAt = -Infinity;
@@ -39,7 +42,7 @@ export class EnemyManager {
     this.typeConfig = {
       grunt:  { type: 'grunt',  hp: 100, speedMin: 2.4, speedMax: 3.2, color: 0xef4444, kind: 'melee' },
       rusher: { type: 'rusher', hp:  60, speedMin: 6.4, speedMax: 7.9, color: 0xf97316, kind: 'melee' },
-      tank:   { type: 'tank',   hp: 220, speedMin: 1.6, speedMax: 2.0, color: 0x2563eb, kind: 'melee' },
+      tank:   { type: 'tank',   hp: 400, speedMin: 1.6, speedMax: 2.0, color: 0x2563eb, kind: 'melee' },
       shooter:{ type: 'shooter',hp:  150, speedMin: 2.2, speedMax: 2.8, color: 0x10b981, kind: 'shooter' },
       flyer:  { type: 'flyer',  hp:  40, speedMin: 12.4, speedMax: 15.6, color: 0xa855f7, kind: 'flyer' },
       healer: { type: 'healer', hp:   90, speedMin: 2.2, speedMax: 2.6, color: 0x84cc16, kind: 'healer' },
@@ -50,6 +53,12 @@ export class EnemyManager {
 
     // Boss system
     this.bossManager = new BossManager({ THREE: this.THREE, scene: this.scene, mats: this.mats, enemyManager: this });
+  }
+
+  // Rebuild collidable AABBs after the shared objects list changes (e.g., obstacles destroyed)
+  refreshColliders(objects = this.objects) {
+    this.objects = objects;
+    this.objectBBs = this.objects.map(o => new this.THREE.Box3().setFromObject(o));
   }
 
   // === Helpers ported from previous implementation ===
@@ -86,6 +95,26 @@ export class EnemyManager {
 
     const minDist = 12;
     const candidates = [];
+
+    // If map provided explicit spawn points, prefer those
+    if (this.customSpawnPoints && Array.isArray(this.customSpawnPoints) && this.customSpawnPoints.length) {
+      for (const p of this.customSpawnPoints) {
+        const pos = p.clone ? p.clone() : new this.THREE.Vector3(p.x||0, p.y||0.8, p.z||0);
+        const to = pos.clone().sub(playerPos); const dist = to.length();
+        if (dist < minDist) continue;
+        if (!this._isSpawnAreaClear(pos, 0.6)) continue;
+        to.y = 0; if (to.lengthSq() === 0) continue; to.normalize();
+        const facingCos = forward.dot(to);
+        const visible = this._isVisibleFromPlayer(pos);
+        const score = (visible ? 1 : 0) + (facingCos > 0.25 ? 1 : 0);
+        candidates.push({ p: pos, score });
+      }
+      if (candidates.length) {
+        candidates.sort((a, b) => a.score - b.score);
+        return candidates[0].p.clone();
+      }
+      // If custom list exists but no candidate passed, fall through to rings/legacy
+    }
 
     const addCandidates = (list) => {
       for (const p of list) {
@@ -215,20 +244,71 @@ export class EnemyManager {
   _moveWithCollisions(enemy, step) {
     // Attempt axis-separated movement with AABB checks against static objects
     const THREE = this.THREE;
-    const half = new THREE.Vector3(0.6, 0.8, 0.6);
+    const half = this.enemyHalf;
     const pos = enemy.position.clone();
 
     const tryAxis = (dx, dz) => {
-      const next = new THREE.Vector3(pos.x + dx, pos.y, pos.z + dz);
-      const bb = new THREE.Box3(next.clone().sub(half), next.clone().add(half));
+      const nx = pos.x + dx, nz = pos.z + dz;
+      // Use feet Y to build probe box to allow stepping over small rises
+      const feetY = pos.y - half.y;
+      const bb = new THREE.Box3(
+        new THREE.Vector3(nx - half.x, Math.max(0.0, feetY + 0.05), nz - half.z),
+        new THREE.Vector3(nx + half.x, feetY + (half.y*2), nz + half.z)
+      );
       for (const obb of this.objectBBs) { if (bb.intersectsBox(obb)) return false; }
-      pos.x += dx; pos.z += dz; return true;
+      pos.x = nx; pos.z = nz; return true;
     };
 
-    // X then Z for simple sliding
+    // X then Z for simple sliding with step/jump assist similar to player
+    const beforeGround = this._groundHeightAt(enemy.position.x, enemy.position.z);
     tryAxis(step.x, 0);
     tryAxis(0, step.z);
-    enemy.position.copy(pos);
+    const afterGround = this._groundHeightAt(pos.x, pos.z);
+    const rise = Math.max(0, afterGround - beforeGround);
+    const stepUpMax = 0.12 * this.enemyFullHeight;
+    const jumpAssistMax = 0.30 * this.enemyFullHeight;
+    const desiredY = afterGround + half.y;
+    const currentY = enemy.position.y;
+    if (rise > 0) {
+      // Clamp vertical lift per frame to avoid teleporting up long ramps
+      const maxLift = (rise <= stepUpMax + 1e-3) ? stepUpMax : (rise <= jumpAssistMax + 1e-3 ? jumpAssistMax : 0);
+      if (maxLift > 0) {
+        const lift = Math.min(desiredY - currentY, maxLift);
+        enemy.position.set(pos.x, currentY + Math.max(0, lift), pos.z);
+      } else {
+        // too high; keep horizontal change only
+        enemy.position.set(pos.x, currentY, pos.z);
+      }
+    } else {
+      // Follow ground on descent instantly for stability
+      enemy.position.set(pos.x, desiredY, pos.z);
+    }
+  }
+
+  // Compute highest ground at XZ from colliders using raycast fallback to AABB top
+  _groundHeightAt(x, z) {
+    const THREE = this.THREE;
+    // Raycast downward for precise height
+    const origin = new THREE.Vector3(x, 10.0, z);
+    const dir = new THREE.Vector3(0,-1,0);
+    try {
+      this.raycaster.set(origin, dir);
+      this.raycaster.far = 20;
+      const hits = this.raycaster.intersectObjects(this.objects, false);
+      if (hits && hits.length) {
+        let top = 0;
+        for (const h of hits) { if (h.point && h.point.y > top) top = h.point.y; }
+        return top;
+      }
+    } catch(_) {}
+    // Fallback: check AABB tops overlapping footprint center
+    let maxTop = 0;
+    for (const obb of this.objectBBs) {
+      if (x < obb.min.x || x > obb.max.x) continue;
+      if (z < obb.min.z || z > obb.max.z) continue;
+      if (obb.max.y > maxTop) maxTop = obb.max.y;
+    }
+    return maxTop;
   }
 
   // Simple separation utility reusable by types
@@ -257,7 +337,11 @@ export class EnemyManager {
       case 'flyer':   return new FlyerEnemy(args);
       case 'healer':  return new HealerEnemy(args);
       case 'sniper':  return new SniperEnemy(args);
-      default:        return new MeleeEnemy(args);
+      case 'melee':
+        if (cfg.type === 'rusher') return new RusherEnemy(args);
+        return new MeleeEnemy(args);
+      default:
+        return new MeleeEnemy(args);
     }
   }
 
@@ -317,6 +401,20 @@ export class EnemyManager {
       separation: (...args) => this.separation(...args),
       avoidObstacles: (origin, desiredDir, maxDist) => this._avoidObstacles(origin, desiredDir, maxDist),
       moveWithCollisions: (enemy, step) => this._moveWithCollisions(enemy, step),
+      // Count allies within a radius around a position, excluding an optional self root
+      alliesNearbyCount: (position, radius = 8.0, selfRoot = null) => {
+        const r2 = Math.max(0, radius) * Math.max(0, radius);
+        let count = 0;
+        for (const other of this.enemies) {
+          if (selfRoot && other === selfRoot) continue;
+          const dx = other.position.x - position.x;
+          const dy = other.position.y - position.y;
+          const dz = other.position.z - position.z;
+          const d2 = dx*dx + dy*dy + dz*dz;
+          if (d2 <= r2) count++;
+        }
+        return count;
+      },
       // Healer support: register max heal per target per tick (non-stacking)
       proposeHeal: (() => {
         const registry = new Map();

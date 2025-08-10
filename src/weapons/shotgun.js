@@ -45,12 +45,15 @@ export class Shotgun extends Weapon {
       if (representative.length < 2) representative.push({ from: origin.clone(), to: end.clone() });
 
       if (res.type === 'enemy' && res.enemyRoot) {
+        try { window._HUD && window._HUD.showHitmarker && window._HUD.showHitmarker(); } catch(_) {}
         anyHit = true;
         const dist = res.distance || origin.distanceTo(end);
         const falloff = dist <= this.fullDamageRange ? 1.0 : Math.max(0, 1 - (dist - this.fullDamageRange) / Math.max(1, (this.range - this.fullDamageRange)));
-        const body = 12 * falloff;
+        const torso = 12 * falloff;
         const head = 24 * falloff;
-        const dmg = res.isHead ? head : body;
+        const limb = 5 * falloff;
+        const part = res.bodyPart;
+        const dmg = (res.isHead || part === 'head') ? head : ((part === 'arm' || part === 'leg') ? limb : torso);
         res.enemyRoot.userData.hp -= dmg;
         effects?.spawnBulletImpact?.(end, res.hitFace?.normal);
         if (S && S.impactFlesh) S.impactFlesh();
@@ -60,7 +63,7 @@ export class Shotgun extends Weapon {
           effects?.enemyDeath?.(res.enemyRoot.position.clone());
           pickups?.maybeDrop?.(res.enemyRoot.position.clone());
           enemyManager.remove(res.enemyRoot);
-          const base = res.isHead ? 150 : 100;
+          const base = (res.isHead || res.bodyPart==='head') ? 150 : 100;
           const finalScore = Math.round(base * (ctx.combo?.multiplier || 1));
           addScore?.(finalScore);
           addComboAction?.(1);

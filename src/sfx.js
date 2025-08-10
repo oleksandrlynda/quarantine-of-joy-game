@@ -283,6 +283,68 @@ export class SFX {
       o.start(t0); o.stop(e.endTime + 0.01);
     }
   }
+
+  // Subtle breathing loop for exhaustion; brown noise with smooth inhale/exhale and de-fizzed highs
+  startBreath(){
+    if (this.isMuted) return; this.ensure();
+    if (this._breath && this._breath.active) return; // already running
+    const a = this.ctx; const t0 = a.currentTime + 0.001;
+    // Output (master fade)
+    const out = a.createGain(); out.gain.value = 0.0; out.connect(this.master);
+    // Brown(ish) noise buffer to avoid gritty hiss
+    const dur = 2.0; const nb = a.createBuffer(1, Math.max(1, (dur * a.sampleRate)|0), a.sampleRate);
+    const ch = nb.getChannelData(0);
+    let last = 0; for(let i=0;i<ch.length;i++){ const white = Math.random()*2-1; last = (last + 0.02*white) / 1.02; ch[i] = last * 3.5; }
+    const noise = a.createBufferSource(); noise.buffer = nb; noise.loop = true; noise.playbackRate.value = 1.0;
+    // Tone shaping: remove rumble, keep soft mids, shave fizz
+    const hp = a.createBiquadFilter(); hp.type='highpass'; hp.frequency.value = 80; hp.Q.value = 0.5;
+    const lp = a.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value = 900; lp.Q.value = 0.6;
+    const hs = a.createBiquadFilter(); hs.type='highshelf'; hs.frequency.value = 2500; hs.gain.value = -18;
+    // Breath amplitude stage
+    const amp = a.createGain(); amp.gain.value = 0.04; // very quiet base
+    // LFO for inhale/exhale amplitude
+    const lfo = a.createOscillator(); lfo.type='sine'; lfo.frequency.setValueAtTime(0.7, t0);
+    const lfoGain = a.createGain(); lfoGain.gain.value = 0.03; // subtle depth
+    lfo.connect(lfoGain).connect(amp.gain);
+    // Chain
+    noise.connect(hp).connect(lp).connect(hs).connect(amp).connect(out);
+    // No FX tail to avoid shimmer artifacts
+    // Fade in master
+    out.gain.linearRampToValueAtTime(0.10, t0 + 0.35);
+    // Control object
+    this._breath = {
+      active: true,
+      stop: ()=>{
+        const now = a.currentTime;
+        out.gain.cancelScheduledValues(now);
+        out.gain.linearRampToValueAtTime(0.0001, now + 0.25);
+        try { noise.stop(now + 0.26); } catch(_){ }
+        try { lfo.stop(now + 0.26); } catch(_){ }
+        this._breath.active = false;
+      },
+      setExhausted: (x)=>{
+        const now = a.currentTime;
+        const k = Math.max(0, Math.min(1, x||0));
+        // Gently increase rate/depth/openess with exhaustion; keep conservative to avoid artifacts
+        const rate = 0.6 + 0.6 * k; // 0.6..1.2 Hz
+        const base = 0.02 + 0.06 * k; // 0.02..0.08
+        const depth = 0.02 + 0.04 * k; // 0.02..0.06
+        const cutoff = 800 + 300 * k; // 800..1100 Hz
+        try { lfo.frequency.setTargetAtTime(rate, now, 0.2); } catch(_){ lfo.frequency.value = rate; }
+        amp.gain.setTargetAtTime(base, now, 0.2);
+        lfoGain.gain.setTargetAtTime(depth, now, 0.2);
+        lp.frequency.setTargetAtTime(cutoff, now, 0.25);
+        try { hs.gain.setTargetAtTime(-18, now, 0.2); } catch(_) { hs.gain.value = -18; }
+      }
+    };
+    // start
+    noise.start(t0); lfo.start(t0);
+  }
+
+  stopBreath(){
+    if (!this._breath || !this._breath.active) return;
+    this._breath.stop();
+  }
 }
 
 

@@ -1,27 +1,26 @@
+import { createShooterBot } from '../assets/shooter_bot.js';
 export class ShooterEnemy {
   constructor({ THREE, mats, cfg, spawnPos }) {
     this.THREE = THREE;
     this.cfg = cfg;
 
-    const baseMat = mats.enemy.clone();
-    baseMat.color = new THREE.Color(cfg.color);
-
-    const body = new THREE.Mesh(new THREE.BoxGeometry(1.2,1.6,1.2), baseMat);
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.9,0.9,0.9), mats.head.clone());
-    head.position.y = 1.4;
-    body.add(head);
+    // Use ShooterBot asset with right-hand gun; shots originate from muzzle, not head
+    const built = createShooterBot({ THREE, mats, scale: 0.62 });
+    const body = built.root; const head = built.head; this._refs = built.refs || {};
     body.position.copy(spawnPos);
 
     body.userData = { type: cfg.type, head, hp: cfg.hp };
     this.root = body;
     this.speed = cfg.speedMin + Math.random() * (cfg.speedMax - cfg.speedMin);
-    this.preferredRange = { min: 24, max: 36 };
-    this.engageRange = { min: 48, max: 72 };
+    this.preferredRange = { min: 5, max: 50 };
+    this.engageRange = { min: 48, max: 90 };
 
     // Firing cadence and telegraph
-    this.cooldown = 0;                               // time until next windup can start
-    this.baseCadence = 0.68 + Math.random() * 0.6;    // 1.6–2.2s between shots
-    this.windupTime = 0;                             // time spent charging current shot
+    this.cooldown = 0;                               // general cooldown timer
+    this.baseCadence = 0.6 + Math.random() * 0.4;   // intra-burst spacing
+    this.interBurstBase = 1.6 + Math.random() * 0.6; // long delay between bursts
+    this.inBurst = false;                            // currently executing a burst sequence
+    this.windupTime = 0;                             // time spent charging current shot (telegraph before burst)
     this.windupRequired = 0.5 + Math.random() * 0.2; // 0.5–0.7s telegraph
     this.strafeDir = Math.random() < 0.5 ? 1 : -1;
     this.switchCooldown = 0;                         // control strafe dir switching
@@ -42,10 +41,26 @@ export class ShooterEnemy {
     this._hitJukeTime = 0;
     this._hitJukeDir = new this.THREE.Vector3();
     this._lastFwd = new this.THREE.Vector3(0,0,1);
+    // Facing and small gun recoil/flash state
+    this._yaw = 0; this._flashTimer = 0; this._recoil = 0;
   }
 
   update(dt, ctx) {
     const THREE = this.THREE;
+    // 0) Update small per-shot visuals
+    if (this._flashTimer > 0) {
+      this._flashTimer = Math.max(0, this._flashTimer - dt);
+      if (this._refs && this._refs.muzzle && this._refs.muzzle.material && this._refs.muzzle.material.emissiveIntensity != null) {
+        this._refs.muzzle.material.emissiveIntensity = 0.6 + 1.4 * (this._flashTimer / 0.08);
+      }
+    }
+    if (this._recoil > 0) {
+      this._recoil = Math.max(0, this._recoil - dt * 6);
+      try { if (this._refs && this._refs.gun) this._refs.gun.position.z = -0.05 * this._recoil; } catch(_) {}
+    } else {
+      try { if (this._refs && this._refs.gun) this._refs.gun.position.z *= Math.max(0, 1 - dt * 10); } catch(_) {}
+    }
+
     // 1) Update projectiles
     this._updateProjectiles(dt, ctx);
 
@@ -135,11 +150,57 @@ export class ShooterEnemy {
       ctx.moveWithCollisions(e, step);
     }
 
+    // Face the player smoothly (yaw only) so gun points generally toward target
+    const desiredYaw = Math.atan2(toPlayer.x, toPlayer.z);
+    const wrap = (a)=>{ while(a>Math.PI) a-=2*Math.PI; while(a<-Math.PI) a+=2*Math.PI; return a; };
+    let dy = wrap(desiredYaw - this._yaw);
+    const turnRate = 6.0; // rad/s
+    this._yaw = wrap(this._yaw + Math.max(-turnRate*dt, Math.min(turnRate*dt, dy)));
+    e.rotation.set(0, this._yaw, 0);
+
     // 3) Shooting logic
     if (this.cooldown > 0) this.cooldown -= dt;
 
     const inBand = dist >= this.preferredRange.min && dist <= this.preferredRange.max;
-    if (inBand && hasLOS && this.cooldown <= 0) {
+
+    // Active burst: fire without additional telegraph while LOS/inBand hold
+    if (this.inBurst) {
+      // Ensure telegraph visuals are off during burst
+      if (this._aimLine) this._updateAimLine(null, ctx.scene);
+      this._setHeadGlow(false);
+
+      // Cancel burst early if conditions break
+      if (!(inBand && hasLOS)) {
+        this.inBurst = false;
+        this.shotsThisBurst = 0;
+        this.cooldown = Math.max(this.cooldown, 0.4 + Math.random() * 0.3);
+      } else if (this.cooldown <= 0) {
+        // Fire next shot in the burst
+        this._fireProjectile(playerPos, ctx.scene);
+        // Mark suppression immediately after firing if target was stationary and exposed
+        if (ctx.blackboard && playerStationary) ctx.blackboard.suppression = true;
+
+        if (this.shotsThisBurst >= this.maxBurst) {
+          // End burst: long inter-burst delay and relocation to vary angle
+          this.inBurst = false;
+          this.shotsThisBurst = 0;
+          this.cooldown = this.interBurstBase;
+          if (!this.relocating) {
+            this.relocating = true;
+            this.relocateTarget = null;
+            this.relocateTimer = 0;
+          }
+          // Reroll next burst parameters for variety
+          this.maxBurst = 3 + ((Math.random() * 2) | 0); // 3–4
+          this.baseCadence = 0.12 + Math.random() * 0.12; // intra-burst spacing
+          this.interBurstBase = 1.6 + Math.random() * 0.6;
+          this.windupRequired = 0.5 + Math.random() * 0.2;
+        } else {
+          // Space next intra-burst shot
+          this.cooldown = this.baseCadence;
+        }
+      }
+    } else if (inBand && hasLOS && this.cooldown <= 0) {
       // Telegraph with head glow and aim line; keep checking LOS
       this.windupTime += dt;
       this._setHeadGlow(true);
@@ -152,24 +213,25 @@ export class ShooterEnemy {
         this._setHeadGlow(false);
         this._updateAimLine(null, ctx.scene);
       } else if (this.windupTime >= this.windupRequired) {
+        // Begin burst and fire first shot immediately
         this._setHeadGlow(false);
         this.windupTime = 0;
-        this.cooldown = this.baseCadence; // next shot delay
         this._updateAimLine(null, ctx.scene);
+        this.inBurst = true;
+        // fresh parameters for this burst
+        this.maxBurst = 3 + ((Math.random() * 2) | 0);   // 3–4 shots per burst
+        this.baseCadence = 0.12 + Math.random() * 0.12;  // intra-burst spacing
+        this.interBurstBase = 1.6 + Math.random() * 0.6; // inter-burst gap
+        // First shot now, then set spacing for next
         this._fireProjectile(playerPos, ctx.scene);
-        // re-roll cadence and windup for variance
-        this.baseCadence = 1.6 + Math.random() * 0.6;
-        this.windupRequired = 0.5 + Math.random() * 0.2;
-        // Mark suppression immediately after firing if target was stationary and exposed
         if (ctx.blackboard && playerStationary) ctx.blackboard.suppression = true;
-        // Burst/relocate: after a few shots, force a lateral relocate to a new angle
-        if (this.shotsThisBurst >= this.maxBurst && !this.relocating) {
-          this.relocating = true;
-          this.relocateTarget = null;
-          this.relocateTimer = 0;
+        if (this.shotsThisBurst >= this.maxBurst) {
+          // Degenerate rare case: maxBurst==1; end immediately
+          this.inBurst = false;
           this.shotsThisBurst = 0;
-          // brief disengage by cancelling any residual telegraph
-          this._updateAimLine(null, ctx.scene);
+          this.cooldown = this.interBurstBase;
+        } else {
+          this.cooldown = this.baseCadence;
         }
       }
     } else {
@@ -197,7 +259,25 @@ export class ShooterEnemy {
 
   _fireProjectile(targetPos, scene) {
     const THREE = this.THREE;
-    const origin = new THREE.Vector3(this.root.position.x, this.root.position.y + 1.4, this.root.position.z);
+    // Fire from gun muzzle if available; otherwise from chest height
+    let origin;
+    if (this._refs && this._refs.muzzle) {
+      origin = this._refs.muzzle.getWorldPosition(new THREE.Vector3());
+      // Aim the gun group at the target on each shot
+      try {
+        const gunGroup = this._refs.gun;
+        if (gunGroup && gunGroup.lookAt) {
+          const aim = targetPos.clone(); aim.y = Math.max(0.4, aim.y);
+          gunGroup.parent.updateWorldMatrix?.(true, false);
+          gunGroup.lookAt(aim);
+        }
+      } catch(_){}
+      // Flash and recoil
+      this._flashTimer = 0.08;
+      this._recoil = 1.0;
+    } else {
+      origin = new THREE.Vector3(this.root.position.x, this.root.position.y + 1.2, this.root.position.z);
+    }
     const dir = targetPos.clone().sub(origin).normalize();
     const speed = 25; // units/s
 
