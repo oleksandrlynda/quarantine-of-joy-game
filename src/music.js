@@ -39,6 +39,11 @@ export class Music {
     };
     this.bossIntensity = 0.0; // 0..1 dynamic during boss
 
+    // Mood (environment-driven)
+    this.hatCutoffHz = 6000; // dynamic with fog/rain
+    this.padBaseBrightnessHz = 2000; // dynamic with weather
+    this._mood = { rain: 0, snow: 0, fog: 0 };
+
     // Key/scale (default E minor)
     this.baseFreq = 164.81; // E3
     this.scaleSemis = [0, 2, 3, 5, 7, 8, 10, 12];
@@ -99,6 +104,18 @@ export class Music {
 
       this.masterGain.connect(this.ctx.destination);
     }
+  }
+
+  // Expose underlying AudioContext for sharing with SFX
+  getContext() {
+    this.ensureContext();
+    return this.ctx;
+  }
+
+  // Provide a shared FX bus node (connected to the internal delay)
+  getFxBus() {
+    this.ensureContext();
+    return this.busses?.fx || this.masterGain;
   }
 
   start() {
@@ -400,7 +417,7 @@ export class Music {
     noise.buffer = buffer;
     const hp = a.createBiquadFilter();
     hp.type = 'highpass';
-    hp.frequency.value = 6000;
+    hp.frequency.value = this.hatCutoffHz || 6000;
     const g = a.createGain();
     g.gain.setValueAtTime(0.0001, time);
     g.gain.exponentialRampToValueAtTime(0.4, time + 0.002);
@@ -466,7 +483,8 @@ export class Music {
       g.gain.setValueAtTime(0.0001, time);
       g.gain.exponentialRampToValueAtTime(0.22 + this.bossIntensity * 0.1, time + 0.06);
       g.gain.exponentialRampToValueAtTime(0.0001, time + length);
-      const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = (this.bossProfile?.padBrightnessHz || 2000) + this.bossIntensity * 600;
+      const baseBright = (this.bossProfile?.padBrightnessHz || this.padBaseBrightnessHz || 2000);
+      const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = baseBright + this.bossIntensity * 600;
       osc.connect(lp).connect(g).connect(this.busses.pad);
       osc.start(time);
       osc.stop(time + length + 0.05);

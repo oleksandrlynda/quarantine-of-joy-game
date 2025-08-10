@@ -1,6 +1,8 @@
 import { MeleeEnemy } from './melee.js';
 import { ShooterEnemy } from './shooter.js';
 import { FlyerEnemy } from './flyer.js';
+import { HealerEnemy } from './healer.js';
+import { SniperEnemy } from './sniper.js';
 import { BossManager } from '../bosses/manager.js';
 
 export class EnemyManager {
@@ -24,14 +26,24 @@ export class EnemyManager {
     this.enemyHalf = new this.THREE.Vector3(0.6, 0.8, 0.6);
     this.spawnRings = this._computeSpawnRings();
     this._advancingWave = false;
+    this._aiClock = 0; // accumulated AI time for coordination
+    this._sniperLastFireAt = -Infinity;
+    this._lastAmbientVocalAt = 0;
+    // Heal VFX state
+    this._healSprites = [];
+    this._healTexture = null;
+    this._lastHealVfxAt = new WeakMap();
+    this._healVfxCooldown = 0.28; // seconds between bursts per target
 
     // Stats/colors; note type names map to classes below
     this.typeConfig = {
       grunt:  { type: 'grunt',  hp: 100, speedMin: 2.4, speedMax: 3.2, color: 0xef4444, kind: 'melee' },
-      rusher: { type: 'rusher', hp:  60, speedMin: 6.4, speedMax: 8.9, color: 0xf97316, kind: 'melee' },
+      rusher: { type: 'rusher', hp:  60, speedMin: 6.4, speedMax: 7.9, color: 0xf97316, kind: 'melee' },
       tank:   { type: 'tank',   hp: 220, speedMin: 1.6, speedMax: 2.0, color: 0x2563eb, kind: 'melee' },
       shooter:{ type: 'shooter',hp:  150, speedMin: 2.2, speedMax: 2.8, color: 0x10b981, kind: 'shooter' },
       flyer:  { type: 'flyer',  hp:  40, speedMin: 12.4, speedMax: 15.6, color: 0xa855f7, kind: 'flyer' },
+      healer: { type: 'healer', hp:   90, speedMin: 2.2, speedMax: 2.6, color: 0x84cc16, kind: 'healer' },
+      sniper: { type: 'sniper', hp:   90, speedMin: 2.0, speedMax: 2.4, color: 0x444444, kind: 'sniper' },
       // Boss adds
       gruntling: { type: 'gruntling', hp: 20, speedMin: 3.2, speedMax: 4.0, color: 0xfb7185, kind: 'melee' }
     };
@@ -243,6 +255,8 @@ export class EnemyManager {
     switch (cfg.kind) {
       case 'shooter': return new ShooterEnemy(args);
       case 'flyer':   return new FlyerEnemy(args);
+      case 'healer':  return new HealerEnemy(args);
+      case 'sniper':  return new SniperEnemy(args);
       default:        return new MeleeEnemy(args);
     }
   }
@@ -283,6 +297,18 @@ export class EnemyManager {
   }
 
   tickAI(playerObject, dt, onPlayerDamage) {
+    this._aiClock += dt;
+    // Update heal sprites
+    if (this._healSprites && this._healSprites.length) {
+      for (let i = this._healSprites.length - 1; i >= 0; i--) {
+        const s = this._healSprites[i];
+        s.life += dt; if (s.life >= s.maxLife) { this.scene.remove(s.sprite); this._healSprites.splice(i,1); continue; }
+        s.sprite.position.addScaledVector(s.velocity, dt);
+        if (s.sprite.material && s.sprite.material.opacity !== undefined) {
+          s.sprite.material.opacity = Math.max(0, 1 - s.life / s.maxLife);
+        }
+      }
+    }
     const ctx = {
       player: playerObject,
       objects: this.objects,
@@ -291,18 +317,121 @@ export class EnemyManager {
       separation: (...args) => this.separation(...args),
       avoidObstacles: (origin, desiredDir, maxDist) => this._avoidObstacles(origin, desiredDir, maxDist),
       moveWithCollisions: (enemy, step) => this._moveWithCollisions(enemy, step),
+      // Healer support: register max heal per target per tick (non-stacking)
+      proposeHeal: (() => {
+        const registry = new Map();
+        // attach to ctx so post-loop can access
+        const fn = (targetRoot, amount) => {
+          if (!targetRoot || !amount || amount <= 0) return;
+          const prev = registry.get(targetRoot) || 0;
+          if (amount > prev) registry.set(targetRoot, amount);
+        };
+        fn._registry = registry;
+        return fn;
+      })(),
+      // Sniper coordination: record last shot to stagger others
+      sniperFired: () => { this._sniperLastFireAt = this._aiClock; },
       // temporary helper so non-implemented types behave sanely
       fallbackMeleeUpdate: (inst, _dt) => {
         const fake = new MeleeEnemy({ THREE: this.THREE, mats: this.mats, cfg: { type: 'grunt', hp: 1, speedMin: inst.speed, speedMax: inst.speed, color: 0xffffff }, spawnPos: inst.root.position.clone() });
         fake.root = inst.root; // reuse same root; only use update logic
         fake.update(_dt, ctx);
-      }
+      },
+      // Blackboard
+      blackboard: (() => {
+        const info = this.getPlayer ? this.getPlayer() : null;
+        const forward = info && info.forward ? info.forward.clone() : null;
+        const bossActive = !!(this.bossManager && this.bossManager.active && this.bossManager.boss);
+        const regroup = !bossActive && this.waveStartingAlive > 0 && this.alive <= Math.max(1, Math.floor(this.waveStartingAlive * 0.25));
+        return {
+          playerForward: forward,
+          playerSpeed: this._playerSpeedEMA || 0,
+          suppression: false,
+          regroup,
+          alive: this.alive,
+          waveStartingAlive: this.waveStartingAlive,
+          time: this._aiClock,
+          sniperLastFireAt: this._sniperLastFireAt
+        };
+      })()
     };
 
     // Boss abilities and behavior
     if (this.bossManager) this.bossManager.update(dt, ctx);
 
     for (const inst of this.instances) inst.update(dt, ctx);
+
+    // Low-rate ambient enemy vocals when aggroed (simple heuristic: while enemies exist)
+    if (this.alive > 0) {
+      this._lastAmbientVocalAt = (this._lastAmbientVocalAt || 0);
+      if (this._aiClock - this._lastAmbientVocalAt > 2.2 + Math.random() * 2.0) {
+        // pick a random instance and attempt a vocal via global S if present
+        const pick = (() => { for (const e of this.instances) return e; return null; })();
+        if (pick && window && window._SFX && typeof window._SFX.enemyVocal === 'function') {
+          try { window._SFX.enemyVocal(pick.root?.userData?.type || 'grunt'); } catch(_) {}
+        }
+        this._lastAmbientVocalAt = this._aiClock;
+      }
+    }
+    // Apply healing after updates
+    const reg = ctx.proposeHeal && ctx.proposeHeal._registry;
+    if (reg && reg.size) {
+      for (const [root, heal] of reg.entries()) {
+        if (!root || !root.userData) continue;
+        const maxHp = root.userData.maxHp || root.userData.hp;
+        if (maxHp == null) continue;
+        root.userData.hp = Math.min(maxHp, (root.userData.hp || 0) + heal);
+        // spawn heal VFX with per-target cooldown
+        const lastAt = this._lastHealVfxAt.get(root) || -Infinity;
+        if ((this._aiClock - lastAt) >= this._healVfxCooldown) {
+          this._lastHealVfxAt.set(root, this._aiClock);
+          const count = Math.max(1, Math.min(4, Math.round(heal * 0.15)));
+          this._spawnHealBurst(root, count);
+        }
+      }
+    }
+  }
+
+  _ensureHealTexture() {
+    if (this._healTexture) return this._healTexture;
+    const size = 48;
+    const canvas = document.createElement('canvas');
+    canvas.width = size; canvas.height = size;
+    const ctx2d = canvas.getContext('2d');
+    ctx2d.clearRect(0,0,size,size);
+    ctx2d.strokeStyle = '#22c55e'; // green
+    ctx2d.lineWidth = Math.max(2, Math.floor(size*0.18));
+    ctx2d.lineCap = 'round';
+    // draw plus
+    const m = size/2; const r = size*0.28;
+    ctx2d.beginPath(); ctx2d.moveTo(m - r, m); ctx2d.lineTo(m + r, m); ctx2d.stroke();
+    ctx2d.beginPath(); ctx2d.moveTo(m, m - r); ctx2d.lineTo(m, m + r); ctx2d.stroke();
+    const tex = new this.THREE.CanvasTexture(canvas);
+    tex.needsUpdate = true;
+    this._healTexture = tex;
+    return tex;
+  }
+
+  _spawnHealBurst(targetRoot, count = 4) {
+    if (!this.scene || !targetRoot || !targetRoot.position) return;
+    const THREE = this.THREE;
+    const tex = this._ensureHealTexture();
+    const pos = targetRoot.position;
+    // per-target concurrency clamp
+    const maxPerRoot = 4;
+    const activeForRoot = this._healSprites.reduce((acc, s) => acc + (s.rootRef === targetRoot ? 1 : 0), 0);
+    const room = Math.max(0, maxPerRoot - activeForRoot);
+    if (room <= 0) return;
+    const spawnCount = Math.min(count, room);
+    for (let i = 0; i < spawnCount; i++) {
+      const mat = new THREE.SpriteMaterial({ map: tex, color: 0xffffff, transparent: true, opacity: 0.9, depthWrite: false });
+      const spr = new THREE.Sprite(mat);
+      spr.position.set(pos.x + (Math.random()-0.5)*0.6, pos.y + 1.2 + Math.random()*0.3, pos.z + (Math.random()-0.5)*0.6);
+      const s = 0.25 + Math.random()*0.1; spr.scale.set(s, s, 1);
+      this.scene.add(spr);
+      const vel = new THREE.Vector3((Math.random()-0.5)*0.2, 0.9 + Math.random()*0.35, (Math.random()-0.5)*0.2);
+      this._healSprites.push({ sprite: spr, velocity: vel, life: 0, maxLife: 0.7 + Math.random()*0.3, rootRef: targetRoot });
+    }
   }
 
   applyHit(hitObject, isHead, damage) {
@@ -360,6 +489,10 @@ export class EnemyManager {
     if (type === 'gruntling') {
       inst.root.userData.hp = 10 + Math.floor(Math.random() * 21); // 10–30
     }
+    // Ensure maxHp for healing clamp
+    if (inst && inst.root && inst.root.userData) {
+      if (inst.root.userData.maxHp == null && inst.root.userData.hp != null) inst.root.userData.maxHp = inst.root.userData.hp;
+    }
     this.scene.add(inst.root);
     this.enemies.add(inst.root);
     this.instances.add(inst);
@@ -380,21 +513,27 @@ export class EnemyManager {
     // Flyers now appear starting at wave 1 with a gentle ramp
     const pctFlyer   = Math.min(0.6, 0.10 + 0.05 * (wave - 1));
     const pctTank    = wave >= 6 ? 0.10 : 0.0;
+    const pctHealer  = wave >= 7 ? 0.08 : 0.0;
+    const pctSniper  = wave >= 8 ? 0.05 : 0.0;
 
     const minFlyer  = wave >= 5 ? 2 : 0;
     let needFlyer   = wave >= 5 ? Math.max(minFlyer, Math.floor(total * pctFlyer)) : 0;
     let needRusher  = Math.floor(total * pctRusher);
     let needShooter = Math.floor(total * pctShooter);
     let needTank    = Math.max(wave >= 6 ? 1 : 0, Math.floor(total * pctTank));
+    let needHealer  = Math.floor(total * pctHealer);
+    let needSniper  = Math.floor(total * pctSniper);
 
     // Cap total replacements to total count
-    let requested = needFlyer + needRusher + needShooter + needTank;
+    let requested = needFlyer + needRusher + needShooter + needTank + needHealer + needSniper;
     if (requested > total) {
       const scale = total / requested;
       needFlyer = Math.floor(needFlyer * scale);
       needRusher = Math.floor(needRusher * scale);
       needShooter = Math.floor(needShooter * scale);
       needTank = Math.floor(needTank * scale);
+      needHealer = Math.floor(needHealer * scale);
+      needSniper = Math.floor(needSniper * scale);
     }
 
     // Helper to randomly assign a type into a 'grunt' slot
@@ -416,6 +555,8 @@ export class EnemyManager {
 
     // Apply assignments with some precedence
     assignRandom(needTank, 'tank');
+    assignRandom(needSniper, 'sniper');
+    assignRandom(needHealer, 'healer');
     assignRandom(needShooter, 'shooter');
     assignRandom(needRusher, 'rusher');
     assignRandom(needFlyer, 'flyer');

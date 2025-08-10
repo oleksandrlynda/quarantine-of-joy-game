@@ -15,10 +15,10 @@ export class Broodmaker {
     body.position.copy(spawnPos);
 
     const type = this.enablePhase2 ? 'boss_broodmaker_heavy' : 'boss_broodmaker';
-    body.userData = { type, head, hp: 1800 };
+    body.userData = { type, head, hp: this.enablePhase2 ? 8000 : 3500 };
     this.root = body;
 
-    this.speed = 1.65; // slow move
+    this.speed = this.enablePhase2 ? 2.5 : 1.7; // slow move
     this._lastPos = body.position.clone();
     this._stuckTime = 0; this._nudgeCooldown = 0;
     this._raycaster = new THREE.Raycaster();

@@ -6,7 +6,7 @@ import { Pistol } from './pistol.js';
 
 // WeaponSystem orchestrates current weapon, input mapping, and HUD sync
 export class WeaponSystem {
-  constructor({ THREE, camera, raycaster, enemyManager, objects, effects, obstacleManager, pickups, S, updateHUD, addScore, addComboAction, combo, addTracer }) {
+  constructor({ THREE, camera, raycaster, enemyManager, objects, effects, obstacleManager, pickups, S, updateHUD, addScore, addComboAction, combo, addTracer, applyRecoil }) {
     this.THREE = THREE;
     this.camera = camera;
     this.raycaster = raycaster;
@@ -21,14 +21,14 @@ export class WeaponSystem {
     this.addComboAction = addComboAction;
     this.combo = combo;
     this.addTracer = addTracer;
+    this.applyRecoil = applyRecoil || (()=>{});
     this.splitPickupsProportionally = false; // optional economy mode
 
     this.inventory = [];
     this.currentIndex = 0; // primary slot index
 
-    // Start progression: only Primary (Rifle) and Sidearm (Pistol)
-    this.inventory.push(new Rifle());   // Primary
-    this.inventory.push(new Pistol());  // Sidearm
+    // Start wave 1 with only a Pistol
+    this.inventory.push(new Pistol());  // Sidearm-only start; primary is acquired later
   }
 
   get current() { return this.inventory[this.currentIndex]; }
@@ -36,6 +36,38 @@ export class WeaponSystem {
   getAmmo() { return this.current?.getAmmo() ?? 0; }
   getReserve() { return this.current?.getReserve() ?? 0; }
   getPrimaryName() { return this.current?.name || 'Rifle'; }
+
+  // Crosshair profile for current weapon
+  getCrosshairProfile(){
+    const w = this.current;
+    const def = { baseScale: 0.9, minAlpha: 0.65, k: 0.7, thickPx: 2, gapPx: 5, lenPx: 6 };
+    const name = w?.name || '';
+    if (name === 'Pistol') return { baseScale: 0.85, minAlpha: 0.75, k: 0.5, thickPx: 2, gapPx: 5, lenPx: 5 };
+    if (name === 'Rifle') return { baseScale: 0.9, minAlpha: 0.65, k: 0.7, thickPx: 2, gapPx: 6, lenPx: 6 };
+    if (name === 'SMG') return { baseScale: 0.95, minAlpha: 0.6, k: 0.9, thickPx: 2, gapPx: 7, lenPx: 7 };
+    if (name === 'DMR') return { baseScale: 0.8, minAlpha: 0.78, k: 0.45, thickPx: 2, gapPx: 4, lenPx: 4 };
+    if (name === 'Shotgun') return { baseScale: 1.2, minAlpha: 0.65, k: 1.2, thickPx: 2, gapPx: 20, lenPx: 8 };
+    return def;
+  }
+
+  // Normalized bloom 0..1 for HUD/crosshair feedback
+  getCurrentBloom01() {
+    const w = this.current;
+    if (!w) return 0;
+    // Prefer explicit getter if weapon provides one
+    if (typeof w.getBloom01 === 'function') return Math.max(0, Math.min(1, w.getBloom01()));
+    // Heuristic: include base spread weight so some weapons are wider at rest
+    // Reference spread for normalization ~0.01 rad (~0.57°)
+    const REF = 0.01;
+    let baseSpread = 0;
+    if (typeof w._baseSpread === 'number') baseSpread = w._baseSpread;
+    // Shotgun uses spreadRad
+    if (!baseSpread && typeof w.spreadRad === 'number') baseSpread = w.spreadRad;
+    const baseNorm = Math.max(0, Math.min(1, baseSpread / REF));
+    const bloom = (typeof w._bloom === 'number') ? Math.max(0, Math.min(1, w._bloom)) : 0;
+    // Compose so bloom grows from base toward 1
+    return Math.max(0, Math.min(1, baseNorm + bloom * (1 - baseNorm)));
+  }
 
   context() {
     return {
@@ -53,6 +85,7 @@ export class WeaponSystem {
       addComboAction: this.addComboAction,
       combo: this.combo,
       addTracer: this.addTracer,
+      applyRecoil: this.applyRecoil
     };
   }
 
@@ -88,7 +121,13 @@ export class WeaponSystem {
     const newW = makeWeaponFn();
     newW.reset();
     newW.addReserve(carry);
-    this.inventory[this.currentIndex] = newW;
+    // If we are in pistol-only start (no primary yet), insert primary and keep pistol as sidearm
+    if (this.inventory.length === 1 && (this.inventory[0] instanceof Pistol || this.inventory[0]?.name === 'Pistol')) {
+      this.inventory.unshift(newW); // new primary at slot 0
+      this.currentIndex = 0;
+    } else {
+      this.inventory[this.currentIndex] = newW;
+    }
     this.updateHUD?.();
     return newW;
   }
@@ -104,8 +143,11 @@ export class WeaponSystem {
 
   onAmmoPickup(amount) {
     const gain = Math.max(0, amount | 0);
+    const isSMG = (this.current?.name === 'SMG');
+    const multiplier = isSMG ? 1.6 : 1.0; // give more ammo from drops when using SMG
     if (!this.splitPickupsProportionally || this.inventory.length <= 1) {
-      this.current?.addReserve(gain);
+      const adjustedGain = Math.floor(gain * multiplier);
+      this.current?.addReserve(adjustedGain);
       this.S?.reload?.();
       this.updateHUD?.();
       return;
@@ -130,6 +172,11 @@ export class WeaponSystem {
       }
       // distribute any rounding remainder to current weapon first
       if (remaining > 0) this.current?.addReserve(remaining);
+      // If current is SMG, grant extra bonus proportional to multiplier
+      if (isSMG && multiplier > 1) {
+        const bonus = Math.floor(gain * (multiplier - 1));
+        if (bonus > 0) this.current?.addReserve(bonus);
+      }
     }
     this.S?.reload?.();
     this.updateHUD?.();

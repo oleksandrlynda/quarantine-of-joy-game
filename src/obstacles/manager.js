@@ -265,6 +265,28 @@ export class ObstacleManager {
     }
   }
 
+  // Allow external systems to remove a barrel from the world without triggering destruction side-effects
+  // Returns true if the provided root is a known barrel and was removed from scene/colliders
+  pickupBarrel(root) {
+    if (!root) return false;
+    const inst = this.rootToDestructible.get(root);
+    if (!inst || inst.type !== 'barrel') return false;
+    // Detach from scene and bookkeeping, but do not explode or score yet
+    if (this.scene && root.parent === this.scene) this.scene.remove(root);
+    const idx = this.objects ? this.objects.indexOf(root) : -1;
+    if (idx !== -1) this.objects.splice(idx, 1);
+    this.obstacles.delete(root);
+    this.rootToDestructible.delete(root);
+    return true;
+  }
+
+  // Public helper to trigger a barrel-style explosion at a position (e.g., for thrown barrels)
+  explodeBarrel(position) {
+    if (!position) return 0;
+    this._spawnDebris(position, 'barrel');
+    return this._barrelExplode(position);
+  }
+
   _spawnDebris(position, type) {
     const THREE = this.THREE;
     const count = type === 'barricade' ? 16 : 10;

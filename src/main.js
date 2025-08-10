@@ -9,6 +9,7 @@ import { Effects } from './effects.js';
 import { Pickups } from './pickups.js';
 import { ObstacleManager } from './obstacles/manager.js';
 import { Music } from './music.js';
+import { SFX } from './sfx.js';
 import { SONGS } from './musicLibrary.js';
 import { WeaponSystem } from './weapons/system.js';
 import { Progression } from './progression.js';
@@ -127,6 +128,7 @@ const comboCfg = {
 const comboEl = document.getElementById('combo');
 const comboLabelEl = document.getElementById('comboLabel');
 const comboBarEl = document.getElementById('comboBar');
+const crosshairEl = document.getElementById('crosshair');
 const combo = { tier:0, multiplier:1.0, streakPoints:0, decayTimer:0 };
 
 function updateComboLabel(){
@@ -191,21 +193,14 @@ enemyManager.onWave = () => {
 };
 enemyManager.onRemaining = () => updateHUD();
 
-// Sounds
-const S = { ctx:null, muted:false, ensure(){ if(!this.ctx){ this.ctx=new (window.AudioContext||window.webkitAudioContext)(); } },
-  b(f=440,t=0.07,g=0.18,type='square',slide=0){ if(this.muted) return; this.ensure(); const a=this.ctx; const o=a.createOscillator(); const G=a.createGain(); const n=a.currentTime; o.type=type; o.frequency.setValueAtTime(f,n); if(slide) o.frequency.exponentialRampToValueAtTime(Math.max(60,f+slide), n+t*0.9); G.gain.setValueAtTime(0.0001,n); G.gain.linearRampToValueAtTime(g,n+0.01); G.gain.exponentialRampToValueAtTime(0.0001,n+t); o.connect(G).connect(a.destination); o.start(n); o.stop(n+t); },
-  shot(){ this.b(320,0.08,0.25,'sawtooth',-100); },
-  reload(){ this.b(660,0.15,0.2,'triangle'); },
-  hurt(){ this.b(200,0.2,0.22,'square'); },
-  kill(){ this.b(520,0.12,0.2,'triangle',60);},
-  hit(){
-    // short percussive thud for melee impacts
-    this.b(220,0.05,0.22,'sine',-160);
-    this.b(140,0.06,0.14,'triangle',-60);
-  }
-};
-// Music instance shares the same AudioContext as S
-const music = new Music({ audioContextProvider: () => { S.ensure(); return S.ctx; }, bpm: 132, volume: 0.35 });
+// Sounds: create music first, then SFX sharing its context and FX bus
+const music = new Music({ bpm: 132, volume: 0.35 });
+const S = new SFX({
+  audioContextProvider: () => music.getContext(),
+  fxBusProvider: () => music.getFxBus(),
+});
+// Expose for ambient enemy vocals
+try { window._SFX = S; } catch(_) {}
 let currentSongIndex = 0;
 function loadCurrentSong(){
   const song = SONGS[currentSongIndex % SONGS.length];
@@ -213,7 +208,7 @@ function loadCurrentSong(){
 }
 loadCurrentSong();
 let lastSongRotateBar = -1;
-document.getElementById('mute').onclick=()=>{ S.muted=!S.muted; document.getElementById('mute').textContent=S.muted?'🔇':'🔊'; music.setMuted(S.muted); };
+document.getElementById('mute').onclick=()=>{ const muted = !(S.isMuted); S.setMuted(muted); document.getElementById('mute').textContent=muted?'🔇':'🔊'; music.setMuted(muted); };
 
 // Tracer + sparks
 const tracers = [];
@@ -247,7 +242,8 @@ weaponSystem = new WeaponSystem({
   addScore: (p) => addScore(p),
   addComboAction: (p) => addComboAction(p),
   combo,
-  addTracer: (from, to) => addTracer(from, to)
+  addTracer: (from, to) => addTracer(from, to),
+  applyRecoil: (r)=> player.applyRecoil?.(r)
 });
 progression = new Progression({ weaponSystem, documentRef: document, onPause: (lock)=>{ offerActive = !!lock; paused = !!lock; }, controls });
 
@@ -309,8 +305,8 @@ function step(){
 
     // pickups update (magnet + animation)
     pickups.update(dt, controls.getObject().position, (type, amount) => {
-      if (type === 'ammo') { if (weaponSystem && weaponSystem.current) weaponSystem.current.addReserve(amount); S.reload(); }
-      else if (type === 'med') { hp = Math.min(100, hp + amount); S.b(880, 0.08, 0.2, 'sine'); }
+      if (type === 'ammo') { if (weaponSystem) weaponSystem.onAmmoPickup(amount); }
+      else if (type === 'med') { hp = Math.min(100, hp + amount); if (S && S.ui) S.ui('pickup'); }
       updateHUD();
     });
 
@@ -320,8 +316,40 @@ function step(){
     // weapon system update (auto fire pacing)
     if (weaponSystem) weaponSystem.update(dt);
 
+    // Crosshair bloom visualization
+    if (crosshairEl && weaponSystem) {
+      const bloom = weaponSystem.getCurrentBloom01 ? weaponSystem.getCurrentBloom01() : 0;
+      const prof = weaponSystem.getCrosshairProfile ? weaponSystem.getCrosshairProfile() : { baseScale:1, minAlpha:0.6, k:0.8, thickPx:2 };
+      const scale = (prof.baseScale + bloom * prof.k).toFixed(3);
+      const alpha = (prof.minAlpha + bloom * 0.25);
+      crosshairEl.style.setProperty('--xh-scale', scale);
+      crosshairEl.style.setProperty('--xh-alpha', alpha.toFixed(3));
+      crosshairEl.style.setProperty('--xh-thick', `${prof.thickPx|0}px`);
+      const gap = (prof.gapPx + bloom * (prof.gapPx * 0.9)).toFixed(2);
+      const len = (prof.lenPx + bloom * (prof.lenPx * 0.6)).toFixed(2);
+      crosshairEl.style.setProperty('--xh-gap', `${gap}px`);
+      crosshairEl.style.setProperty('--xh-len', `${len}px`);
+      // Optional tint on perfect accuracy
+      if (bloom < 0.05) {
+        crosshairEl.style.setProperty('--xh', '#16a34a');
+      } else {
+        crosshairEl.style.setProperty('--xh', 'var(--ui)');
+      }
+    }
+
     // Weather update (uses gameTime so it freezes cleanly when paused)
     weather.update(gameTime, controls.getObject());
+    // Feed music mood from weather for subtle DNA
+    try {
+      const mode = weather.mode || 'clear';
+      const fogMix = (weather._mix?.fog) || (mode.includes('fog') ? 1 : 0);
+      const rainMix = (weather._mix?.rain) || (mode.includes('rain') ? 1 : 0);
+      // Darker pads and softer hats in fog/rain
+      const hatCut = 6000 - 1800 * Math.min(1, (fogMix * 0.6 + rainMix * 0.4));
+      const padBright = 2000 - 600 * Math.min(1, fogMix) + 300 * Math.min(1, rainMix);
+      music.hatCutoffHz = Math.max(2200, hatCut|0);
+      music.padBaseBrightnessHz = Math.max(1200, padBright|0);
+    } catch (e) { /* ignore mood errors */ }
   }
 
   // Drive subtle cloud motion (frozen while paused because gameTime doesn't advance)
@@ -432,6 +460,16 @@ if (enemyManager && enemyManager.bossManager) {
     // Advance to next non-boss track
     currentSongIndex = (currentSongIndex + 1) % SONGS.length;
     loadCurrentSong();
+
+    // Progression gating: unlock rifle after first boss, DMR after second
+    try {
+      if (progression) {
+        progression.bossKills = (progression.bossKills || 0) + 1;
+        if (progression.bossKills === 1) progression.unlocks.rifle = true;
+        if (progression.bossKills === 2) progression.unlocks.dmr = true;
+        progression._saveUnlocks?.();
+      }
+    } catch(_){ }
   };
 }
 

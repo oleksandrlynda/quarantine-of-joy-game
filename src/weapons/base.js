@@ -33,11 +33,6 @@ export class Weapon {
     this.ammoInMag -= 1;
     this._nextFireAtMs = now + (this.cfg.fireDelayMs || 0);
     this.onFire(ctx);
-    // Light viewkick / FOV kick optional
-    if (ctx && ctx.camera) {
-      if (!this._baseFovStored && ctx.camera.fov) { this._baseFovStored = ctx.camera.fov; }
-      if (ctx.camera.fov) { ctx.camera.fov += 0.2; ctx.camera.updateProjectionMatrix(); }
-    }
     return true;
   }
 

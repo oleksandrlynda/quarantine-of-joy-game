@@ -4,6 +4,9 @@ export class Effects {
     this.scene = scene;
     this.camera = camera;
     this._alive = [];
+    // Persistent decals (bullet holes)
+    this._decals = [];
+    this._decalMax = 64;
 
     // Screen overlay for player hits
     this.overlay = this._createHitOverlay();
@@ -33,6 +36,31 @@ export class Effects {
         this._alive.splice(i,1);
       }
     }
+    // Update decals (fade and cleanup)
+    for (let i=this._decals.length-1; i>=0; i--) {
+      const d = this._decals[i];
+      // If bound to an owner that has been removed from scene, drop immediately
+      if (d.owner && !d.owner.parent) {
+        this.scene.remove(d.mesh);
+        if (d.mesh.geometry) d.mesh.geometry.dispose();
+        if (d.mesh.material) d.mesh.material.dispose();
+        this._decals.splice(i,1);
+        continue;
+      }
+      d.age += dt;
+      const k = Math.max(0, 1 - (d.age / d.ttl));
+      if (d.material && d.material.uniforms && d.material.uniforms.uAlpha) {
+        d.material.uniforms.uAlpha.value = d.baseAlpha * k;
+      } else if (d.material && typeof d.material.opacity === 'number') {
+        d.material.opacity = d.baseAlpha * k;
+      }
+      if (d.age >= d.ttl) {
+        this.scene.remove(d.mesh);
+        if (d.mesh.geometry) d.mesh.geometry.dispose();
+        if (d.mesh.material) d.mesh.material.dispose();
+        this._decals.splice(i,1);
+      }
+    }
     // Muzzle flash fade (attached to camera)
     if (this._muzzle) {
       if (this._muzzleTTL > 0) {
@@ -47,6 +75,98 @@ export class Effects {
     if(this.hitStrength > 0){
       this.hitStrength = Math.max(0, this.hitStrength - dt*1.8);
       this.overlay.material.uniforms.uStrength.value = this.hitStrength;
+    }
+  }
+
+  // Persistent bullet hole decal on surfaces. Accepts optional options:
+  // { size, ttl, color (THREE.Color|hex), softness (0..1), object (for transforming local normals), owner (root that owns decal for cleanup), attachTo (Object3D to parent under, preserving world transform) }
+  spawnBulletDecal(position, normal, options = {}){
+    if (!position) return;
+    const THREE = this.THREE;
+
+    // Pool cap: remove oldest if full
+    if (this._decals.length >= (this._decalMax|0 || 64)) {
+      const old = this._decals.shift();
+      if (old) {
+        this.scene.remove(old.mesh);
+        if (old.mesh.geometry) old.mesh.geometry.dispose();
+        if (old.mesh.material) old.mesh.material.dispose();
+      }
+    }
+
+    // Defaults
+    const ttl = Math.max(1, options.ttl != null ? options.ttl : 14.0);
+    const size = Math.max(0.02, options.size != null ? options.size : (0.10 + Math.random()*0.06));
+    const softness = Math.max(0.0, Math.min(1.0, options.softness != null ? options.softness : 0.3));
+    const color = (options.color instanceof THREE.Color) ? options.color.clone() : new THREE.Color(options.color != null ? options.color : 0x151515);
+
+    // Prepare orientation from normal (prefer world-space). If provided normal is local, allow options.object to convert to world
+    let n = (normal && typeof normal.x === 'number') ? normal.clone() : new THREE.Vector3(0,1,0);
+    if (options.object && options.object.matrixWorld && normal) {
+      const normalMatrix = new THREE.Matrix3().getNormalMatrix(options.object.matrixWorld);
+      n = normal.clone().applyMatrix3(normalMatrix).normalize();
+    }
+    if (n.lengthSq() === 0) n.set(0,1,0);
+
+    // Build tiny quad with radial alpha mask using a simple shader (regular blending)
+    const geom = new THREE.PlaneGeometry(1, 1);
+    const mat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthTest: true,
+      depthWrite: false,
+      blending: THREE.NormalBlending,
+      side: THREE.DoubleSide,
+      uniforms: {
+        uAlpha: { value: 0.95 },
+        uColor: { value: color },
+        uSoft: { value: 0.35 + 0.5 * softness }
+      },
+      vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+      fragmentShader: `precision mediump float; varying vec2 vUv; uniform vec3 uColor; uniform float uAlpha; uniform float uSoft; void main(){ vec2 p = vUv - 0.5; float d = length(p) * 2.0; // alpha highest in center, fade to edge
+        float a = (1.0 - smoothstep(uSoft, 1.0, d)) * uAlpha; if (a < 0.01) discard; gl_FragColor = vec4(uColor, a); }`
+    });
+    const mesh = new THREE.Mesh(geom, mat);
+
+    // Random slight non-square scale and roll
+    const sx = size * (0.9 + Math.random()*0.3);
+    const sy = size * (0.9 + Math.random()*0.3);
+    mesh.scale.set(sx, sy, 1);
+
+    // Orient plane's +Z (plane normal) to align with surface normal
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), n.clone().normalize());
+    mesh.quaternion.copy(q);
+
+    // Keep canonical orientation (no roll); bullet holes should look circular
+
+    // Place slightly off surface to avoid z-fighting
+    const epsilon = 0.0015;
+    const pos = position.clone().add(n.clone().multiplyScalar(epsilon));
+    mesh.position.copy(pos);
+
+    // Render order just above default geometry but below HUD overlays
+    mesh.renderOrder = 1;
+
+    this.scene.add(mesh);
+    // If attaching to a moving object (e.g., enemy), reparent while preserving world transform
+    if (options.attachTo && typeof options.attachTo.attach === 'function') {
+      options.attachTo.attach(mesh);
+    }
+
+    const entry = { mesh, material: mat, ttl, age: 0, baseAlpha: mat.uniforms.uAlpha.value, owner: options.owner || null };
+    this._decals.push(entry);
+  }
+
+  // Remove all decals associated with a specific owner (e.g., enemy root). If owner is null, no-op
+  clearDecalsFor(owner){
+    if (!owner) return;
+    for (let i=this._decals.length-1; i>=0; i--) {
+      const d = this._decals[i];
+      if (d.owner === owner) {
+        this.scene.remove(d.mesh);
+        if (d.mesh.geometry) d.mesh.geometry.dispose();
+        if (d.mesh.material) d.mesh.material.dispose();
+        this._decals.splice(i,1);
+      }
     }
   }
 

@@ -24,10 +24,23 @@
   - Speed: 3.2–3.8 units/s; altitude 1.8–3.2 units; arcs/swoops
   - Behavior: dive near player and attempt touch damage; ignores ground obstacles
 
+- **Healer (Support)**: sustains nearby enemies with a periodic AoE pulse.
+  - Health: 90 HP; Speed: 2.2–2.6 units/s (keeps backline)
+  - Heal aura: green ring pulse every 3.5s, radius ~6 units, heals 12 HP/s for 2s (total ~24), does not affect bosses or reduced 50% on elites.
+  - Behavior: prioritizes staying behind cover and near clusters; retreats if alone; no direct damage.
+  - Limits: at most 2 Healers active in early game (soft cap); pulses do not stack additively (strongest only).
+
+- **Sniper (Marksman)**: high-damage ranged threat with long telegraph.
+  - Health: 90 HP; Speed: 2.0–2.4 units/s (anchors at range 22–30 units)
+  - Telegraph: red laser on player for 1.2–1.8s, lock tone on last 0.3s, then fires a fast projectile (≈60 u/s) for 60 damage; long cooldown 3.5–4.5s.
+  - Behavior: repositions to maintain long sightlines; breaks aim when LOS is lost; avoids clumping with other snipers.
+  - Limits: ≤1 Sniper before wave 8; ≤2 after wave 12; never more than 1 firing in the same 1s window (director staggers).
+
 ### Waves
 - Initial wave size: `3 + currentWave`
 - Composition scales by wave: introduces Rusher (W≥3), Shooter (W≥4), Tank (W≥6), Flyer (W≥5)
 - Clearing all enemies increments the wave and immediately spawns the next
+ - Healer unlocks at W≥7 (cap per notes); Sniper unlocks at W≥8 (staggered firing windows)
 
 ### Boss Waves (every 5th wave)
 - Spawn a unique boss with abilities; clears gate the next set of waves.

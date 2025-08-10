@@ -12,29 +12,49 @@ export class Progression {
     this._bindOfferUI();
     this.offerOpen = false;
     this._offerHandlersBound = false;
+    this.bossKills = 0; // track number of defeated bosses this run
   }
 
   _loadUnlocks(){
     try {
       const s = localStorage.getItem(this.UNLOCKS_KEY);
-      return s ? JSON.parse(s) : { bestWave:0, smg:false, shotgun:false, dmr:false };
+      return s ? JSON.parse(s) : { bestWave:0, smg:false, shotgun:false, rifle:false, dmr:false };
     } catch {
-      return { bestWave:0, smg:false, shotgun:false, dmr:false };
+      return { bestWave:0, smg:false, shotgun:false, rifle:false, dmr:false };
     }
   }
   _saveUnlocks(){ try { localStorage.setItem(this.UNLOCKS_KEY, JSON.stringify(this.unlocks)); } catch {} }
 
   onWave(wave){
-    // Unlock by wave milestones
+    // Guided early milestones
+    if (wave === 1) { return; }
+    if (wave === 2) {
+      // Force Shotgun as the first primary
+      const pool = this.ws.getUnlockedPrimaries({ shotgun:true, smg:true, rifle:true, dmr:true });
+      const sg = pool.find(x => x.name === 'Shotgun');
+      if (sg) this.ws.swapPrimary(sg.make);
+      return;
+    }
+    if (wave === 3) { this._presentOffer(['Shotgun','SMG']); return; }
+    if (wave === 4) { this._presentOffer(['Shotgun','SMG']); return; }
+    if (wave === 5) { this._presentOffer(['Shotgun','SMG']); return; }
+    if (wave === 6) { this._presentOffer(['SMG','Rifle']); return; }
+    if (wave === 7) { this._presentOffer(['Rifle','Shotgun']); return; }
+    if (wave === 8) { this._presentOffer(['Shotgun','SMG']); return; }
+    if (wave === 9) { this._presentOffer(['SMG','Rifle']); return; }
+    if (wave === 9) { this._presentOffer(['SMG','Shotgun']); return; }
+    if (wave === 11) { this._presentOffer(['Rifle','DMR']); return; }
+
+    // After wave 5, unlock persistently and continue normal offers on even waves
     if (wave > (this.unlocks.bestWave||0)){
       this.unlocks.bestWave = wave;
-      if (wave >= 3) this.unlocks.smg = true;
-      if (wave >= 4) this.unlocks.shotgun = true;
-      if (wave >= 6) this.unlocks.dmr = true;
+      if (wave >= 3) this.unlocks.shotgun = true;
+      if (wave >= 5) this.unlocks.smg = true;
+      // rifle unlocked after first boss via main.js hook
+      // dmr unlocked after second boss via main.js hook
       this._saveUnlocks();
     }
-    // Schedule armory offer on even waves starting at 2, unless cooldown from last accept
-    if (wave >= 2 && (wave % 2) === 0){
+    if (wave >= 6 && (wave % 2) === 0){
       if (this.offerCooldown > 0) { this.offerCooldown -= 1; }
       else { this._presentOffer(); }
     }
@@ -47,20 +67,27 @@ export class Progression {
     if (this.declineBtn) this.declineBtn.onclick = () => this._decline();
   }
 
-  _presentOffer(){
+  _presentOffer(restrictNames){
     if (!this.offerEl || !this.choicesEl) return;
     const unlocked = this.ws.getUnlockedPrimaries(this.unlocks);
     // Remove current primary from pool
-    const pool = unlocked.filter(x => x.name !== (this.ws.current?.name || 'Rifle'));
+    let pool = unlocked.filter(x => x.name !== (this.ws.current?.name || 'Rifle'));
+    if (Array.isArray(restrictNames) && restrictNames.length > 0) {
+      pool = restrictNames.map(n => pool.find(p => p.name === n)).filter(Boolean);
+    }
     if (pool.length === 0) return;
     // pick 2 distinct (or 1 if only one)
     const picks = [];
     const rnd = (n)=> Math.floor(Math.random()*n);
-    picks.push(pool[rnd(pool.length)]);
-    if (pool.length > 1){
-      let idx = rnd(pool.length);
-      while (pool[idx].name === picks[0].name) idx = rnd(pool.length);
-      picks.push(pool[idx]);
+    if (pool.length === 1) picks.push(pool[0]);
+    else if (pool.length === 2 && restrictNames) { picks.push(pool[0], pool[1]); }
+    else {
+      picks.push(pool[rnd(pool.length)]);
+      if (pool.length > 1){
+        let idx = rnd(pool.length);
+        while (pool[idx].name === picks[0].name) idx = rnd(pool.length);
+        picks.push(pool[idx]);
+      }
     }
     // build UI
     this.choicesEl.innerHTML = '';

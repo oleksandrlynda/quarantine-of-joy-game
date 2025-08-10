@@ -62,6 +62,10 @@
 - Hold‑to‑skip hint with progress ring; on completion, quick recap card with 2–3 lines.
 
 ### Accessibility (Narrative Feedback)
+
+### Enemy Telegraphs (New Types)
+- Healer: green circular ground ring pulses around healer; ring opacity maps to pulse strength; optional subtle “+HP” ticks on allies in ring.
+- Sniper: red laser line from Sniper head to player; 1.2–1.8s dwell; last 0.3s lock tone + thicker laser; brief muzzle flash on fire; optional vignette tick.
 - Saturation alt palette for color‑blind modes; reduced bloom and flash intensity slider for meme blooms.
 - Chant subtitle readability: larger font option, outline thickness control.
 

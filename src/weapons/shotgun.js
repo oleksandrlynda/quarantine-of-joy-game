@@ -10,14 +10,18 @@ export class Shotgun extends Weapon {
       magSize: 6,
       reserve: 24
     });
-    this.pellets = 9;
-    this.spreadRad = 0.105; // ~6 degrees
+    this.pellets = 12; // more shards
+    this.spreadRad = 0.14; // wider cone (~8 degrees)
     this.range = 28; // short range
     this.fullDamageRange = 6; // no falloff within 6 units
   }
 
   onFire(ctx) {
     const { THREE, camera, raycaster, enemyManager, objects, effects, S, pickups, addScore, addComboAction, obstacleManager } = ctx;
+    // Recoil: strong vertical kick with no FOV change
+    const pitch = (10.0 + Math.random() * 4.0) * (Math.PI/180); // 10–14° up
+    const yaw = ((Math.random()*2 - 1) * 0.6) * (Math.PI/180);
+    ctx.applyRecoil?.({ pitchRad: pitch, yawRad: yaw, fovKick: 0, pitchReturn: 6.0, yawReturn: 8.0 });
     if (S && S.shot) S.shot('shotgun');
     effects?.spawnMuzzleFlash?.(1.0);
 
@@ -30,9 +34,9 @@ export class Shotgun extends Weapon {
     const representative = [];
 
     for (let i = 0; i < this.pellets; i++) {
-      // random cone offset
-      const angleX = (Math.random() * 2 - 1) * this.spreadRad;
-      const angleY = (Math.random() * 2 - 1) * this.spreadRad;
+      // biased to widen left-right spread more than vertical
+      const angleX = (Math.random() * 2 - 1) * this.spreadRad * 1.25;
+      const angleY = (Math.random() * 2 - 1) * this.spreadRad * 0.75;
       const dir = forward.clone().add(right.clone().multiplyScalar(angleX)).add(up.clone().multiplyScalar(angleY)).normalize();
 
       const res = performHitscan({ THREE, camera, raycaster, enemyManager, objects, origin, dir, range: this.range });
@@ -49,6 +53,9 @@ export class Shotgun extends Weapon {
         const dmg = res.isHead ? head : body;
         res.enemyRoot.userData.hp -= dmg;
         effects?.spawnBulletImpact?.(end, res.hitFace?.normal);
+        if (S && S.impactFlesh) S.impactFlesh();
+        if (S && S.enemyPain) S.enemyPain(res.enemyRoot?.userData?.type || 'grunt');
+        effects?.spawnBulletDecal?.(end, res.hitFace?.normal, { size: 0.09, ttl: 8, color: 0x1a1a1a, softness: 0.65, object: res.hitObject, owner: res.enemyRoot, attachTo: res.enemyRoot });
         if (res.enemyRoot.userData.hp <= 0) {
           effects?.enemyDeath?.(res.enemyRoot.position.clone());
           pickups?.maybeDrop?.(res.enemyRoot.position.clone());
@@ -57,11 +64,13 @@ export class Shotgun extends Weapon {
           const finalScore = Math.round(base * (ctx.combo?.multiplier || 1));
           addScore?.(finalScore);
           addComboAction?.(1);
-          if (S && S.kill) S.kill();
+           if (S && S.enemyDeath) S.enemyDeath(res.enemyRoot?.userData?.type || 'grunt');
         }
       } else if (res.type === 'world') {
         obstacleManager?.handleHit?.(res.hitObject, 8); // minor per-pellet impact on props
         effects?.spawnBulletImpact?.(res.hitPoint, res.hitFace?.normal);
+        effects?.spawnBulletDecal?.(res.hitPoint, res.hitFace?.normal, { size: 0.10, ttl: 12, color: 0x151515, softness: 0.4, object: res.hitObject });
+        if (S && S.impactWorld) S.impactWorld();
       }
     }
 

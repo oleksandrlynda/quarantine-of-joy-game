@@ -29,6 +29,10 @@ export class SMG extends Weapon {
 
   onFire(ctx) {
     const { THREE, camera, raycaster, enemyManager, objects, effects, S, pickups, addScore, addComboAction, obstacleManager } = ctx;
+    // Recoil: visible per‑shot 0.8–1.2° pitch, ±0.5° yaw; fast recovery; no FOV kick
+    const pitch = (1.4 + Math.random() * 0.6) * (Math.PI/180);
+    const yaw = ((Math.random()*2 - 1) * 0.8) * (Math.PI/180);
+    ctx.applyRecoil?.({ pitchRad: pitch, yawRad: yaw, fovKick: 0, pitchReturn: 0.5, yawReturn: 0.6 });
     if (S && S.shot) S.shot('smg');
     effects?.spawnMuzzleFlash?.(0.35);
 
@@ -55,21 +59,26 @@ export class SMG extends Weapon {
       // tiny pushback
       res.enemyRoot.position.add(dir.clone().multiplyScalar(0.12));
       effects?.spawnBulletImpact?.(end, res.hitFace?.normal);
+      if (S && S.impactFlesh) S.impactFlesh();
+      if (S && S.enemyPain) S.enemyPain(res.enemyRoot?.userData?.type || 'grunt');
+      effects?.spawnBulletDecal?.(end, res.hitFace?.normal, { size: 0.085, ttl: 9, color: 0x1a1a1a, softness: 0.6, object: res.hitObject, owner: res.enemyRoot, attachTo: res.enemyRoot });
       if (res.enemyRoot.userData.hp <= 0) {
         effects?.enemyDeath?.(res.enemyRoot.position.clone());
+        if (S && S.enemyDeath) S.enemyDeath(res.enemyRoot?.userData?.type || 'grunt');
         pickups?.maybeDrop?.(res.enemyRoot.position.clone());
         enemyManager.remove(res.enemyRoot);
         const base = isHead ? 150 : 100;
         const finalScore = Math.round(base * (ctx.combo?.multiplier || 1));
         addScore?.(finalScore);
         addComboAction?.(1);
-        if (S && S.kill) S.kill();
       } else {
         addComboAction?.(0.25);
       }
     } else if (res.type === 'world') {
       obstacleManager?.handleHit?.(res.hitObject, 18);
       effects?.spawnBulletImpact?.(res.hitPoint, res.hitFace?.normal);
+      effects?.spawnBulletDecal?.(res.hitPoint, res.hitFace?.normal, { size: 0.09, ttl: 12, color: 0x131313, softness: 0.4, object: res.hitObject });
+      if (S && S.impactWorld) S.impactWorld();
     }
 
     // tracer

@@ -52,9 +52,12 @@ export class BossManager {
       : new THREE.Vector3((Math.random()*50-25)|0, 0.8, (Math.random()*50-25)|0));
 
     // Boss selection routing:
-    // - Wave 5 (first boss): Broodmaker (light version)
-    // - Wave >= 25 (after cycling through bosses): Broodmaker (heavy version)
-    // - Otherwise: Shard Avatar (placeholder default)
+    // - Wave 5: Broodmaker (light version)
+    // - Wave 10: Sanitizer
+    // - Wave 15: Captain
+    // - Wave 20: Shard Avatar
+    // - Wave 25: Broodmaker (heavy version)
+    // - Rest: TODO
     let boss;
     if (wave === 5) {
       boss = new Broodmaker({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager, mode: 'light' });

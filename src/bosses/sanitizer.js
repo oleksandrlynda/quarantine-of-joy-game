@@ -15,7 +15,7 @@ export class Sanitizer {
     head.position.y = 2.0; body.add(head);
     body.position.copy(spawnPos);
 
-    body.userData = { type: 'boss_sanitizer', head, hp: 1600 };
+    body.userData = { type: 'boss_sanitizer', head, hp: 2200 };
     this.root = body;
 
     // Core state
@@ -35,7 +35,7 @@ export class Sanitizer {
     this._beamLen = 18; // visible and damaging length
     this._beamMesh = null;
 
-    this._pulseCd = 2.8; // close-range defensive pulse
+    this._pulseCd = 3.8; // close-range defensive pulse
 
     // Nodes around arena center (more discoverable)
     const arenaCenter = new THREE.Vector3(0, 0.8, 0);

@@ -13,7 +13,11 @@ export function createWorld(THREE, rng = Math.random){
   scene.fog = new THREE.Fog(0xcfe8ff, 20, 160);
 
   // Camera
-  const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 500);
+  const camera = (()=>{
+    let c = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 500);
+    c.rotation.order = 'YXZ';
+    return c;
+  })();
 
   // Sky dome with shader
   const skyGeo = new THREE.SphereGeometry(300, 16, 8);

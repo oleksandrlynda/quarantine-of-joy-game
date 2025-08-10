@@ -45,6 +45,11 @@ export class MeleeEnemy {
     this._damageReductionValue = 0;
     // Cached forward for on-hit lateral juke orientation
     this._lastFwd = new this.THREE.Vector3(1,0,0);
+    // Stagger and burst mechanics
+    this._staggerTimer = 0;             // active stagger slow
+    this._staggerImmunityTimer = 0;     // prevents stun-lock
+    this._burstTimer = 0;               // post-regroup gap-close burst
+    this._regroupWasPaused = false;     // detect end of regroup pause
   }
 
   update(dt, ctx) {
@@ -132,6 +137,7 @@ export class MeleeEnemy {
     // Regroup behavior: if outnumbered and isolated, pause briefly to wait for a buddy
     this._regroupTimer = this._regroupTimer || 0;
     const regrouping = ctx.blackboard && ctx.blackboard.regroup;
+    const regroupPausedBefore = (this._regroupTimer && this._regroupTimer > 0);
     if (regrouping) {
       const allies = ctx.alliesNearbyCount(e.position, 8.0, e);
       if (allies <= 0) {
@@ -143,6 +149,11 @@ export class MeleeEnemy {
       }
     } else {
       this._regroupTimer = 0;
+    }
+    const regroupPausedAfter = (this._regroupTimer && this._regroupTimer > 0);
+    // Detect end of regroup pause to trigger a small gap-close burst
+    if (regroupPausedBefore && !regroupPausedAfter) {
+      this._burstTimer = 0.45 + Math.random() * 0.15; // 0.45–0.6s
     }
 
     // Cache last forward used for movement to orient hit-jukes
@@ -180,8 +191,14 @@ export class MeleeEnemy {
       // If regrouping pause is active, dampen movement almost fully
       const regroupMul = (this._regroupTimer && this._regroupTimer > 0) ? 0.15 : 1.0;
       const slowMul = this._slowTimer > 0 ? 0.7 : 1.0;
+      // Apply stagger slow and burst speed
+      if (this._staggerTimer > 0) this._staggerTimer = Math.max(0, this._staggerTimer - dt);
+      if (this._staggerImmunityTimer > 0) this._staggerImmunityTimer = Math.max(0, this._staggerImmunityTimer - dt);
+      if (this._burstTimer > 0) this._burstTimer = Math.max(0, this._burstTimer - dt);
+      const staggerMul = this._staggerTimer > 0 ? 0.15 : 1.0;
+      const burstMul = this._burstTimer > 0 ? 1.5 : 1.0;
       if (this._slowTimer > 0) this._slowTimer = Math.max(0, this._slowTimer - dt);
-      let step = steer.multiplyScalar(this.speed * slowMul * regroupMul * dt);
+      let step = steer.multiplyScalar(this.speed * slowMul * regroupMul * staggerMul * burstMul * dt);
 
       // Prevent entering the player's personal space; slide tangentially instead
       const minRadius = 1.2; // meters from player center
@@ -239,6 +256,14 @@ export class MeleeEnemy {
       this._slowTimer = Math.max(this._slowTimer, 0.35);
       this._damageReductionTimer = Math.max(this._damageReductionTimer, 0.35);
       this._damageReductionValue = 0.25;
+    }
+    // Light stagger on headshot or heavy damage, with immunity to prevent stun-lock
+    const heavy = damage >= 30;
+    if ((isHead || heavy) && this._staggerImmunityTimer <= 0) {
+      this._staggerTimer = 0.18 + Math.random() * 0.06;      // 0.18–0.24s
+      this._staggerImmunityTimer = 0.6 + Math.random() * 0.2; // 0.6–0.8s
+      // cancel current juke during stagger
+      this._jukeTime = 0;
     }
   }
 

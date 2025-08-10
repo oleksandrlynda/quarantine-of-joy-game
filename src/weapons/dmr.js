@@ -16,6 +16,10 @@ export class DMR extends Weapon {
 
   onFire(ctx) {
     const { THREE, camera, raycaster, enemyManager, objects, effects, S, pickups, addScore, addComboAction, obstacleManager } = ctx;
+    // Recoil: 2.0–3.0°, no FOV kick
+    const pitch = (3.5 + Math.random() * 1.2) * (Math.PI/180);
+    const yaw = ((Math.random()*2 - 1) * 0.8) * (Math.PI/180);
+    ctx.applyRecoil?.({ pitchRad: pitch, yawRad: yaw, fovKick: 0, pitchReturn: 0.6, yawReturn: 0.75 });
     if (S && S.shot) S.shot('dmr');
     effects?.spawnMuzzleFlash?.(0.7);
     // First hit (no falloff, long range)
@@ -32,15 +36,18 @@ export class DMR extends Weapon {
       const push = camDir.clone().multiplyScalar(0.35);
       res.enemyRoot.position.add(push);
       effects?.spawnBulletImpact?.(end, res.hitFace?.normal);
+      if (S && S.impactFlesh) S.impactFlesh();
+      if (S && S.enemyPain) S.enemyPain(res.enemyRoot?.userData?.type || 'grunt');
+      effects?.spawnBulletDecal?.(end, res.hitFace?.normal, { size: 0.11, ttl: 16, color: 0x101010, softness: 0.35, object: res.hitObject, owner: res.enemyRoot, attachTo: res.enemyRoot });
       if (res.enemyRoot.userData.hp <= 0) {
         effects?.enemyDeath?.(res.enemyRoot.position.clone());
+        if (S && S.enemyDeath) S.enemyDeath(res.enemyRoot?.userData?.type || 'grunt');
         pickups?.maybeDrop?.(res.enemyRoot.position.clone());
         enemyManager.remove(res.enemyRoot);
         const base = isHead ? 150 : 100;
         const finalScore = Math.round(base * (ctx.combo?.multiplier || 1));
-        addScore?.(finalScore);
-        addComboAction?.(1);
-        if (S && S.kill) S.kill();
+         addScore?.(finalScore);
+         addComboAction?.(1);
       } else {
         addComboAction?.(0.25);
       }
@@ -54,6 +61,8 @@ export class DMR extends Weapon {
         const dmg2 = 0.65 * (res2.isHead ? 150 : 75);
         res2.enemyRoot.userData.hp -= dmg2;
         effects?.spawnBulletImpact?.(res2.endPoint, res2.hitFace?.normal);
+        if (S && S.impactFlesh) S.impactFlesh();
+        if (S && S.enemyPain) S.enemyPain(res2.enemyRoot?.userData?.type || 'grunt');
         if (res2.enemyRoot.userData.hp <= 0) {
           effects?.enemyDeath?.(res2.enemyRoot.position.clone());
           pickups?.maybeDrop?.(res2.enemyRoot.position.clone());
@@ -62,12 +71,14 @@ export class DMR extends Weapon {
           const finalScore2 = Math.round(base2 * (ctx.combo?.multiplier || 1));
           addScore?.(finalScore2);
           addComboAction?.(0.75);
-          if (S && S.kill) S.kill();
+           if (S && S.enemyDeath) S.enemyDeath(res2.enemyRoot?.userData?.type || 'grunt');
         }
       }
     } else if (res.type === 'world') {
       obstacleManager?.handleHit?.(res.hitObject, 60);
       effects?.spawnBulletImpact?.(res.hitPoint, res.hitFace?.normal);
+      effects?.spawnBulletDecal?.(res.hitPoint, res.hitFace?.normal, { size: 0.12, ttl: 18, color: 0x0e0e0e, softness: 0.33, object: res.hitObject });
+      if (S && S.impactWorld) S.impactWorld();
     }
 
     if (ctx.addTracer) ctx.addTracer(res.origin || camera.getWorldPosition(new ctx.THREE.Vector3()), end);

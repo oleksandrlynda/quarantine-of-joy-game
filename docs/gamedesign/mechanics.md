@@ -156,6 +156,8 @@ Boss Interactions
 Combat Baselines
 - Rifle: 30 mag, 60 reserve, 40 body / 100 headshot, ~500 RPM cap
 - Enemy contact DPS: ~15 DPS; Shooter projectile: ~14 dmg
+ - Healer aura: radius 6u; pulse every 3.5s; heals 12 HP/s for 2s; no boss heal; elites 50% effectiveness; strongest pulse only
+ - Sniper shot: 60 dmg; laser telegraph 1.2–1.8s with 0.3s lock tone; projectile ~60 u/s; cooldown 3.5–4.5s; director staggers snipers
 
 Wave & Spawn
 - Wave size: 3 + currentWave
