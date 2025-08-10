@@ -5,7 +5,7 @@
 Concepts:
 
 Game:
-<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/be462f5f-fb36-436c-8660-0a6afecfeb84" />
+<img width="1536" height="1024" alt="gameplay" src="https://github.com/user-attachments/assets/7d88368b-30a1-4895-a6ac-a528a5f3141c" />
 
 Enemies:
  - Rusher (meele)
