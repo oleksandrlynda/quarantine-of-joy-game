@@ -29,7 +29,7 @@ export class WeaponSystem {
     this.currentIndex = 0; // primary slot index
 
     // Start wave 1 with only a Pistol
-    this.inventory.push(new Pistol(), new Rifle());  // Sidearm-only start; primary is acquired later
+    this.inventory.push(new Pistol());  // Sidearm-only start; primary is acquired later
   }
 
   get current() { return this.inventory[this.currentIndex]; }
