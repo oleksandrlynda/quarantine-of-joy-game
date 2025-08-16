@@ -15,6 +15,7 @@ import { WeaponSystem } from './weapons/system.js';
 import { WeaponView } from './weapons/view.js';
 import { startEditor } from './editor.js';
 import { Progression } from './progression.js';
+import { StoryManager } from './story.js';
 
 // ------ Seeded RNG + URL persistence ------
 const url = new URL(window.location.href);
@@ -53,6 +54,8 @@ if (newSeedBtn) {
 // ------ World (renderer, scene, camera, lights, sky, materials, arena) ------
 const { renderer, scene, camera, skyMat, hemi, dir, mats, objects } = createWorld(THREE, rng);
 const wantEditor = (new URL(window.location.href)).searchParams.get('editor') === '1';
+const storyParam = (new URL(window.location.href)).searchParams.get('story');
+const storyDisabled = storyParam === '0' || storyParam === 'false';
 
 // Obstacles / Level loading (deterministic per seed or explicit map)
 const obstacleManager = new ObstacleManager(THREE, scene, mats);
@@ -152,9 +155,25 @@ let lastMeleeSfxAt = -1;
 let lastMeleeVfxAt = -1;
 const MELEE_SFX_COOLDOWN = 0.25; // seconds
 const MELEE_VFX_COOLDOWN = 0.10; // seconds; allow gentle pulsing while holding contact
+const EMERGENCY_AMMO_COOLDOWN = 22; // seconds of active gameplay between emergency ammo drops
 const hpEl = document.getElementById('hp'), ammoEl = document.getElementById('ammo'), magEl = document.getElementById('mag'), scoreEl = document.getElementById('score'), bestEl = document.getElementById('best'), waveEl = document.getElementById('wave');
 const staminaBarEl = document.getElementById('staminaBar');
 const fpsEl = document.getElementById('fps');
+// Perf HUD toggle via URL (?debug=0 to hide)
+const debugPerf = params.get('debug') !== '0';
+let dbgCallsEl = null;
+if (debugPerf) {
+  dbgCallsEl = document.createElement('div');
+  dbgCallsEl.className = 'pill tiny';
+  dbgCallsEl.style.position = 'fixed';
+  dbgCallsEl.style.right = '8px';
+  dbgCallsEl.style.bottom = '8px';
+  dbgCallsEl.style.zIndex = '10';
+  dbgCallsEl.style.pointerEvents = 'none';
+  dbgCallsEl.id = 'drawCalls';
+  dbgCallsEl.textContent = 'Calls: 0  Tris: 0  Tex: 0';
+  try { document.body.appendChild(dbgCallsEl); } catch(_) {}
+}
 const weaponNameEl = document.getElementById('weapon');
 const weaponIconEl = document.getElementById('weaponIcon');
 const hpPillEl = document.getElementById('hpPill');
@@ -215,6 +234,7 @@ function resetCombo(){ combo.streakPoints=0; setComboTier(0); combo.decayTimer=0
 
 let weaponSystem; // initialized later
 let progression;  // armory offers + unlocks
+let story;        // lightweight narrative beats
 let offerActive = false; // suppress panel on pointer unlock during offers
 
 function updateHUD(){
@@ -227,6 +247,10 @@ function updateHUD(){
     weaponIconEl.src = iconMap[w?.name] || iconMap.Rifle;
   }
   hpEl.textContent=hp; ammoEl.textContent=ammoVal; magEl.textContent=reserveVal; scoreEl.textContent=score; if (bestEl) bestEl.textContent = best; if(waveEl) waveEl.textContent = enemyManager.wave;
+  updateHUDComboAndBoss();
+}
+
+function updateHUDComboAndBoss(){
   updateComboLabel();
   // Stamina HUD
   if (staminaBarEl && player && typeof player.getStamina01 === 'function') {
@@ -235,7 +259,7 @@ function updateHUD(){
   }
   // Low state cues
   if (hpPillEl){ hpPillEl.classList.remove('low','crit'); if (hp <= 25) { hpPillEl.classList.add('crit'); } else if (hp <= 50) { hpPillEl.classList.add('low'); } }
-  if (ammoPillEl){ ammoPillEl.classList.remove('need-reload'); if (ammoVal <= 0) ammoPillEl.classList.add('need-reload'); }
+  if (ammoPillEl){ const ammoValLocal = weaponSystem ? weaponSystem.getAmmo() : 30; ammoPillEl.classList.remove('need-reload'); if (ammoValLocal <= 0) ammoPillEl.classList.add('need-reload'); }
   // Wave progress
   if (waveBarEl && typeof enemyManager.waveStartingAlive === 'number'){
     const total = Math.max(1, enemyManager.waveStartingAlive);
@@ -284,6 +308,7 @@ enemyManager.onWave = (_wave, startingAlive) => {
   pickups.onWave(enemyManager.wave);
   if (player.refreshColliders) player.refreshColliders(objects);
   if (progression) progression.onWave(enemyManager.wave);
+  if (story) story.onWave(enemyManager.wave);
   // Toast
   showToast(`Wave ${_wave} start`);
 };
@@ -354,6 +379,7 @@ weaponSystem = new WeaponSystem({
 // Set initial weapon view
 try { weaponView.setWeapon(weaponSystem.getPrimaryName()); } catch(_) {}
 progression = new Progression({ weaponSystem, documentRef: document, onPause: (lock)=>{ offerActive = !!lock; paused = !!lock; }, controls });
+story = storyDisabled ? null : new StoryManager({ documentRef: document, onPause: (lock)=>{ paused = !!lock; }, controls, toastFn: (t)=> showToast(t), beatsUrl: 'assets/story/beats.json' });
 
 window.addEventListener('mousedown', e=>{ if(!controls.isLocked || paused) return; weaponSystem.triggerDown(); });
 window.addEventListener('mouseup', ()=>{ weaponSystem.triggerUp(); });
@@ -375,10 +401,18 @@ updateHUD();
 const clock = new THREE.Clock();
 let gameOver=false;
 let gameTime = 0; // advances only when not paused and controls are locked
+let lastEmergencyAmmoAt = -1000; // so first eligible trigger is allowed
 // FPS limit
 const TARGET_FPS = 60;
 const FRAME_MIN_MS = 1000 / TARGET_FPS;
 let _lastFrameAt = performance.now();
+// Adaptive pixel ratio (DPR) — opt-in via ?autoDPR=1
+const autoDpr = params.get('autoDPR') === '1';
+const DPR_MAX = Math.min(2, window.devicePixelRatio || 1);
+const DPR_MIN = 0.8;
+let _dpr = DPR_MAX;
+let _frameEmaMs = 1000 / TARGET_FPS;
+let _lastDprAdjustAt = 0;
 function step(){
   const now = performance.now();
   const elapsedMs = now - _lastFrameAt;
@@ -457,6 +491,8 @@ function step(){
         }
       }
       updateHUD();
+      // Low HP trigger for story
+      try { if (hp <= 25) story?.onLowHp?.(); } catch(_) {}
     });
 
     // legacy tracers removal (if any left around)
@@ -467,9 +503,39 @@ function step(){
     // pickups update (magnet + animation)
     pickups.update(dt, controls.getObject().position, (type, amount, where) => {
       if (type === 'ammo') { if (weaponSystem) weaponSystem.onAmmoPickup(amount); showToast('+Ammo'); }
-      else if (type === 'med') { hp = Math.min(100, hp + amount); if (S && S.ui) S.ui('pickup'); showToast('+HP'); }
+      else if (type === 'med') { hp = Math.min(100, hp + amount); if (S && S.ui) S.ui('pickup'); showToast('+HP'); try { story?.onFirstMedPickup?.(); } catch(_) {} }
       updateHUD();
     });
+
+    // Emergency ammo assistance: if player has no ammo (mag + reserve) and there are
+    // at most 1 ammo pickup on the map, drop 3 at center to prevent softlocks
+    try {
+      if (weaponSystem && pickups && pickups.active) {
+        // Compute total ammo across all weapons (mag + reserve for each)
+        let totalAmmo = 0;
+        try {
+          for (const w of (weaponSystem.inventory || [])) {
+            const mag = Math.max(0, (typeof w.getAmmo === 'function' ? w.getAmmo() : w.ammoInMag) | 0);
+            const res = Math.max(0, (typeof w.getReserve === 'function' ? w.getReserve() : w.reserveAmmo) | 0);
+            totalAmmo += mag + res;
+          }
+        } catch(_) {}
+        if (totalAmmo <= 0 && (gameTime - lastEmergencyAmmoAt) >= EMERGENCY_AMMO_COOLDOWN) {
+          let ammoOnMap = 0;
+          for (const g of pickups.active) { if (g?.userData?.type === 'ammo') ammoOnMap++; }
+          if (ammoOnMap <= 1) {
+            const center = new THREE.Vector3(0, 0, 0);
+            const offsets = [
+              new THREE.Vector3(0, 0, 0),
+              new THREE.Vector3(0.9, 0, 0),
+              new THREE.Vector3(-0.9, 0, 0)
+            ];
+            for (const off of offsets) { pickups.spawn('ammo', center.clone().add(off)); }
+            lastEmergencyAmmoAt = gameTime;
+          }
+        }
+      }
+    } catch(_) { /* ignore emergency drop errors */ }
 
     // Obstacles update (reserved for future moving obstacles)
     obstacleManager.update(dt);
@@ -552,7 +618,35 @@ function step(){
 
   // (pickups and weather are updated only while active in the gated block above)
 
+  // Adaptive DPR update (EMA over frame interval)
+  if (autoDpr) {
+    _frameEmaMs = _frameEmaMs * 0.9 + elapsedMs * 0.1;
+    if ((now - _lastDprAdjustAt) > 900) {
+      let changed = false;
+      if (_frameEmaMs > (1000/55) && _dpr > DPR_MIN) {
+        _dpr = Math.max(DPR_MIN, Math.round((_dpr - 0.1) * 20) / 20);
+        changed = true;
+      } else if (_frameEmaMs < (1000/62) && _dpr < DPR_MAX) {
+        _dpr = Math.min(DPR_MAX, Math.round((_dpr + 0.1) * 20) / 20);
+        changed = true;
+      }
+      if (changed) { renderer.setPixelRatio(_dpr); _lastDprAdjustAt = now; }
+    }
+  }
+
   renderer.render(scene,camera);
+
+  // Debug counters ~5Hz
+  if (debugPerf && (!step._dbg || !step._dbg.t || (now - step._dbg.t) > 200)) {
+    step._dbg = step._dbg || {}; step._dbg.t = now;
+    const info = renderer.info;
+    if (info && dbgCallsEl) {
+      const calls = (info.render && info.render.calls) || 0;
+      const tris = (info.render && info.render.triangles) || 0;
+      const tex = (info.memory && info.memory.textures) || 0;
+      dbgCallsEl.textContent = `Calls: ${calls}  Tris: ${tris}  Tex: ${tex}`;
+    }
+  }
   requestAnimationFrame(step);
 }
 requestAnimationFrame(step);
@@ -575,14 +669,31 @@ function reset(){ // clear enemies
   try { player.stamina = player.staminaMax; } catch(_) {}
   try { effects.setFatigue(0); } catch(_) {}
   try { S.stopBreath(); } catch(_) {}
+  try { story?.reset(); story?.startRun(); } catch(_) {}
 }
 
 playBtn.onclick = ()=>{ panel.parentElement.style.display='none'; controls.lock(); reset(); music.start(); };
 retryBtn.onclick = ()=>{ panel.parentElement.style.display='none'; controls.lock(); reset(); music.start(); };
 
+// Quality preset buttons: update URL params and reload
+const qLow = document.getElementById('qLow');
+const qMed = document.getElementById('qMed');
+const qHigh = document.getElementById('qHigh');
+const qUltra = document.getElementById('qUltra');
+function setParams(obj){
+  const u = new URL(window.location.href);
+  Object.entries(obj).forEach(([k,v])=>{ if (v==null) u.searchParams.delete(k); else u.searchParams.set(k, String(v)); });
+  window.location.href = `${u.pathname}?${u.searchParams.toString()}`;
+}
+if (qLow) qLow.onclick = ()=> setParams({ aa: 0, shadows: 0, autoDPR: 1, tone: 0, debug: 1 });
+if (qMed) qMed.onclick = ()=> setParams({ aa: 0, shadows: 0, autoDPR: 1, tone: 1, debug: 1 });
+if (qHigh) qHigh.onclick = ()=> setParams({ aa: 1, shadows: 1, autoDPR: 0, tone: 1, debug: 1 });
+if (qUltra) qUltra.onclick = ()=> setParams({ aa: 1, shadows: 1, autoDPR: 0, tone: 1, debug: 1 });
+
 controls.addEventListener('unlock', ()=>{
   // If an offer/modal unlocked the pointer, don't show the start panel
   if (offerActive) return;
+  if (story && story.active) return;
   panel.parentElement.style.display='grid';
   retryBtn.style.display='';
 });
@@ -592,6 +703,24 @@ if (!wantEditor) enemyManager.startWave();
 
 // Ensure audio resume on first input (mobile/desktop)
 window.addEventListener('pointerup', ()=> S.ensure(), {once:true});
+
+// Optional: pre-warm enemy assets to avoid first-spawn hitches
+try {
+  const prewarm = (new URL(window.location.href)).searchParams.get('prewarm') !== '0';
+  if (prewarm) {
+    const kinds = ['grunt', 'rusher', 'shooter', 'sniper', 'tank'];
+    const base = new THREE.Vector3(0, 0.8, -60);
+    for (let i=0;i<kinds.length;i++) {
+      const pos = base.clone().add(new THREE.Vector3(i*2, 0, 0));
+      const root = enemyManager.spawnAt(kinds[i], pos, { countsTowardAlive: false });
+      scene.remove(root);
+      enemyManager.remove(root);
+    }
+  }
+} catch(_) {}
+
+// Pre-warm VFX pools
+try { effects.prewarm({ tracers: 64, rings: 8 }); } catch(_) {}
 
 // ---- Hitmarker helpers ----
 function showHitmarker(){
@@ -640,6 +769,7 @@ if (enemyManager && enemyManager.bossManager) {
     if (currentSongIndex < 0) currentSongIndex = 0;
     loadCurrentSong();
     originalStartBoss(wave);
+    try { if (story) story.onBossStart(wave); } catch(_) {}
     // Record boss max HP for intensity mapping
     try { bm._musicBossMaxHp = bm?.boss?.root?.userData?.hp || bm?.boss?.maxHp || 1; } catch (_) { bm._musicBossMaxHp = 1; }
   };
@@ -678,6 +808,7 @@ if (enemyManager && enemyManager.bossManager) {
         progression._saveUnlocks?.();
       }
     } catch(_){ }
+    try { if (story) story.onBossDeath(bm?.wave || 0); } catch(_) {}
   };
 }
 

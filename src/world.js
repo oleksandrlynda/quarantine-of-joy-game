@@ -3,10 +3,24 @@
 
 export function createWorld(THREE, rng = Math.random){
   // Renderer
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  const params = (new URL(window.location.href)).searchParams;
+  const renderer = new THREE.WebGLRenderer({ antialias: params.get('aa') === '1', powerPreference: 'high-performance' });
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
   renderer.setPixelRatio(Math.min(2, (window.devicePixelRatio||1)));
+  // Color management & tone mapping
+  try { renderer.outputColorSpace = THREE.SRGBColorSpace; } catch(_) {}
+  try {
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    const tone = params.get('tone');
+    if (tone === '0') renderer.toneMapping = THREE.NoToneMapping;
+  } catch(_) {}
+  // Feature toggles from URL
+  const enableShadows = params.get('shadows') === '1'; // default off for perf
+  // Shadows (single directional) — disabled by default
+  renderer.shadowMap.enabled = !!enableShadows;
+  if (enableShadows) renderer.shadowMap.type = THREE.PCFShadowMap;
+  renderer.info && (renderer.info.autoReset = true);
 
   // Scene & fog
   const scene = new THREE.Scene();
@@ -78,6 +92,16 @@ export function createWorld(THREE, rng = Math.random){
   // Lights
   const hemi = new THREE.HemisphereLight(0xffffff, 0x4488aa, 0.9); scene.add(hemi);
   const dir = new THREE.DirectionalLight(0xffffff, 0.8); dir.position.set(20,30,10); scene.add(dir);
+  // Configure single shadow-casting directional light tightly if enabled
+  try {
+    dir.castShadow = !!enableShadows;
+    if (enableShadows) {
+      dir.shadow.mapSize.set(1024, 1024);
+      const sc = dir.shadow.camera;
+      sc.near = 0.5; sc.far = 80;
+      sc.left = -45; sc.right = 45; sc.top = 45; sc.bottom = -45;
+    }
+  } catch(_) {}
   skyMat.uniforms.sunDir.value.copy(dir.position).normalize();
 
   // Materials used across the game
@@ -96,10 +120,10 @@ export function createWorld(THREE, rng = Math.random){
 
   function makeArena(){
     const floor = new THREE.Mesh(new THREE.BoxGeometry(80,1,80), mats.floor);
-    floor.position.y = -0.5; floor.receiveShadow = true; scene.add(floor);
+    floor.position.y = -0.5; floor.receiveShadow = !!enableShadows; scene.add(floor);
 
     const wallH=6, wallT=1;
-    const mkWall = (w,h,d,x,y,z)=>{ const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mats.wall); m.position.set(x,y,z); m.castShadow=true; m.receiveShadow=true; scene.add(m); objects.push(m); };
+    const mkWall = (w,h,d,x,y,z)=>{ const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mats.wall); m.position.set(x,y,z); m.castShadow=!!enableShadows; m.receiveShadow=!!enableShadows; scene.add(m); objects.push(m); };
     mkWall(80, wallH, wallT, 0, wallH/2, -40);
     mkWall(80, wallH, wallT, 0, wallH/2,  40);
     mkWall(wallT, wallH, 80, -40, wallH/2, 0);

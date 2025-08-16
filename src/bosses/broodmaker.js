@@ -178,9 +178,38 @@ export class Broodmaker {
     const canSpawn = Math.min(availGlobal, localAvail);
     if (canSpawn <= 0) { this._broodCooldown = 1.2; return; }
 
-    // Spawn 1–3 near the player (3 only if room)
+    // Spawn 1–3 between boss and player to create pushback space (avoid behind player)
     const count = Math.min(canSpawn, 1 + (Math.random() < 0.6 ? 1 : 0) + (Math.random() < 0.25 ? 1 : 0));
-    const near = this._computeSpawnAroundPlayer(ctx, count, 4.5, 7.0);
+    let near = this._computeSpawnBetweenBossAndPlayer(ctx, count, 3.5, 7.0);
+    // Fallback: if few valid slots found (tight space), try again with a bit more lateral spread
+    if (near.length < count) {
+      const extra = this._computeSpawnBetweenBossAndPlayer(ctx, count - near.length, 2.8, 6.5, 1.8);
+      near.push(...extra);
+    }
+    // Last resort: if still not enough, place on front hemisphere around player toward boss
+    if (near.length < count) {
+      const fill = this._computeSpawnAroundPlayer(ctx, count - near.length, 4.0, 8.0, (p) => {
+        const playerPos = ctx.player.position;
+        const fwd = (ctx.blackboard && ctx.blackboard.playerForward) ? ctx.blackboard.playerForward.clone().setY(0) : null;
+        const to = p.clone().sub(playerPos).setY(0);
+        if (to.lengthSq() === 0) return false;
+        to.normalize();
+        if (fwd && fwd.lengthSq() > 0) {
+          const cosHalf = Math.cos(Math.PI / 6); // 60° cone
+          if (fwd.normalize().dot(to) < cosHalf) return false;
+          // Also bias toward boss direction within the cone
+          const toBoss = this.root.position.clone().sub(playerPos).setY(0);
+          if (toBoss.lengthSq() > 0 && toBoss.normalize().dot(to) < -0.1) return false;
+          return true;
+        } else {
+          // If no forward available, at least ensure not behind relative to boss
+          const toBoss = this.root.position.clone().sub(playerPos).setY(0);
+          if (toBoss.lengthSq() > 0) { toBoss.normalize(); if (toBoss.dot(to) < 0) return false; }
+          return true;
+        }
+      });
+      near.push(...fill);
+    }
     let spawned = 0;
 
     for (const p of near) {
@@ -421,7 +450,7 @@ export class Broodmaker {
   }
 
   // ---------------- utils ----------------
-  _computeSpawnAroundPlayer(ctx, count, minR = 6, maxR = 10) {
+  _computeSpawnAroundPlayer(ctx, count, minR = 6, maxR = 10, filter = null) {
     const THREE = this.THREE;
     const out = [];
     const playerPos = ctx.player.position;
@@ -433,6 +462,59 @@ export class Broodmaker {
       pos.z = Math.max(-39, Math.min(39, pos.z));
       if (typeof this.enemyManager?._isSpawnAreaClear === 'function') {
         if (!this.enemyManager._isSpawnAreaClear(pos, 0.4)) continue;
+      }
+      if (typeof filter === 'function' && !filter(pos)) continue;
+      out.push(pos);
+    }
+    return out;
+  }
+
+  _computeSpawnBetweenBossAndPlayer(ctx, count, minDistFromPlayer = 3.5, maxDistFromBoss = 7.0, lateralJitterMul = 1.2) {
+    const THREE = this.THREE;
+    const out = [];
+    const bossPos = this.root.position.clone();
+    const playerPos = ctx.player.position.clone();
+    const toPlayer = playerPos.clone().sub(bossPos);
+    toPlayer.y = 0;
+    const L = toPlayer.length();
+    if (L <= 0.0001) return out;
+    const dir = toPlayer.clone().normalize();
+    const orth = new THREE.Vector3(-dir.z, 0, dir.x); // lateral left/right
+
+    const safeMinT = 0.15; // avoid right on top of boss
+    const tMaxByPlayer = 1 - Math.max(0, minDistFromPlayer) / Math.max(0.0001, L);
+    const tMaxByBoss = Math.max(0, maxDistFromBoss) / Math.max(0.0001, L);
+    const tUpper = Math.min(0.9, tMaxByPlayer, tMaxByBoss);
+
+    for (let i = 0; i < count; i++) {
+      if (tUpper <= safeMinT + 1e-3) break; // no safe segment
+      const t = safeMinT + Math.random() * (tUpper - safeMinT);
+      const base = bossPos.clone().add(dir.clone().multiplyScalar(L * t));
+      const jitterMag = (0.8 + Math.random() * 1.2) * lateralJitterMul;
+      const side = (Math.random() < 0.5 ? -1 : 1);
+      const pos = base.add(orth.clone().multiplyScalar(side * jitterMag));
+      pos.y = 1.2;
+      pos.x = Math.max(-39, Math.min(39, pos.x));
+      pos.z = Math.max(-39, Math.min(39, pos.z));
+      // Enforce 60° vision cone relative to player's forward; fallback to 'in front of player toward boss' if forward missing
+      const fwd = (ctx.blackboard && ctx.blackboard.playerForward) ? ctx.blackboard.playerForward.clone().setY(0) : null;
+      const dirFromPlayer = pos.clone().sub(playerPos).setY(0);
+      if (dirFromPlayer.lengthSq() === 0) { i--; continue; }
+      dirFromPlayer.normalize();
+      if (fwd && fwd.lengthSq() > 0) {
+        const f = fwd.normalize();
+        const cosHalfAngle = Math.cos(Math.PI / 6); // 30° half-angle => 60° cone
+        if (f.dot(dirFromPlayer) < cosHalfAngle) { i--; continue; }
+      } else {
+        const dirToBoss = bossPos.clone().sub(playerPos).setY(0);
+        if (dirToBoss.lengthSq() > 0) {
+          dirToBoss.normalize();
+          const frontDot = dirToBoss.dot(dirFromPlayer);
+          if (frontDot < 0) { i--; continue; }
+        }
+      }
+      if (typeof this.enemyManager?._isSpawnAreaClear === 'function') {
+        if (!this.enemyManager._isSpawnAreaClear(pos, 0.4)) { i--; continue; }
       }
       out.push(pos);
     }

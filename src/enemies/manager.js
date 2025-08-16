@@ -17,6 +17,7 @@ export class EnemyManager {
     this.enemies = new Set();            // set of root meshes (raycast target) — back-compat
     this.instances = new Set();          // set of enemy instance objects
     this.instanceByRoot = new WeakMap(); // root -> instance
+    this._enemyRootsArr = [];            // cached array for raycasts (avoid spreads)
     this.wave = 1;
     this.alive = 0;
     this.onWave = null;
@@ -24,6 +25,7 @@ export class EnemyManager {
 
     this.objectBBs = this.objects.map(o => new this.THREE.Box3().setFromObject(o));
     this.raycaster = new this.THREE.Raycaster();
+    try { this.raycaster.firstHitOnly = true; } catch(_) {}
     this.up = new this.THREE.Vector3(0,1,0);
     this.enemyHalf = new this.THREE.Vector3(0.6, 0.8, 0.6);
     this.enemyFullHeight = this.enemyHalf.y * 2;
@@ -55,12 +57,118 @@ export class EnemyManager {
 
     // Boss system
     this.bossManager = new BossManager({ THREE: this.THREE, scene: this.scene, mats: this.mats, enemyManager: this });
+
+    // Bullet pools (instanced) for enemy projectiles
+    this._initBulletPools();
   }
 
   // Rebuild collidable AABBs after the shared objects list changes (e.g., obstacles destroyed)
   refreshColliders(objects = this.objects) {
     this.objects = objects;
     this.objectBBs = this.objects.map(o => new this.THREE.Box3().setFromObject(o));
+  }
+
+  _initBulletPools() {
+    const THREE = this.THREE;
+    const mkPool = (color, radius, max) => {
+      const geo = new THREE.SphereGeometry(radius, 10, 10);
+      const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95 });
+      const mesh = new THREE.InstancedMesh(geo, mat, max);
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      mesh.count = 0;
+      this.scene.add(mesh);
+      return {
+        mesh,
+        max,
+        count: 0,
+        items: new Array(max), // { pos:Vector3, vel:Vector3, life:number, maxLife:number, damage:number }
+        tmpMat: new THREE.Matrix4(),
+        ray: new THREE.Raycaster()
+      };
+    };
+    this._bulletPools = {
+      shooter: mkPool(0x10b981, 0.12, 600),
+      sniper: mkPool(0xff3344, 0.09, 300)
+    };
+    try { this._bulletPools.shooter.ray.firstHitOnly = true; } catch(_) {}
+    try { this._bulletPools.sniper.ray.firstHitOnly = true; } catch(_) {}
+  }
+
+  _spawnBullet(kind, origin, velocity, maxLife, damage = 10) {
+    const pool = (this._bulletPools && this._bulletPools[kind]) ? this._bulletPools[kind] : null;
+    if (!pool) return false;
+    if (pool.count >= pool.max) return false;
+    const THREE = this.THREE;
+    const slot = pool.count++;
+    pool.items[slot] = {
+      pos: origin.clone(),
+      vel: velocity.clone(),
+      life: 0,
+      maxLife: maxLife,
+      damage
+    };
+    pool.tmpMat.makeTranslation(origin.x, origin.y, origin.z);
+    pool.mesh.setMatrixAt(slot, pool.tmpMat);
+    pool.mesh.instanceMatrix.needsUpdate = true;
+    pool.mesh.count = pool.count;
+    return true;
+  }
+
+  _updateBulletPools(dt, ctx) {
+    if (!this._bulletPools) return;
+    const THREE = this.THREE;
+    const updatePool = (pool) => {
+      if (!pool || pool.count <= 0) return;
+      const playerPos = ctx.player.position;
+      let write = 0; // compact active items to front
+      for (let read = 0; read < pool.count; read++) {
+        const b = pool.items[read];
+        // Integrate
+        const step = b.vel.clone().multiplyScalar(dt);
+        const next = b.pos.clone().add(step);
+        let hitSomething = false;
+        // Player hit (horizontal band)
+        const y = next.y;
+        if (y >= 1.2 && y <= 1.8) {
+          const dx = next.x - playerPos.x;
+          const dz = next.z - playerPos.z;
+          if ((dx*dx + dz*dz) < 0.36) { // 0.6^2
+            ctx.onPlayerDamage?.(b.damage);
+            hitSomething = true;
+          }
+        }
+        // World hit via short ray
+        if (!hitSomething) {
+          const dir = step.lengthSq() > 0 ? step.clone().normalize() : new THREE.Vector3(0,0,1);
+          const dist = step.length();
+          pool.ray.set(b.pos, dir); pool.ray.far = dist;
+          const hits = pool.ray.intersectObjects(this.objects, false);
+          if (hits && hits.length > 0) hitSomething = true;
+        }
+        if (!hitSomething) {
+          // alive → write back
+          b.pos.copy(next); b.life += dt;
+          if (b.life <= b.maxLife && Math.abs(b.pos.x) <= 90 && Math.abs(b.pos.z) <= 90) {
+            // keep
+            pool.items[write] = b;
+            pool.tmpMat.makeTranslation(b.pos.x, b.pos.y, b.pos.z);
+            pool.mesh.setMatrixAt(write, pool.tmpMat);
+            write++;
+            continue;
+          }
+        }
+        // drop bullet: skip copying, effectively removed
+      }
+      pool.count = write;
+      pool.mesh.count = pool.count;
+      pool.mesh.instanceMatrix.needsUpdate = true;
+    };
+    updatePool(this._bulletPools.shooter);
+    updatePool(this._bulletPools.sniper);
+  }
+
+  getEnemyRaycastTargets() {
+    return this._enemyRootsArr;
   }
 
   // === Helpers ported from previous implementation ===
@@ -401,6 +509,8 @@ export class EnemyManager {
       objects: this.objects,
       scene: this.scene,
       onPlayerDamage,
+      // expose bullet spawner to types
+      _spawnBullet: (kind, origin, velocity, maxLife, damage) => this._spawnBullet(kind, origin, velocity, maxLife, damage),
       separation: (...args) => this.separation(...args),
       avoidObstacles: (origin, desiredDir, maxDist) => this._avoidObstacles(origin, desiredDir, maxDist),
       moveWithCollisions: (enemy, step) => this._moveWithCollisions(enemy, step),
@@ -460,7 +570,27 @@ export class EnemyManager {
     // Boss abilities and behavior
     if (this.bossManager) this.bossManager.update(dt, ctx);
 
-    for (const inst of this.instances) inst.update(dt, ctx);
+    // Time-sliced AI: near updates every frame, far updates every 3rd frame with dt compensation
+    this._aiFrame = (this._aiFrame || 0) + 1;
+    const playerPos = ctx.player && ctx.player.position ? ctx.player.position : null;
+    let i = 0;
+    for (const inst of this.instances) {
+      i++;
+      if (!playerPos || !inst || !inst.root || !inst.root.position) { inst.update(dt, ctx); continue; }
+      const dx = inst.root.position.x - playerPos.x;
+      const dz = inst.root.position.z - playerPos.z;
+      const d2 = dx*dx + dz*dz;
+      // Thresholds: <= 25m near, > 25m far
+      if (d2 > (25*25)) {
+        if (((i + this._aiFrame) % 3) !== 0) continue;
+        inst.update(dt * 3, ctx);
+      } else {
+        inst.update(dt, ctx);
+      }
+    }
+
+    // Update pooled bullets after per-enemy updates
+    try { this._updateBulletPools(dt, ctx); } catch(_) {}
 
     // Low-rate ambient enemy vocals when aggroed (simple heuristic: while enemies exist)
     if (this.alive > 0) {
@@ -548,6 +678,9 @@ export class EnemyManager {
     if (!this.enemies.has(enemyRoot)) return;
     this.enemies.delete(enemyRoot);
     this.scene.remove(enemyRoot);
+    // remove from cached array
+    const idx = this._enemyRootsArr.indexOf(enemyRoot);
+    if (idx >= 0) this._enemyRootsArr.splice(idx, 1);
     const inst = this.instanceByRoot.get(enemyRoot);
     if (inst) {
       // allow instance-specific cleanup (e.g., projectiles)
@@ -577,6 +710,7 @@ export class EnemyManager {
     this.enemies.add(instance.root);
     this.instances.add(instance);
     this.instanceByRoot.set(instance.root, instance);
+    this._enemyRootsArr.push(instance.root);
     if (countsTowardAlive) {
       this.alive++;
       if (this.onRemaining) this.onRemaining(this.alive);
@@ -598,6 +732,7 @@ export class EnemyManager {
     this.enemies.add(inst.root);
     this.instances.add(inst);
     this.instanceByRoot.set(inst.root, inst);
+    this._enemyRootsArr.push(inst.root);
     if (countsTowardAlive) {
       this.alive++;
       if (this.onRemaining) this.onRemaining(this.alive);

@@ -169,8 +169,26 @@ export class WeaponSystem {
 
   onAmmoPickup(amount) {
     const gain = Math.max(0, amount | 0);
-    const isSMG = (this.current?.name === 'SMG');
-    const multiplier = isSMG ? 1.6 : 1.0; // give more ammo from drops when using SMG
+    const name = this.current?.name || '';
+    // Balance pass: scale ammo pickup by weapon archetype so each drop yields
+    // a comparable fraction of that weapon's default reserve.
+    // Target avg fraction of default reserve per drop (approx):
+    //  - Rifle ~30% (0.85x of 15–30)
+    //  - SMG ~33% (1.6x of 15–30)
+    //  - Shotgun ~25% (0.3x of 15–30)
+    //  - DMR ~25% (0.4x of 15–30)
+    //  - Pistol ~20% (0.45x of 15–30)
+    const weaponPickupMultiplier = (w)=>{
+      switch (w) {
+        case 'SMG': return 1.6;
+        case 'Shotgun': return 0.3;
+        case 'DMR': return 0.4;
+        case 'Pistol': return 0.45;
+        case 'Rifle': return 0.85;
+        default: return 1.0;
+      }
+    };
+    const multiplier = weaponPickupMultiplier(name);
     if (!this.splitPickupsProportionally || this.inventory.length <= 1) {
       const adjustedGain = Math.floor(gain * multiplier);
       this.current?.addReserve(adjustedGain);
@@ -198,8 +216,8 @@ export class WeaponSystem {
       }
       // distribute any rounding remainder to current weapon first
       if (remaining > 0) this.current?.addReserve(remaining);
-      // If current is SMG, grant extra bonus proportional to multiplier
-      if (isSMG && multiplier > 1) {
+      // If current has a >1 multiplier, grant extra bonus to current to keep feel consistent
+      if (multiplier > 1) {
         const bonus = Math.floor(gain * (multiplier - 1));
         if (bonus > 0) this.current?.addReserve(bonus);
       }

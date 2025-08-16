@@ -41,6 +41,18 @@
     <div class="bossBar"><div id="bossHpBar"></div></div>
   </div>
   <div id="toasts"></div>
+  <div id="story" style="display:none">
+    <div class="card">
+      <div id="storyText" class="storyText"></div>
+      <div class="actions"><button class="primary" id="storyNext">Continue</button></div>
+    </div>
+    <style>
+      #story{ position:fixed; inset:0; display:grid; place-items:center; background:rgba(0,0,0,0.35); pointer-events:auto; z-index:5; }
+      #story .card{ background:#ffffffee; border-radius:18px; padding:16px; width:min(92%,520px); box-shadow:0 20px 70px #00000055; }
+      #story .storyText{ font-weight:700; line-height:1.4; margin-bottom:12px; }
+      #story .actions{ display:flex; justify-content:flex-end; }
+    </style>
+  </div>
 <div id="promoPulse"></div>
 <div id="offer" style="display:none">
   <div class="card">
@@ -69,6 +81,13 @@
   <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap">
     <button class="primary" id="play">▶️ Play</button>
     <button class="secondary" id="retry" style="display:none">🔁 Retry</button>
+  </div>
+  <div class="tiny" style="margin-top:10px; text-align:center">Quality presets</div>
+  <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:6px">
+    <button class="secondary" id="qLow" title="aa=off, shadows=off, auto DPR">Low</button>
+    <button class="secondary" id="qMed" title="aa=off, shadows=off, auto DPR + ACES">Medium</button>
+    <button class="secondary" id="qHigh" title="aa=on, shadows=on">High</button>
+    <button class="secondary" id="qUltra" title="aa=on, shadows=on (max)" >Ultra</button>
   </div>
   <div class="tiny" style="margin-top:8px">Click Play, then click to lock the mouse.
   </div>

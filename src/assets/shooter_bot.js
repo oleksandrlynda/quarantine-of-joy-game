@@ -1,6 +1,8 @@
 // ShooterBot v2: compact biped with right-hand SMG
 // Faces +Z in object space. Gun fires along -Z.
 // Returns { root, head, refs: { gun, muzzle } }
+import { getBox } from './geocache.js';
+
 export function createShooterBot({ THREE, mats, scale = 1.0, palette } = {}) {
   const group = new THREE.Group();
 
@@ -18,7 +20,7 @@ export function createShooterBot({ THREE, mats, scale = 1.0, palette } = {}) {
   const matArmor = new THREE.MeshLambertMaterial({ color: colors.armor });
   const matAccent = new THREE.MeshLambertMaterial({ color: colors.accent });
   const matJoint  = new THREE.MeshLambertMaterial({ color: colors.joints });
-  const matHead   = (mats?.head ? mats.head.clone() : new THREE.MeshLambertMaterial({ color: 0x111827 }));
+  const matHead   = (mats?.head) || (createShooterBot._headMat || (createShooterBot._headMat = new THREE.MeshLambertMaterial({ color: 0x111827 })));
   const matGun    = new THREE.MeshLambertMaterial({ color: colors.gun });
   const matGlow   = new THREE.MeshLambertMaterial({ color: colors.glow, emissive: colors.glow, emissiveIntensity: 0.9 });
 

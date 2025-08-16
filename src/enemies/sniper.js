@@ -1,4 +1,5 @@
 import { createSniperBot } from '../assets/sniper_bot.js';
+const _sniperCache = { model: null };
 
 export class SniperEnemy {
   constructor({ THREE, mats, cfg, spawnPos }) {
@@ -6,9 +7,13 @@ export class SniperEnemy {
     this.cfg = cfg;
 
     // Use dedicated SniperBot asset with long rifle
-    const built = createSniperBot({ THREE, mats, scale: 0.70 });
-    const body = built.root; const head = built.head; this._refs = built.refs || {};
+    if (!_sniperCache.model) _sniperCache.model = createSniperBot({ THREE, mats, scale: 0.70 });
+    const src = _sniperCache.model;
+    const clone = src.root.clone(true);
+    const body = clone; const head = clone.userData?.head || src.head; this._refs = src.refs || {};
     body.position.copy(spawnPos);
+    // Make head material unique to avoid emissive bleed between enemies
+    try { if (head && head.material) head.material = head.material.clone(); } catch(_) {}
     body.userData = { type: cfg.type, head, hp: cfg.hp, maxHp: cfg.hp };
     this.root = body;
 
@@ -99,13 +104,21 @@ export class SniperEnemy {
     const origin = this._muzzleWorld();
     const dir = targetPos.clone().sub(origin).normalize();
     const speed = 60;
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 10), new THREE.MeshBasicMaterial({ color: 0xff3344 }));
-    mesh.position.copy(origin);
-    mesh.material.transparent = true; mesh.material.opacity = 1;
-    ctx.scene.add(mesh);
-    const proj = { mesh, velocity: dir.multiplyScalar(speed), life: 0, maxLife: 1.2, damage: 60 };
-    if (!this._projectiles) this._projectiles = [];
-    this._projectiles.push(proj);
+    // Use global instanced bullet pool via manager
+    try {
+      const vel = dir.clone().multiplyScalar(speed);
+      const ok = this._enemyManager?._spawnBullet('sniper', origin, vel, 1.2, 60);
+      if (!ok) {
+        // fallback
+        const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 10), new THREE.MeshBasicMaterial({ color: 0xff3344 }));
+        mesh.position.copy(origin);
+        mesh.material.transparent = true; mesh.material.opacity = 1;
+        ctx.scene.add(mesh);
+        const proj = { mesh, velocity: vel, life: 0, maxLife: 1.2, damage: 60 };
+        if (!this._projectiles) this._projectiles = [];
+        this._projectiles.push(proj);
+      }
+    } catch(_) {}
     // mark last fire time for director staggering
     if (ctx.sniperFired) ctx.sniperFired();
   }

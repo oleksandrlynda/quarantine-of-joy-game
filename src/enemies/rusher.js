@@ -1,4 +1,5 @@
 import { createRunnerBot } from '../assets/runnerbot.js';
+const _rusherCache = { model: null };
 
 export class RusherEnemy {
   constructor({ THREE, mats, cfg, spawnPos }) {
@@ -6,8 +7,10 @@ export class RusherEnemy {
     this.cfg = cfg;
 
     // Slim, agile runner model
-    const built = createRunnerBot({ THREE, mats, scale: 0.6 });
-    const body = built.root; const head = built.head; this._animRefs = built.refs || {};
+    if (!_rusherCache.model) _rusherCache.model = createRunnerBot({ THREE, mats, scale: 0.6 });
+    const src = _rusherCache.model;
+    const clone = src.root.clone(true);
+    const body = clone; const head = clone.userData?.head || src.head; this._animRefs = src.refs || {};
     body.position.copy(spawnPos);
     body.rotation.x = 0; // world yaw only
 

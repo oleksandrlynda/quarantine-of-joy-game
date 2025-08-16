@@ -4,13 +4,20 @@ export function performHitscan({ THREE, camera, raycaster, enemyManager, objects
   const dir = dirOpt ? dirOpt.clone().normalize() : (new THREE.Vector3(), camera.getWorldDirection(new THREE.Vector3()));
   const origin = originOpt ? originOpt.clone() : camera.getWorldPosition(new THREE.Vector3());
   raycaster.set(origin, dir);
-  const candidates = [...enemyManager.enemies, ...objects];
-  const hits = raycaster.intersectObjects(candidates, true);
+  // Narrow raycaster
+  raycaster.far = Math.max(0.1, range);
+  const candidates = enemyManager.getEnemyRaycastTargets ? enemyManager.getEnemyRaycastTargets() : Array.from(enemyManager.enemies);
+  const hitsEnemies = candidates.length ? raycaster.intersectObjects(candidates, true) : [];
+  let hit = null;
+  if (hitsEnemies.length) {
+    hit = hitsEnemies[0];
+  } else {
+    hit = (objects && objects.length) ? (raycaster.intersectObjects(objects, true)[0] || null) : null;
+  }
   let end = origin.clone().add(dir.clone().multiplyScalar(range));
   let result = { type: 'none', endPoint: end, origin };
 
-  if (hits.length) {
-    const hit = hits[0];
+  if (hit) {
     end.copy(hit.point);
     // find root enemy mesh via manager
     let obj = hit.object; while (obj && !enemyManager.enemies.has(obj)) { obj = obj.parent; }

@@ -1,0 +1,27 @@
+{
+  "beats": {
+    "intro": { "id": "intro", "text": "Operator, welcome to Block Strike. Your objective: survive the test arena and gather data." },
+    "firstWave": { "id": "firstWave", "text": "Wave one: expect light drones. Test your aim. Headshots recommended.", "mode": "toast", "persistOnce": true },
+    "bossIncoming": { "id": "bossIncoming", "text": "Boss signatures detected. Brace and conserve ammo between phases." },
+    "midRun": { "id": "midRun", "text": "Telemetry clean. Enemy patterns increasing in complexity. Keep moving.", "mode": "toast", "persistOnce": true },
+    "lateRun": { "id": "lateRun", "text": "You are deep in. Adversaries deploying elites. Prioritize targets and use cover.", "mode": "toast", "persistOnce": true },
+    "lowHp": { "id": "lowHp", "text": "Critical health! Break line of sight and use cover or medkits.", "mode": "toast", "persistOnce": true },
+    "firstMed": { "id": "firstMed", "text": "Medkit collected. Stay mobile and top up when safe.", "mode": "toast", "persistOnce": true },
+    "boss_5_start": { "id": "boss_5_start", "text": "Broodmaker spawns incoming. Eliminate pods to thin the swarm." },
+    "boss_5_down": { "id": "boss_5_down", "text": "Broodmaker neutralized. Collect supplies and prepare for escalation." },
+    "boss_10_start": { "id": "boss_10_start", "text": "Sanitizer online. Expect area denial and beams. Keep lateral movement." },
+    "boss_10_down": { "id": "boss_10_down", "text": "Sanitizer down. Data uplink stable. New armory options unlocked." },
+    "boss_15_start": { "id": "boss_15_start", "text": "Captain drone detected. Coordinating assaults. Break the formation." },
+    "boss_15_down": { "id": "boss_15_down", "text": "Captain down. Their chain of command is fractured." },
+    "boss_20_start": { "id": "boss_20_start", "text": "Shard Avatar materializes. Watch for clones and shards." },
+    "boss_20_down": { "id": "boss_20_down", "text": "Shard Avatar shattered. Stay sharp." },
+    "boss_25_start": { "id": "boss_25_start", "text": "Broodmaker returns, reinforced. Spread the damage, clear eggs fast." },
+    "boss_25_down": { "id": "boss_25_down", "text": "Heavy Broodmaker down. You are becoming the problem." },
+    "boss_30_start": { "id": "boss_30_start", "text": "Hydraclone detected. Eliminate clones quickly to prevent overwhelming numbers." },
+    "boss_30_down": { "id": "boss_30_down", "text": "Hydraclone neutralized. The field quiets—for now." },
+    "boss_35_start": { "id": "boss_35_start", "text": "Strike Adjudicator enters. Expect precision strikes and punish windows—stay moving." },
+    "boss_35_down": { "id": "boss_35_down", "text": "Adjudicator down. You have exceeded projections." }
+  }
+}
+
+

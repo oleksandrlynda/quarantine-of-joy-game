@@ -1,5 +1,10 @@
 import { createBlockBot } from '../assets/blockbot.js';
 import { createGruntBot } from '../assets/gruntbot.js';
+// Asset cache: build models once and clone for spawns
+const _enemyAssetCache = {
+	tank: null,
+	grunt: null
+};
 
 // --- Melee attack definitions ---
 const GRUNT_ATTACKS = [
@@ -23,11 +28,15 @@ export class MeleeEnemy {
     // Model
     let body, head;
     if (cfg && cfg.type === 'tank') {
-      const built = createBlockBot({ THREE, mats, scale: 1.1 });
-      body = built.root; head = built.head; this._animRefs = built.refs || {};
+      if (!_enemyAssetCache.tank) _enemyAssetCache.tank = createBlockBot({ THREE, mats, scale: 1.1 });
+      const src = _enemyAssetCache.tank;
+      const clone = src.root.clone(true);
+      body = clone; head = clone.userData?.head || src.head; this._animRefs = src.refs || {};
     } else {
-      const built = createGruntBot({ THREE, mats, scale: 0.88 });
-      body = built.root; head = built.head; this._animRefs = built.refs || {};
+      if (!_enemyAssetCache.grunt) _enemyAssetCache.grunt = createGruntBot({ THREE, mats, scale: 0.88 });
+      const src = _enemyAssetCache.grunt;
+      const clone = src.root.clone(true);
+      body = clone; head = clone.userData?.head || src.head; this._animRefs = src.refs || {};
     }
     body.position.copy(spawnPos);
 
@@ -43,6 +52,8 @@ export class MeleeEnemy {
     this._recalcSlamRadius();
 
     body.userData = { type: cfg.type, head, hp: cfg.hp };
+    // Ensure head has unique material to avoid shared emissive changes from other classes
+    try { if (head && head.material) head.material = head.material.clone(); } catch(_) {}
     this.root = body;
 
     this.speed = cfg.speedMin + Math.random() * (cfg.speedMax - cfg.speedMin);

@@ -1,6 +1,8 @@
 // RunnerBot v2 — agile silhouette with orange accents + glowing knife
 // Returns { root, head, refs: { leftArm,rightArm,leftLeg,rightLeg, knife, blade } }
 
+import { getBox } from './geocache.js';
+
 export function createRunnerBot({ THREE, mats, scale = 1.0, palette } = {}) {
   const group = new THREE.Group();
 
@@ -18,8 +20,7 @@ export function createRunnerBot({ THREE, mats, scale = 1.0, palette } = {}) {
   const matArmor = new THREE.MeshLambertMaterial({ color: colors.armor });
   const matAccent = new THREE.MeshLambertMaterial({ color: colors.accent });
   const matJoint  = new THREE.MeshLambertMaterial({ color: colors.joints });
-  const matHead   = (mats?.head ? mats.head.clone()
-                                : new THREE.MeshLambertMaterial({ color: colors.visor }));
+  const matHead   = (mats?.head) || (createRunnerBot._headMat || (createRunnerBot._headMat = new THREE.MeshLambertMaterial({ color: colors.visor })));
   const matGlow   = new THREE.MeshLambertMaterial({
     color: colors.glow, emissive: colors.glow, emissiveIntensity: 0.95
   });

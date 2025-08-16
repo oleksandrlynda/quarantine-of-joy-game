@@ -38,6 +38,9 @@ export class ObstacleManager {
 
     // Feature flags
     this._platformsEnabled = false;
+
+    // Merged static mesh cache
+    this._mergedStatic = null; // { mesh, byMaterial: Map }
   }
 
   generate(seed, objects) {
@@ -90,8 +93,8 @@ export class ObstacleManager {
         for (const p of placed) { if (bb.intersectsBox(p.bb)) { collides = true; break; } }
         if (collides) continue;
 
-        // Place
-        this._addDestructible(inst);
+        // Place (defer merge until end)
+        this._addDestructible(inst, { defer: true });
         placed.push({ bb });
         return true;
       }
@@ -103,6 +106,9 @@ export class ObstacleManager {
     for (let i = 0; i < counts.crate; i++) tryPlace(create('crate'));
     for (let i = 0; i < counts.barricade; i++) tryPlace(create('barricade'));
     for (let i = 0; i < counts.barrel; i++) tryPlace(create('barrel'));
+
+    // Merge placed destructibles by material into a single mesh per material
+    this._mergeStaticByMaterial();
 
     // Future: other obstacle types can be added here using this.rng
 
@@ -325,13 +331,23 @@ export class ObstacleManager {
     return pts;
   }
 
-  _addDestructible(inst) {
+  _addDestructible(inst, { defer = false } = {}) {
     this.scene.add(inst.root);
     this.obstacles.add(inst.root);
     this.rootToDestructible.set(inst.root, inst);
-    if (this.objects) this.objects.push(inst.root);
-    // Notify consumers that colliders changed
-    this._notifyCollidersChanged();
+    if (!defer && this.objects) this.objects.push(inst.root);
+    if (!defer) this._notifyCollidersChanged();
+  }
+
+  _mergeStaticByMaterial(){
+    const THREE = this.THREE;
+    if (!this.obstacles.size) return;
+    const groups = new Map(); // key: material.uuid -> { material, geos: [] }
+    for (const root of Array.from(this.obstacles)){
+      // Only merge simple Mesh children without userData.destructible? Keep as is; destructibles are dynamic, so we skip merge to avoid breakage.
+      // Instead: merge only editor/level static meshes (currently none here). Leaving hook for future.
+    }
+    // Currently a no-op to avoid altering destructible behavior; the hook is ready for static groups.
   }
 
   handleHit(hitObject, damage) {

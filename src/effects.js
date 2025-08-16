@@ -41,6 +41,11 @@ export class Effects {
     this._tracerTintMix = 0; // 0..1 mix factor
     this._tracerTintColor = new THREE.Color(0x16a34a);
 
+    // Pools
+    this._tracerPool = { free: [], active: [], cap: 256 };
+    this._flashPool = { free: [], active: [], cap: 128 };
+    this._ringPool = { free: [], active: [], cap: 24 };
+
     // convenience hook for enemy VFX
     window._EFFECTS = window._EFFECTS || {};
     window._EFFECTS.ring = (center, radius=5, color=0x9bd1ff)=>{
@@ -53,6 +58,57 @@ export class Effects {
     window._EFFECTS.spawnGroundSlam = (center, radius=5)=>{
       this.spawnGroundSlam(center, radius);
     };
+  }
+
+  // --- Tracer pool internals ---
+  _allocTracer(){
+    const THREE = this.THREE;
+    let m = this._tracerPool.free.pop();
+    if (!m && (this._tracerPool.active.length < this._tracerPool.cap)) {
+      m = new THREE.Mesh();
+      this.scene.add(m);
+    }
+    if (m) this._tracerPool.active.push(m);
+    return m || null;
+  }
+  _freeTracer(m){
+    if (!m) return;
+    m.visible = false;
+    this._tracerPool.active = this._tracerPool.active.filter(x=>x!==m);
+    this._tracerPool.free.push(m);
+  }
+  _updateTracerPool(_dt){ /* visuals updated by entry tick; nothing global needed */ }
+
+  // --- Flash pool internals ---
+  _allocFlash(){
+    const THREE = this.THREE;
+    let m = this._flashPool.free.pop();
+    if (!m && (this._flashPool.active.length < this._flashPool.cap)) {
+      m = new THREE.Mesh(); this.scene.add(m);
+    }
+    if (m) this._flashPool.active.push(m);
+    return m || null;
+  }
+  _freeFlash(m){ if (!m) return; m.visible = false; this._flashPool.active = this._flashPool.active.filter(x=>x!==m); this._flashPool.free.push(m); }
+  _updateFlashPool(_dt){ /* fade handled per entry; no-op */ }
+
+  // --- Ring pool internals ---
+  _allocRing(){
+    const THREE = this.THREE;
+    let m = this._ringPool.free.pop();
+    if (!m && (this._ringPool.active.length + this._ringPool.free.length) < this._ringPool.cap) {
+      m = new THREE.Mesh(); this.scene.add(m);
+    }
+    return m || null;
+  }
+  _freeRing(m){ if (!m) return; m.visible = false; this._ringPool.free.push(m); }
+  _updateRingPool(dt){
+    const list = this._ringPool.active;
+    for (let i=list.length-1;i>=0;i--){
+      const it = list[i]; it.life += dt;
+      if (it.mesh?.material?.uniforms?.uElapsed) it.mesh.material.uniforms.uElapsed.value = it.life;
+      if (it.life >= it.ttl) { this._freeRing(it.mesh); list.splice(i,1); }
+    }
   }
 
   update(dt){
@@ -77,6 +133,10 @@ export class Effects {
         this._alive.splice(i,1);
       }
     }
+    // Tracer/flash pools update
+    this._updateTracerPool(dt);
+    this._updateFlashPool(dt);
+    this._updateRingPool(dt);
     // Update decals (fade and cleanup)
     for (let i=this._decals.length-1; i>=0; i--) {
       const d = this._decals[i];
@@ -133,6 +193,19 @@ export class Effects {
       const k = Math.max(0, Math.min(1, this.fatigueLevel));
       // slight smoothing toward target to avoid popping
       u.uLevel.value += (k - u.uLevel.value) * Math.min(1, dt * 8);
+    }
+  }
+
+  prewarm(counts = {}){
+    const t = Math.max(0, counts.tracers || 64);
+    const r = Math.max(0, counts.rings || 8);
+    for (let i=0;i<t;i++){
+      const m = this._allocTracer();
+      if (m) this._freeTracer(m);
+    }
+    for (let i=0;i<r;i++){
+      const ring = this._allocRing();
+      if (ring) this._freeRing(ring);
     }
   }
 
@@ -435,9 +508,7 @@ spawnBulletTracer(start, end, options = {}) {
   const rot   = new THREE.Matrix4().makeBasis(x, y, z);
 
   // --- MATERIAL/SHADER ---
-  const makeBeam = () => {
-    const g = new THREE.PlaneGeometry(1, 1);
-    const m = new THREE.ShaderMaterial({
+  const makeBeamMaterial = () => new THREE.ShaderMaterial({
       transparent: true,
       depthWrite: false,
       depthTest: options.depthTest ?? true,
@@ -480,40 +551,62 @@ spawnBulletTracer(start, end, options = {}) {
           vec3 col = mix(vec3(1.0,0.85,0.35), uTint, 0.35);
           gl_FragColor = vec4(col, a);
         }`
-    });
-    const q = new THREE.Mesh(g, m);
-    q.scale.set(len, width, 1);
-    q.position.copy(mid);
-    q.setRotationFromMatrix(rot);
-    return q;
-  };
-
-  const beamA = makeBeam();
-  this.scene.add(beamA);
+  });
+  const beamA = this._allocTracer();
+  if (!beamA) return;
+  if (!beamA.material || !beamA.geometry) {
+    beamA.geometry = new THREE.PlaneGeometry(1,1);
+    beamA.material = makeBeamMaterial();
+  } else {
+    beamA.material.dispose?.();
+    beamA.material = makeBeamMaterial();
+  }
+  beamA.scale.set(len, width, 1);
+  beamA.position.copy(mid);
+  beamA.setRotationFromMatrix(rot);
+  beamA.visible = true;
 
   // Cross quad — ONLY if explicitly enabled
   let beamB = null;
   if (cross) {
-    beamB = makeBeam();
-    beamB.rotateOnAxis(dir, Math.PI * 0.5);
-    this.scene.add(beamB);
+    beamB = this._allocTracer();
+    if (beamB) {
+      if (!beamB.material || !beamB.geometry) {
+        beamB.geometry = new THREE.PlaneGeometry(1,1);
+        beamB.material = makeBeamMaterial();
+      } else {
+        beamB.material.dispose?.();
+        beamB.material = makeBeamMaterial();
+      }
+      beamB.scale.set(len, width, 1);
+      beamB.position.copy(mid);
+      beamB.setRotationFromMatrix(rot);
+      beamB.rotateOnAxis(dir, Math.PI * 0.5);
+      beamB.visible = true;
+    }
   }
 
   // impact flash (radial billboard, no square)
   let flash = null;
   if (options.impact !== false) {
-    const fGeom = new THREE.PlaneGeometry(1,1);
-    const fMat = new THREE.ShaderMaterial({
-      transparent:true, depthWrite:false, depthTest:true, blending:THREE.AdditiveBlending, side:THREE.DoubleSide,
-      uniforms:{ uAlpha:{value:1.0}, uTint:{value:new THREE.Color(0xfff1c1)} },
-      vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-      fragmentShader:`precision mediump float; varying vec2 vUv; uniform float uAlpha; uniform vec3 uTint; void main(){ vec2 p=vUv-0.5; float r=length(p)*2.0; float a=uAlpha * smoothstep(1.0, 0.0, r); if(a<0.02) discard; gl_FragColor=vec4(uTint,a); }`
-    });
-    flash = new THREE.Mesh(fGeom, fMat);
-    flash.position.copy(to);
-    flash.scale.set(0.24, 0.24, 1);
-    try { if (this.camera) flash.lookAt(this.camera.position); } catch(_) {}
-    this.scene.add(flash);
+    flash = this._allocFlash();
+    if (flash) {
+      if (!flash.material || !flash.geometry) {
+        flash.geometry = new THREE.PlaneGeometry(1,1);
+        flash.material = new THREE.ShaderMaterial({
+          transparent:true, depthWrite:false, depthTest:true, blending:THREE.AdditiveBlending, side:THREE.DoubleSide,
+          uniforms:{ uAlpha:{value:1.0}, uTint:{value:new THREE.Color(0xfff1c1)} },
+          vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+          fragmentShader:`precision mediump float; varying vec2 vUv; uniform float uAlpha; uniform vec3 uTint; void main(){ vec2 p=vUv-0.5; float r=length(p)*2.0; float a=uAlpha * smoothstep(1.0, 0.0, r); if(a<0.02) discard; gl_FragColor=vec4(uTint,a); }`
+        });
+      } else {
+        if (flash.material.uniforms && flash.material.uniforms.uAlpha) flash.material.uniforms.uAlpha.value = 1.0;
+      }
+      flash.position.copy(to);
+      flash.scale.set(0.24, 0.24, 1);
+      try { if (this.camera) flash.lookAt(this.camera.position); } catch(_) {}
+      flash.visible = true;
+    }
   }
 
   // life/fade
@@ -524,22 +617,22 @@ spawnBulletTracer(start, end, options = {}) {
       t += dt;
       const k = Math.max(0, 1 - t/ttl);
       const kk = k*k;
-      beamA.material.uniforms.uAlpha.value = kk;
+      if (beamA?.material?.uniforms) beamA.material.uniforms.uAlpha.value = kk;
       beamA.scale.y = width * (1.0 + 0.6*(1-kk));
       if (beamB){
-        beamB.material.uniforms.uAlpha.value = kk;
+        if (beamB.material?.uniforms) beamB.material.uniforms.uAlpha.value = kk;
         beamB.scale.y = width * (1.0 + 0.6*(1-kk));
       }
       if (flash){
-        if (flash.material.uniforms && flash.material.uniforms.uAlpha) flash.material.uniforms.uAlpha.value = kk;
+        if (flash.material?.uniforms?.uAlpha) flash.material.uniforms.uAlpha.value = kk;
         flash.scale.setScalar(0.24 + 0.4*(1-kk));
         try { if (this.camera) flash.lookAt(this.camera.position); } catch(_) {}
       }
     },
     cleanup: () => {
-      this.scene.remove(beamA); beamA.geometry.dispose(); beamA.material.dispose();
-      if (beamB){ this.scene.remove(beamB); beamB.geometry.dispose(); beamB.material.dispose(); }
-      if (flash){ this.scene.remove(flash); if (flash.geometry) flash.geometry.dispose(); if (flash.material) flash.material.dispose(); }
+      this._freeTracer(beamA);
+      if (beamB) this._freeTracer(beamB);
+      if (flash) this._freeFlash(flash);
     }
   };
   this._alive.push(entry);
@@ -700,16 +793,29 @@ spawnBulletImpact(position, normal){
   // Simple expanding ground ring useful for slams
   spawnGroundRing(center, radius=5.0, color=0x9bd1ff){
     const THREE = this.THREE;
-    const segs = 80;
-    const ringGeom = new THREE.RingGeometry(radius*0.1, radius*0.12, segs, 1);
-    const ringMat = new THREE.ShaderMaterial({
-      transparent:true, depthWrite:false, blending:THREE.AdditiveBlending,
-      uniforms:{ uElapsed:{value:0}, uLife:{value:0.6}, uStart:{value:radius*0.1}, uEnd:{value:radius}, uColor:{value:new THREE.Color(color)} },
-      vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-      fragmentShader:`precision mediump float; varying vec2 vUv; uniform float uElapsed; uniform float uLife; uniform float uStart; uniform float uEnd; uniform vec3 uColor; void main(){ float t=clamp(uElapsed/uLife,0.0,1.0); float r=mix(uStart,uEnd,t); float d=abs(length(vUv-0.5)*2.0 - r); float a=smoothstep(0.08,0.0,d)*(1.0-t); if(a<0.01) discard; gl_FragColor=vec4(uColor, a); }`
-    });
-    const ring = new THREE.Mesh(ringGeom, ringMat); ring.position.copy(center.clone().setY(0.05)); ring.rotation.x = -Math.PI/2; this.scene.add(ring);
-    this._alive.push({ points: ring, uniforms: ringMat.uniforms, maxLife: ringMat.uniforms.uLife.value });
+    const ring = this._allocRing();
+    if (!ring) return null;
+    if (!ring.material || !ring.geometry) {
+      const segs = 80;
+      ring.geometry = new THREE.RingGeometry(1, 1.2, segs, 1);
+      ring.material = new THREE.ShaderMaterial({
+        transparent:true, depthWrite:false, blending:THREE.AdditiveBlending,
+        uniforms:{ uElapsed:{value:0}, uLife:{value:0.6}, uStart:{value:radius*0.1}, uEnd:{value:radius}, uColor:{value:new THREE.Color(color)} },
+        vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+        fragmentShader:`precision mediump float; varying vec2 vUv; uniform float uElapsed; uniform float uLife; uniform float uStart; uniform float uEnd; uniform vec3 uColor; void main(){ float t=clamp(uElapsed/uLife,0.0,1.0); float r=mix(uStart,uEnd,t); float d=abs(length(vUv-0.5)*2.0 - r); float a=smoothstep(0.08,0.0,d)*(1.0-t); if(a<0.01) discard; gl_FragColor=vec4(uColor, a); }`
+      });
+    } else {
+      ring.material.uniforms.uLife.value = 0.6;
+      ring.material.uniforms.uStart.value = radius*0.1;
+      ring.material.uniforms.uEnd.value = radius;
+      ring.material.uniforms.uColor.value = new THREE.Color(color);
+      ring.material.uniforms.uElapsed.value = 0;
+    }
+    ring.position.copy(center.clone().setY(0.05));
+    ring.rotation.x = -Math.PI/2;
+    ring.visible = true;
+    const ttl = ring.material.uniforms.uLife.value;
+    this._ringPool.active.push({ mesh: ring, life: 0, ttl });
     return ring;
   }
 
