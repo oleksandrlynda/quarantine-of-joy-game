@@ -55,7 +55,8 @@ export class Weapon {
   }
 
   update(dt, ctx) { // for auto fire sustain
-    if (this.mode === 'auto' && this._triggerHeld) {
+    // Block sustain if weapon view is reloading (if provided in ctx)
+    if (this.mode === 'auto' && this._triggerHeld && !(ctx && ctx.weaponView && ctx.weaponView.isReloading && ctx.weaponView.isReloading())) {
       if (this.canFire(performance.now())) this.tryFire(ctx);
     }
   }

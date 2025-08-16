@@ -27,7 +27,19 @@ export class Effects {
     this._muzzle = null;
     this._muzzleTTL = 0;
     this._muzzleMax = 0.06;
-    this.muzzleEnabled = false; // hide muzzle flash for now
+    // Muzzle flash (group of 2 quads + light)
+    this._muzzleGroup = null;
+    this._muzzleLight = null;
+    this._muzzleFlashA = null;
+    this._muzzleFlashB = null;
+    this._muzzleTTL = 0;
+    this._muzzleMax = 0.06;
+
+    this.muzzleEnabled = true; // hide muzzle flash for now
+
+    // Tracer tint control for bullet tracers
+    this._tracerTintMix = 0; // 0..1 mix factor
+    this._tracerTintColor = new THREE.Color(0x16a34a);
 
     // convenience hook for enemy landing rings
     window._EFFECTS = window._EFFECTS || {};
@@ -83,16 +95,23 @@ export class Effects {
         this._decals.splice(i,1);
       }
     }
-    // Muzzle flash fade (attached to camera)
-    if (this._muzzle) {
-      if (this._muzzleTTL > 0) {
-        this._muzzleTTL = Math.max(0, this._muzzleTTL - dt);
-        const k = Math.max(0, Math.min(1, this._muzzleTTL / this._muzzleMax));
-        if (this._muzzle.material.uniforms) this._muzzle.material.uniforms.uAlpha.value = 0.8 * k;
-      } else if (this._muzzle.material.uniforms && this._muzzle.material.uniforms.uAlpha.value !== 0) {
-        this._muzzle.material.uniforms.uAlpha.value = 0;
+    // MUZZLE UPDATE
+    if (this._muzzleGroup){
+      if (this._muzzleTTL > 0){
+        this._muzzleTTL -= dt;
+        const k = Math.max(0, this._muzzleTTL / this._muzzleMax);
+        const v = Math.pow(k, 1.5); // quick fade
+
+        this._muzzleFlashA.material.uniforms.uAlpha.value = v;
+        this._muzzleFlashB.material.uniforms.uAlpha.value = v*0.95;
+        if (this._muzzleLight) this._muzzleLight.intensity = 2.8 * v;
+      } else {
+        this._muzzleFlashA.material.uniforms.uAlpha.value = 0;
+        this._muzzleFlashB.material.uniforms.uAlpha.value = 0;
+        if (this._muzzleLight) this._muzzleLight.intensity = 0;
       }
     }
+
     // Overlay decay
     if(this.hitStrength > 0){
       this.hitStrength = Math.max(0, this.hitStrength - dt*1.8);
@@ -202,32 +221,139 @@ export class Effects {
     }
   }
 
-  spawnMuzzleFlash(strength=1){
-    if (!this.muzzleEnabled) return; // disabled
+  _ensureMuzzle(){
+    if (this._muzzleGroup) return;
+  
     const THREE = this.THREE;
-    if (!this._muzzle){
-      const g = new THREE.PlaneGeometry(1, 1);
+    const group = new THREE.Group();
+    group.renderOrder = 9999;
+  
+    // offset from camera center (feeling that the barrel is right and slightly lower)
+    group.position.set(0.12, -0.07, -0.25);
+    this.camera.add(group);
+  
+    const makeQuad = () => {
+      const g = new THREE.PlaneGeometry(1,1);
       const m = new THREE.ShaderMaterial({
-        transparent:true,
-        depthTest:false,
-        depthWrite:false,
-        blending:THREE.AdditiveBlending,
-        side:THREE.DoubleSide,
-        uniforms:{ uAlpha:{value:0.0}, uColor:{value:new THREE.Color(0xffe08a)}, uEllipse:{value:0.35} },
-        vertexShader:`varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-        fragmentShader:`precision mediump float; varying vec2 vUv; uniform vec3 uColor; uniform float uAlpha; uniform float uEllipse; void main(){ vec2 p = vUv - 0.5; p.x *= uEllipse; float d = length(p) * 2.0; float a = uAlpha * pow(max(0.0, 1.0 - clamp(d, 0.0, 1.0)), 2.2); if(a < 0.001) discard; gl_FragColor = vec4(uColor, a); }`
+        transparent: true,
+        depthTest: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+        uniforms: {
+          uAlpha:   { value: 0.0 },
+          uTime:    { value: 0.0 },
+          uSeed:    { value: Math.random()*1000.0 },
+          uTint:    { value: new THREE.Color(0xfff1b3) },
+          uStretch: { value: 1.8 } // anisotropy (along the barrel)
+        },
+        vertexShader: `
+          varying vec2 vUv;
+          void main(){
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+          }`,
+        fragmentShader: `
+          precision mediump float;
+          varying vec2 vUv;
+          uniform float uAlpha, uTime, uSeed, uStretch;
+          uniform vec3  uTint;
+  
+          // простий грідік-noise
+          float hash(float n){ return fract(sin(n)*43758.5453); }
+          float noise(vec2 p){
+            vec2 i=floor(p), f=fract(p);
+            float a=hash(dot(i,vec2(1.0,57.0)));
+            float b=hash(dot(i+vec2(1.0,0.0),vec2(1.0,57.0)));
+            float c=hash(dot(i+vec2(0.0,1.0),vec2(1.0,57.0)));
+            float d=hash(dot(i+vec2(1.0,1.0),vec2(1.0,57.0)));
+            vec2 u=f*f*(3.0-2.0*f);
+            return mix(a,b,u.x) + (c-a)*u.y*(1.0-u.x) + (d-b)*u.x*u.y;
+          }
+  
+          void main(){
+            vec2 p = (vUv - 0.5);
+            p.x *= uStretch;                 // stretch into an ellipse (along the barrel)
+            float r   = length(p) * 2.0;
+            float ang = atan(p.y, p.x);
+  
+            // central flash + rays
+            float core = smoothstep(1.0, 0.0, r);
+            float rays = smoothstep(0.9, 0.0, r) * (0.55 + 0.45*cos(ang*8.0 + uSeed));
+            float breakup = 0.75 + 0.25*noise(p*14.0 + uSeed);
+  
+            float a = (core*1.2 + rays) * breakup * uAlpha;
+            if (a < 0.01) discard;
+  
+            vec3 col = mix(vec3(1.0,0.82,0.45), vec3(1.0,0.96,0.75), 0.35);
+            gl_FragColor = vec4(col, a);
+          }`
       });
-      this._muzzle = new THREE.Mesh(g, m);
-      this._muzzle.position.set(0, -0.05, -0.25); // near camera
-      this._muzzle.scale.set(0.12, 0.05, 1); // elongated oval
-      this._muzzle.rotation.z = Math.random() * Math.PI;
-      this.camera.add(this._muzzle);
-      this._muzzle.renderOrder = 9999;
+      const q = new THREE.Mesh(g, m);
+      q.scale.set(0.14, 0.10, 1); // small quad
+      q.renderOrder = 9999; // draw just under weapon view (which is >= 10000)
+      return q;
+    };
+  
+    this._muzzleFlashA = makeQuad();
+    this._muzzleFlashB = makeQuad();
+    this._muzzleFlashB.rotation.z = Math.PI * 0.5; // cross "leaves"
+  
+    group.add(this._muzzleFlashA, this._muzzleFlashB);
+  
+    // short flash of light in the barrel
+    this._muzzleLight = new THREE.PointLight(0xffd28a, 0, 1.6, 2.0);
+    group.add(this._muzzleLight);
+  
+    this._muzzleGroup = group;
+  }
+  
+  getMuzzleWorldPos(out){
+    const THREE = this.THREE;
+    const v = out || new THREE.Vector3();
+    if (this._muzzleGroup && this._muzzleGroup.parent) {
+      return this._muzzleGroup.getWorldPosition(v);
     }
-    this._muzzle.material.uniforms.uAlpha.value = Math.min(1, 0.6 * strength + 0.2);
-    this._muzzle.rotation.z = Math.random() * Math.PI;
-    this._muzzle.scale.set(0.10 + Math.random()*0.05, 0.035 + Math.random()*0.03, 1);
-    this._muzzleTTL = this._muzzleMax;
+    // fallback: slightly in front of the camera
+    const f = new THREE.Vector3();
+    this.camera.getWorldDirection(f);
+    this.camera.getWorldPosition(v).add(f.multiplyScalar(0.1));
+    return v;
+  }
+  
+
+  spawnMuzzleFlash(strength = 1){
+    if (!this.muzzleEnabled) return;
+    this._ensureMuzzle();
+  
+    // random shape for each shot
+    this._muzzleFlashA.material.uniforms.uSeed.value = Math.random()*1000.0;
+    this._muzzleFlashB.material.uniforms.uSeed.value = Math.random()*1000.0;
+  
+    const a = Math.min(1.0, 0.65*strength + 0.25);
+    this._muzzleFlashA.material.uniforms.uAlpha.value = a;
+    this._muzzleFlashB.material.uniforms.uAlpha.value = a*0.9;
+  
+    // small "pop" scale
+    const s = 1.0 + Math.random()*0.25;
+    this._muzzleGroup.scale.setScalar(s);
+  
+    // light – very short and bright
+    this._muzzleLight.intensity = 2.8 * strength;
+    this._muzzleLight.distance  = 1.8;
+  
+    this._muzzleTTL = this._muzzleMax = 0.05 + Math.random()*0.02; // 50–70ms
+  }  
+
+  // World position of the muzzle tip (used for tracer start)
+  getMuzzleWorldPos(out){
+    const THREE = this.THREE;
+    const v = out || new THREE.Vector3();
+    if (!this._muzzleGroup){
+      // approximate relative to camera if muzzle not created yet
+      return v.copy(new THREE.Vector3(0.12, -0.07, -0.25)).applyMatrix4(this.camera.matrixWorld);
+    }
+    return v.copy(this._muzzleGroup.getWorldPosition(new THREE.Vector3()));
   }
 
   // Subtle screen-edge chroma pulse when combo tier increases
@@ -242,17 +368,19 @@ export class Effects {
 
   // Optional tracer tinting; caller passes intensity 0..1 based on tier
   setTracerTint(intensity){
-    // Adjust tracer material color slightly greener with tier
+    // Store for new tracers and tint any legacy Line tracers
+    this._tracerTintMix = Math.max(0, Math.min(1, intensity)) * 0.6;
     const base = new this.THREE.Color(0x111111);
-    const tint = new this.THREE.Color(0x16a34a);
-    const mixed = base.clone().lerp(tint, Math.max(0, Math.min(1, intensity)) * 0.6);
-    if(this.scene && this.scene.traverse){
-      this.scene.traverse(obj=>{
-        if(obj.isLine && obj.material && obj.material.color && obj.material.name!=="_staticTracer"){
-          obj.material.color.copy(mixed);
-        }
-      });
-    }
+    const mixed = base.clone().lerp(this._tracerTintColor, this._tracerTintMix);
+    try {
+      if(this.scene && this.scene.traverse){
+        this.scene.traverse(obj=>{
+          if(obj.isLine && obj.material && obj.material.color && obj.material.name!=="_staticTracer"){
+            obj.material.color.copy(mixed);
+          }
+        });
+      }
+    } catch(_) {}
   }
 
   onPlayerHit(damage){
@@ -265,7 +393,141 @@ export class Effects {
     this.fatigueLevel = Math.max(0, Math.min(1, level||0));
   }
 
-  spawnBulletImpact(position, normal){
+  // Fast-moving additive sprite from start->end with brief fadeout
+// Arcade beam tracer (cross quads), start = start (better getMuzzleWorldPos)
+// Arcade beam tracer: 1 quad by default (no cross).
+// Call: effects.spawnBulletTracer(effects.getMuzzleWorldPos(), hitPoint, { width: 0.035 });
+spawnBulletTracer(start, end, options = {}) {
+  if (!start || !end) return;
+  const THREE = this.THREE;
+
+  const from = start.clone();
+  const to   = end.clone();
+  const v    = to.clone().sub(from);
+  const len  = Math.max(1e-4, v.length());
+  const dir  = v.clone().normalize();
+
+  // move slightly away from the barrel to avoid near-plane clipping
+  from.add(dir.clone().multiplyScalar(0.02));
+
+  // --- SETTINGS ---
+  const width = Math.max(0.015, options.width || 0.04);       // thicker by default
+  const ttl   = Math.max(0.03,  options.ttl   || 0.08);
+  const cross = options.cross ?? false;                        // <— disabled by default
+  const color = new THREE.Color(0xfff4c0).lerp(this._tracerTintColor, this._tracerTintMix || 0);
+
+  // --- BASE QUAD (XY-plane, normal +Z looks at camera) ---
+  const mid   = from.clone().add(to).multiplyScalar(0.5);
+  const x     = dir.clone();                                       // along the barrel
+  const toCam = this.camera.position.clone().sub(mid).normalize(); // to camera
+  const zProj = toCam.sub(x.clone().multiplyScalar(toCam.dot(x))).normalize();
+  const z     = (zProj.lengthSq() < 1e-6)
+    ? new THREE.Vector3(0,1,0).sub(x.clone().multiplyScalar(x.y)).normalize()
+    : zProj;
+  const y     = new THREE.Vector3().crossVectors(z, x).normalize();
+  const rot   = new THREE.Matrix4().makeBasis(x, y, z);
+
+  // --- MATERIAL/SHADER ---
+  const makeBeam = () => {
+    const g = new THREE.PlaneGeometry(1, 1);
+    const m = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      depthTest: options.depthTest ?? true,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      uniforms: {
+        uAlpha:{value:1.0},
+        uTint:{value: color},
+        uNoise:{value: Math.random()*1000.0}
+      },
+      vertexShader: `
+        varying vec2 vUv;
+        void main(){ vUv=uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+      fragmentShader: `
+        precision mediump float; varying vec2 vUv;
+        uniform float uAlpha, uNoise; uniform vec3 uTint;
+        float h(float n){ return fract(sin(n)*43758.5453); }
+        float noise(vec2 p){
+          vec2 i=floor(p), f=fract(p);
+          float a=h(dot(i,vec2(1.0,57.0)));
+          float b=h(dot(i+vec2(1.0,0.0),vec2(1.0,57.0)));
+          float c=h(dot(i+vec2(0.0,1.0),vec2(1.0,57.0)));
+          float d=h(dot(i+vec2(1.0,1.0),vec2(1.0,57.0)));
+          vec2 u=f*f*(3.0-2.0*f);
+          return mix(a,b,u.x)+(c-a)*u.y*(1.0-u.x)+(d-b)*u.x*u.y;
+        }
+        void main(){
+          float x=vUv.x;
+          float y=abs(vUv.y*2.0-1.0);
+          float core   = smoothstep(1.0, 0.0, y*1.4);          // bright core
+          float taper  = mix(1.0, 0.55, x);                    // taper to tail
+          float fray   = 0.85 + 0.15*noise(vec2(x*18.0, y*8.0 + uNoise));
+          // smooth "caps" on both ends (to avoid pulling into the sky)
+          float capS = smoothstep(0.00, 0.06, x);
+          float capE = smoothstep(0.00, 0.06, 1.0-x);
+          float caps = capS * capE;
+
+          float a = uAlpha * core * taper * fray * caps;
+          if(a < 0.02) discard;
+          vec3 col = mix(vec3(1.0,0.85,0.35), uTint, 0.35);
+          gl_FragColor = vec4(col, a);
+        }`
+    });
+    const q = new THREE.Mesh(g, m);
+    q.scale.set(len, width, 1);
+    q.position.copy(mid);
+    q.setRotationFromMatrix(rot);
+    return q;
+  };
+
+  const beamA = makeBeam();
+  this.scene.add(beamA);
+
+  // Cross quad — ONLY if explicitly enabled
+  let beamB = null;
+  if (cross) {
+    beamB = makeBeam();
+    beamB.rotateOnAxis(dir, Math.PI * 0.5);
+    this.scene.add(beamB);
+  }
+
+  // impact flash
+  let flash = null;
+  if (options.impact !== false) {
+    flash = new THREE.Sprite(new THREE.SpriteMaterial({
+      color: 0xfff1c1, transparent:true, opacity:1, depthWrite:false, blending: THREE.AdditiveBlending
+    }));
+    flash.position.copy(to); flash.scale.set(0.24, 0.24, 1);
+    this.scene.add(flash);
+  }
+
+  // life/fade
+  let t = 0;
+  const entry = {
+    life: 0, maxLife: ttl,
+    tick: (dt) => {
+      t += dt;
+      const k = Math.max(0, 1 - t/ttl);
+      const kk = k*k;
+      beamA.material.uniforms.uAlpha.value = kk;
+      beamA.scale.y = width * (1.0 + 0.6*(1-kk));
+      if (beamB){
+        beamB.material.uniforms.uAlpha.value = kk;
+        beamB.scale.y = width * (1.0 + 0.6*(1-kk));
+      }
+      if (flash){ flash.material.opacity = kk; flash.scale.setScalar(0.24 + 0.4*(1-kk)); }
+    },
+    cleanup: () => {
+      this.scene.remove(beamA); beamA.geometry.dispose(); beamA.material.dispose();
+      if (beamB){ this.scene.remove(beamB); beamB.geometry.dispose(); beamB.material.dispose(); }
+      if (flash){ this.scene.remove(flash); flash.material.dispose(); }
+    }
+  };
+  this._alive.push(entry);
+}
+
+spawnBulletImpact(position, normal){
     const THREE = this.THREE;
     const count = 80;
     const positions = new Float32Array(count * 3);

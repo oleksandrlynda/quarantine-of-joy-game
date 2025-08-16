@@ -22,6 +22,7 @@ export class Pistol extends Weapon {
     const yaw = ((Math.random()*2 - 1) * 0.7) * (Math.PI/180);
     ctx.applyRecoil?.({ pitchRad: pitch, yawRad: yaw, fovKick: 0 });
     if (S && S.shot) S.shot('pistol');
+    effects?.spawnMuzzleFlash?.(0.45);
     const forward = new THREE.Vector3(); camera.getWorldDirection(forward);
     const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0,1,0)).normalize();
     const up = new THREE.Vector3().crossVectors(right, forward).normalize();

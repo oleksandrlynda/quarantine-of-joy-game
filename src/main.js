@@ -12,6 +12,7 @@ import { Music } from './music.js';
 import { SFX } from './sfx.js';
 import { SONGS } from './musicLibrary.js';
 import { WeaponSystem } from './weapons/system.js';
+import { WeaponView } from './weapons/view.js';
 import { startEditor } from './editor.js';
 import { Progression } from './progression.js';
 
@@ -121,6 +122,10 @@ if (levelInfo && Array.isArray(levelInfo.enemySpawnPoints) && levelInfo.enemySpa
   enemyManager.customSpawnPoints = levelInfo.enemySpawnPoints;
 }
 const effects = new Effects(THREE, scene, camera);
+// Enable muzzle flash overlay for player weapons
+effects.muzzleEnabled = true;
+// First-person simple weapon view (barrel meshes)
+const weaponView = new WeaponView(THREE, camera);
 const pickups = new Pickups(THREE, scene);
 
 // Wire obstacle manager hooks now that managers exist
@@ -292,21 +297,30 @@ const S = new SFX({
 // Expose for ambient enemy vocals
 try { window._SFX = S; } catch(_) {}
 let currentSongIndex = 0;
+let lastSongRotateBar = -1;
 function loadCurrentSong(){
   const song = SONGS[currentSongIndex % SONGS.length];
   music.loadSong(song);
+  // Mark switch point so rotation cadence is consistent even across boss transitions
+  lastSongRotateBar = music.barCounter;
 }
 loadCurrentSong();
-let lastSongRotateBar = -1;
 document.getElementById('mute').onclick=()=>{ const muted = !(S.isMuted); S.setMuted(muted); document.getElementById('mute').textContent=muted?'🔇':'🔊'; music.setMuted(muted); };
 
 // Tracer + sparks
 const tracers = [];
 function addTracer(from, to){
-  const g = new THREE.BufferGeometry().setFromPoints([from.clone(), to.clone()]);
-  const line = new THREE.Line(g, mats.tracer.clone());
-  line.userData = { life: 0 };
-  scene.add(line); tracers.push(line);
+  // New: use effects-driven sprite tracer for motion
+  if (effects && typeof effects.spawnBulletTracer === 'function') {
+    const muzzlePos = effects.getMuzzleWorldPos(new THREE.Vector3());
+    effects.spawnBulletTracer(muzzlePos, to, { ttl: 0.08, width: 0.08, impact: true });
+  } else {
+    // Fallback to legacy line if effects unavailable
+    const g = new THREE.BufferGeometry().setFromPoints([from.clone(), to.clone()]);
+    const line = new THREE.Line(g, mats.tracer.clone());
+    line.userData = { life: 0 };
+    scene.add(line); tracers.push(line);
+  }
 }
 function addSpark(at){
   const s = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8), mats.spark.clone());
@@ -333,8 +347,11 @@ weaponSystem = new WeaponSystem({
   addComboAction: (p) => addComboAction(p),
   combo,
   addTracer: (from, to) => addTracer(from, to),
-  applyRecoil: (r)=> player.applyRecoil?.(r)
+  applyRecoil: (r)=> player.applyRecoil?.(r),
+  weaponView
 });
+// Set initial weapon view
+try { weaponView.setWeapon(weaponSystem.getPrimaryName()); } catch(_) {}
 progression = new Progression({ weaponSystem, documentRef: document, onPause: (lock)=>{ offerActive = !!lock; paused = !!lock; }, controls });
 
 window.addEventListener('mousedown', e=>{ if(!controls.isLocked || paused) return; weaponSystem.triggerDown(); });
@@ -347,6 +364,8 @@ window.addEventListener('keydown', e=>{
   if(e.code==='Digit3'){ weaponSystem.switchSlot(3); }
   if(e.code==='Digit4'){ weaponSystem.switchSlot(4); }
   if(e.code==='Digit5'){ weaponSystem.switchSlot(5); }
+  // Update view on quick slot changes
+  try { weaponView.setWeapon(weaponSystem.getPrimaryName()); } catch(_) {}
 });
 
 updateHUD();
@@ -362,6 +381,16 @@ function step(){
     gameTime += dt;
     // player movement update
     player.update(dt);
+    // weapon view update using player inputs (approx from key state and mouse movement are handled by PointerLock, so we feed movement intent only)
+    try {
+      const x = (player.keys.has('KeyD')?1:0) + (player.keys.has('KeyA')?-1:0);
+      const y = (player.keys.has('KeyW')?1:0) + (player.keys.has('KeyS')?-1:0);
+      weaponView.setMove(x, y);
+      const sprinting = player.keys.has('ShiftLeft') || player.keys.has('ShiftRight');
+      weaponView.setSprint(sprinting ? 1 : 0);
+      // ADS: right mouse button not tracked here; leave default 0. We can add a listener later if needed.
+      weaponView.update(dt);
+    } catch(_) {}
     // Update stamina HUD every frame
     if (staminaBarEl && player && typeof player.getStamina01 === 'function') {
       const pct = Math.max(0, Math.min(1, player.getStamina01()));
@@ -491,10 +520,13 @@ function step(){
 
   // Rotate track every N bars to keep variety (skip during boss theme)
   const isBossTrack = SONGS[currentSongIndex % SONGS.length]?.isBoss;
-  if (!isBossTrack && music.barCounter > 0 && (music.barCounter % 32) === 0 && music.currentStep === 0 && lastSongRotateBar !== music.barCounter) {
-    currentSongIndex = (currentSongIndex + 1) % SONGS.length;
-    loadCurrentSong();
-    lastSongRotateBar = music.barCounter;
+  if (!isBossTrack && music.barCounter > 0) {
+    const barsSinceSwitch = lastSongRotateBar < 0 ? music.barCounter : (music.barCounter - lastSongRotateBar);
+    if (barsSinceSwitch >= 32) {
+      currentSongIndex = (currentSongIndex + 1) % SONGS.length;
+      loadCurrentSong();
+      lastSongRotateBar = music.barCounter;
+    }
   }
 
   // (pickups and weather are updated only while active in the gated block above)

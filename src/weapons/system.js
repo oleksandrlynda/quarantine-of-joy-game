@@ -7,7 +7,7 @@ import { GrenadePistol } from './grenadepistol.js';
 
 // WeaponSystem orchestrates current weapon, input mapping, and HUD sync
 export class WeaponSystem {
-  constructor({ THREE, camera, raycaster, enemyManager, objects, effects, obstacleManager, pickups, S, updateHUD, addScore, addComboAction, combo, addTracer, applyRecoil }) {
+  constructor({ THREE, camera, raycaster, enemyManager, objects, effects, obstacleManager, pickups, S, updateHUD, addScore, addComboAction, combo, addTracer, applyRecoil, weaponView }) {
     this.THREE = THREE;
     this.camera = camera;
     this.raycaster = raycaster;
@@ -23,6 +23,7 @@ export class WeaponSystem {
     this.combo = combo;
     this.addTracer = addTracer;
     this.applyRecoil = applyRecoil || (()=>{});
+    this.weaponView = weaponView;
     this.splitPickupsProportionally = false; // optional economy mode
 
     this.inventory = [];
@@ -78,6 +79,7 @@ export class WeaponSystem {
       enemyManager: this.enemyManager,
       objects: this.objects,
       effects: this.effects,
+      weaponView: this.weaponView,
       obstacleManager: this.obstacleManager,
       pickups: this.pickups,
       S: this.S,
@@ -92,6 +94,8 @@ export class WeaponSystem {
 
   triggerDown() {
     const w = this.current; if (!w) return;
+    // Block firing while reload tilt is active
+    try { if (this.weaponView?.isReloading?.()) { this.updateHUD?.(); return; } } catch(_) {}
     // if empty, play reload sound instead and flash ammo pill state via HUD update
     if (w.getAmmo() <= 0) { this.S?.reload?.(); this.updateHUD?.(); return; }
     w.triggerDown(this.context());
@@ -99,7 +103,20 @@ export class WeaponSystem {
 
   triggerUp() { this.current?.triggerUp(); }
 
-  reload() { const ok = this.current?.reload(() => this.S?.reload?.()); if (ok) this.updateHUD?.(); }
+  reload() {
+    const ok = this.current?.reload(() => this.S?.reload?.());
+    if (ok) {
+      // Trigger simple reload tilt on weapon view
+      try {
+        const name = this.getPrimaryName();
+        const heavy = (name === 'Shotgun' || name === 'DMR');
+        this.weaponView?.startReload?.({ dur: heavy ? 0.85 : 0.65, rollDeg: heavy ? 38 : 28, drop: heavy ? 0.08 : 0.06, back: heavy ? 0.06 : 0.045 });
+        // Ensure firing stops during reload
+        this.current?.triggerUp();
+      } catch(_) {}
+      this.updateHUD?.();
+    }
+  }
 
   update(dt) { this.current?.update(dt, this.context()); }
 
