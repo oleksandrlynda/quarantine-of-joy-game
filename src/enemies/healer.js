@@ -1,14 +1,13 @@
+import { createHealerBot } from '../assets/healer_bot.js';
+
 export class HealerEnemy {
   constructor({ THREE, mats, cfg, spawnPos }) {
     this.THREE = THREE;
     this.cfg = cfg;
 
-    const baseMat = mats.enemy.clone();
-    baseMat.color = new THREE.Color(cfg.color);
-    const body = new THREE.Mesh(new THREE.BoxGeometry(1.1,1.5,1.1), baseMat);
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.8,0.8,0.8), mats.head.clone());
-    head.position.y = 1.3;
-    body.add(head);
+    // Use dedicated HealerBot asset
+    const built = createHealerBot({ THREE, mats, scale: 0.5 });
+    const body = built.root; const head = built.head;
     body.position.copy(spawnPos);
     body.userData = { type: cfg.type, head, hp: cfg.hp, maxHp: cfg.hp };
     this.root = body;

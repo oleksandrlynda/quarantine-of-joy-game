@@ -5,6 +5,8 @@ import { Broodmaker } from './broodmaker.js';
 import { Sanitizer } from './sanitizer.js';
 import { Captain } from './captain.js';
 import { ShardAvatar } from './shard.js';
+import { Hydraclone } from './hydraclone.js';
+import { StrikeAdjudicator } from './adjudicator.js';
 
 export class BossManager {
   constructor({ THREE, scene, mats, enemyManager }) {
@@ -15,7 +17,7 @@ export class BossManager {
 
     this.active = false;
     this.boss = null;
-    this.wave = 0;
+    this.wave = 1;
 
     this.cooldown = 0; // time until next telegraphed spawn can start
     this.telegraphTime = 0;
@@ -57,7 +59,7 @@ export class BossManager {
     // - Wave 15: Captain
     // - Wave 20: Shard Avatar
     // - Wave 25: Broodmaker (heavy version)
-    // - Rest: TODO
+    // - Wave 35: Strike Adjudicator
     let boss;
     if (wave === 5) {
       boss = new Broodmaker({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager, mode: 'light' });
@@ -69,7 +71,12 @@ export class BossManager {
       boss = new ShardAvatar({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager });
     } else if (wave == 25) {
       boss = new Broodmaker({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager, mode: 'heavy' });
+    } else if (wave == 30) {
+      boss = new Hydraclone({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager, generation: 0 });
+    } else if (wave == 35) {
+      boss = new StrikeAdjudicator({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager });
     }
+    
     boss._notifyDeath = () => this._onBossDeath();
     this.enemyManager.registerExternalEnemy(boss, { countsTowardAlive: true });
     this.boss = boss;

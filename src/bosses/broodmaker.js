@@ -1,81 +1,97 @@
 import { GooPuddle } from '../hazards/goo.js';
+import { createBroodmakerAsset } from '../assets/boss_broodmaker.js';
 
 export class Broodmaker {
   constructor({ THREE, mats, spawnPos, enemyManager = null, mode = 'light' }) {
     this.THREE = THREE;
     this.mats = mats;
-    this.enemyManager = enemyManager; // optional; if provided, enables add spawns
+    this.enemyManager = enemyManager;
     this.mode = mode === 'heavy' ? 'heavy' : 'light';
     this.enablePhase2 = this.mode === 'heavy';
 
-    const base = mats.enemy.clone(); base.color = new THREE.Color(0x7c3aed); // purple-ish boss
-    const body = new THREE.Mesh(new THREE.BoxGeometry(2.2, 2.8, 2.2), base);
-    const head = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.4, 1.4), mats.head.clone());
-    head.position.y = 2.2; body.add(head);
-    body.position.copy(spawnPos);
-
+    // Asset
+    const built = createBroodmakerAsset({ THREE, mats, scale: 1.0 });
     const type = this.enablePhase2 ? 'boss_broodmaker_heavy' : 'boss_broodmaker';
-    body.userData = { type, head, hp: this.enablePhase2 ? 8000 : 3500 };
-    this.root = body;
+    built.root.position.copy(spawnPos);
+    built.root.userData = { type, head: built.head, hp: this.enablePhase2 ? 18000 : 4500, damageMul: 1.0 };
+    this.root = built.root;
+    this.refs = built.refs || {};
 
-    this.speed = this.enablePhase2 ? 2.5 : 1.7; // slow move
-    this._lastPos = body.position.clone();
-    this._stuckTime = 0; this._nudgeCooldown = 0;
+    // Core nav + timers
+    this.speed = this.enablePhase2 ? 2.5 : 1.7;
     this._raycaster = new THREE.Raycaster();
+    this._frameIndex = 0;
+    this._t = 0;
 
-    this._notifyDeath = null; // set by BossManager
-
-    // Phase/state (only relevant when heavy)
-    this.maxHp = body.userData.hp;
-    this.phase = 1; // becomes 2 at <=60%
-    this._phaseTelegraph = 0; // 0 means idle, >0 counting
+    // Phases
+    this.maxHp = this.root.userData.hp;
+    this.phase = 1;                     // -> 2 at <=60% HP
+    this._phaseTelegraph = 0;
     this._phaseTelegraphRequired = 0.8;
     this._phaseTelegraphRing = null;
 
-    // Flyer Brood cadence (heavy only)
-    this._flyerCooldown = 6 + Math.random() * 2; // 6–8s
-    this._flyerRoots = new Set(); // track for cleanup
+    // Phase 1: Broodlings + Burrow relocate
+    this._broodRoots = new Set();
+    this._broodCooldown = 3.5 + Math.random() * 1.0;       // first drip fast
+    this._broodCap = this.enablePhase2 ? 8 : 6;            // local cap (also clamped by global cap)
+    // Burrow state
+    this._burrowCooldown = (this.enablePhase2 ? 10 : 12) + Math.random() * 4;
+    this._burrowPhase = null;   // 'sink' | 'move' | 'rise' | null
+    this._burrowTimer = 0;
+
+    // Phase 2: Flyers + Goo + weakpoint exposure
+    this._flyerCooldown = 6 + Math.random() * 2;
+    this._flyerRoots = new Set();
     this._flyerCap = 6;
 
-    // Goo puddles (heavy only)
-    this._gooCooldown = 10 + Math.random() * 4; // 10–14s
-    this._goo = []; // active GooPuddle instances
+    this._gooCooldown = 10 + Math.random() * 4;
+    this._goo = [];
     this._gooCap = 4;
-    this._frameIndex = 0;
     this._lastPlayerPos = null;
+
+    // Weakpoint exposure window (Phase 2 lay cycle)
+    this._weakpointTimer = 0;
+    this._setWeakpoint(false);
   }
 
+  // ---------------- core update ----------------
   update(dt, ctx) {
     this._frameIndex++;
+    this._t += dt;
+
     const e = this.root;
-    const toPlayer = ctx.player.position.clone().sub(e.position);
+    const playerPos = ctx.player.position.clone();
+    const toPlayer = playerPos.clone().sub(e.position);
     const dist = toPlayer.length();
     if (dist > 70) return;
 
-    toPlayer.y = 0; if (toPlayer.lengthSq() === 0) return; toPlayer.normalize();
-
-    // Maintain some distance: pursue if > 8m, otherwise slow orbit
-    const desired = new this.THREE.Vector3();
-    if (dist > 9) desired.add(toPlayer);
-    else {
-      const side = new this.THREE.Vector3(-toPlayer.z, 0, toPlayer.x);
-      desired.add(side.multiplyScalar(0.6));
+    // If burrowing, run that mini-state machine and skip movement/abilities.
+    if (this._burrowPhase) {
+      this._updateBurrow(dt, ctx, playerPos);
+      this._tickVisuals(dt);
+      return;
     }
 
-    // No obstacle avoidance for boss; use world-aware slide from ctx
+    // Movement: keep range; orbit when close
+    toPlayer.y = 0;
+    if (toPlayer.lengthSq() === 0) return;
+    toPlayer.normalize();
+
+    const desired = new this.THREE.Vector3();
+    if (dist > 9) desired.add(toPlayer);
+    else desired.add(new this.THREE.Vector3(-toPlayer.z, 0, toPlayer.x).multiplyScalar(0.6));
+
     if (desired.lengthSq() > 0) {
       desired.normalize();
       const step = desired.multiplyScalar(this.speed * dt);
       ctx.moveWithCollisions(e, step);
     }
 
+    // Phase gate
     if (this.enablePhase2) {
-      // Phase transition check
       if (this.phase === 1 && e.userData.hp <= this.maxHp * 0.6) {
         if (this._phaseTelegraph <= 0) this._beginPhaseTelegraph(ctx);
       }
-
-      // Phase telegraph progression
       if (this._phaseTelegraph > 0) {
         this._phaseTelegraph += dt;
         this._updatePhaseTelegraph(dt, ctx);
@@ -84,44 +100,185 @@ export class Broodmaker {
           this.phase = 2;
         }
       }
-
-      // Phase 2 abilities
       if (this.phase === 2) {
         this._updateFlyerBrood(dt, ctx);
         this._updateGoo(dt, ctx);
+        this._updateWeakpoint(dt); // auto-close when window ends
       }
     }
 
-    // Subtle head pulse to signal threat (different tint in P2 if heavy)
-    if (e.userData && e.userData.head && e.userData.head.material) {
-      const mat = e.userData.head.material;
+    // Phase 1 loop (still active in heavy until transition)
+    if (this.phase === 1) {
+      this._updateBroodlings(dt, ctx);
+      this._maybeStartBurrow(dt, ctx, playerPos);
+    } else {
+      // Even in Phase 2, occasional burrow keeps the arena dynamic
+      this._maybeStartBurrow(dt, ctx, playerPos, 0.65);
+    }
+
+    this._tickVisuals(dt);
+  }
+
+  // ---------------- visuals & pulses ----------------
+  _tickVisuals(dt) {
+    // Head tint by phase
+    const head = this.root.userData?.head;
+    if (head?.material) {
+      const mat = head.material;
       if (mat.emissive) mat.emissive.setHex(this.enablePhase2 && this.phase === 2 ? 0xbb66ff : 0x8844ff);
     }
+    // Egg sac pulse (stronger right before brood spawn)
+    try {
+      const sacs = this.refs?.eggs || [];
+      let k = 0.8 + 0.2 * Math.sin(this._t * 3.6);
+      if (this._broodCooldown < 1.0) k = 1.0 + (1.0 - this._broodCooldown) * 0.4; // ramp up
+      for (const s of sacs) {
+        if (s.material?.emissiveIntensity != null) s.material.emissiveIntensity = 0.6 * k;
+      }
+    } catch(_) {}
   }
 
   onRemoved(scene) {
-    if (this.enablePhase2) {
-      // Cleanup flyers
-      if (this.enemyManager) {
-        for (const r of Array.from(this._flyerRoots)) {
-          if (this.enemyManager.enemies.has(r)) this.enemyManager.remove(r);
-          this._flyerRoots.delete(r);
-        }
+    // Flyers
+    if (this.enemyManager) {
+      for (const r of Array.from(this._flyerRoots)) {
+        if (this.enemyManager.enemies.has(r)) this.enemyManager.remove(r);
+        this._flyerRoots.delete(r);
       }
-      // Cleanup goo
-      for (const g of this._goo) g.dispose(scene);
-      this._goo.length = 0;
-      if (this._phaseTelegraphRing) { scene.remove(this._phaseTelegraphRing); this._phaseTelegraphRing = null; }
+      for (const r of Array.from(this._broodRoots)) {
+        if (this.enemyManager.enemies.has(r)) this.enemyManager.remove(r);
+        this._broodRoots.delete(r);
+      }
+    }
+    // Goo
+    for (const g of this._goo) g?.dispose?.(scene);
+    this._goo.length = 0;
+    if (this._phaseTelegraphRing) { scene.remove(this._phaseTelegraphRing); this._phaseTelegraphRing = null; }
+  }
+
+  // ---------------- Phase 1: Broodlings ----------------
+  _updateBroodlings(dt, ctx) {
+    if (!this.enemyManager) return;
+
+    // Prune dead
+    for (const r of Array.from(this._broodRoots)) {
+      if (!this.enemyManager.enemies.has(r)) this._broodRoots.delete(r);
+    }
+
+    // Global cap (so arena doesn’t oversaturate)
+    const totalMinions = Math.max(0, (this.enemyManager.enemies?.size || 1) - 1); // minus boss
+    const totalCap = 10; // broader than flyers cap to allow ground pressure
+    const availGlobal = Math.max(0, totalCap - totalMinions);
+
+    // Cooldown
+    if (this._broodCooldown > 0) this._broodCooldown -= dt;
+    if (this._broodCooldown > 0) return;
+
+    const localAvail = Math.max(0, this._broodCap - this._broodRoots.size);
+    const canSpawn = Math.min(availGlobal, localAvail);
+    if (canSpawn <= 0) { this._broodCooldown = 1.2; return; }
+
+    // Spawn 1–3 near the player (3 only if room)
+    const count = Math.min(canSpawn, 1 + (Math.random() < 0.6 ? 1 : 0) + (Math.random() < 0.25 ? 1 : 0));
+    const near = this._computeSpawnAroundPlayer(ctx, count, 4.5, 7.0);
+    let spawned = 0;
+
+    for (const p of near) {
+      const root = this.enemyManager.spawnAt('broodling', p, { countsTowardAlive: true });
+      if (root) {
+        // light, fragile adds
+        root.userData.hp = Math.max(8, Math.floor(12 + Math.random() * 6));
+        const inst = this.enemyManager.instanceByRoot.get(root);
+        if (inst) {
+          inst.speed *= 1.05;
+          if (typeof inst.aggression === 'number') inst.aggression = Math.min(1.0, (inst.aggression || 0.8) + 0.1);
+        }
+        this._broodRoots.add(root);
+        spawned++;
+      }
+    }
+
+    // Next drip: faster if few spawned (keeps pressure), slower if many
+    this._broodCooldown = (spawned >= 2 ? 3.4 : 2.2) + Math.random() * 0.9;
+  }
+
+  // ---------------- Burrow / Relocate (both phases) ----------------
+  _maybeStartBurrow(dt, ctx, playerPos, rarityMul = 1.0) {
+    if (this._burrowCooldown > 0) this._burrowCooldown -= dt;
+    if (this._burrowCooldown > 0) return;
+
+    // Don’t relocate if player is extremely far (already disengaged)
+    const d = playerPos.clone().sub(this.root.position).length();
+    if (d > 55) { this._burrowCooldown = 3.0; return; }
+
+    // Start burrow
+    this._burrowPhase = 'sink';
+    this._burrowTimer = 0.6; // sink time
+    // Visual: hide outline while underground
+    if (this.refs.outlineGroup) this.refs.outlineGroup.visible = false;
+    // Juicy FX
+    try { window?._EFFECTS?.ring?.(this.root.position.clone(), 1.6, 0xff88aa); } catch(_) {}
+    // Next time (rarityMul makes it rarer in P2 if desired)
+    this._burrowCooldown = ((this.enablePhase2 ? 9 : 12) + Math.random() * 5) * rarityMul;
+  }
+
+  _updateBurrow(dt, ctx, playerPos) {
+    const anchor = this.refs?.burrowAnchor || this.root;
+    if (this._burrowPhase === 'sink') {
+      this._burrowTimer -= dt;
+      anchor.position.y = this._easeTo(anchor.position.y, -1.15, dt * 6);
+      if (this._burrowTimer <= 0) {
+        this._burrowPhase = 'move';
+        this._burrowTimer = 0.1;
+        // Teleport root while "underground"
+        const target = this._pickRelocatePos(playerPos);
+        this.root.position.copy(target);
+        // optional FX at emerge point
+        try { window?._EFFECTS?.ring?.(target.clone(), 1.6, 0xff88aa); } catch(_) {}
+      }
+      return;
+    }
+    if (this._burrowPhase === 'move') {
+      this._burrowTimer -= dt;
+      if (this._burrowTimer <= 0) {
+        this._burrowPhase = 'rise';
+        this._burrowTimer = 0.7;
+      }
+      return;
+    }
+    if (this._burrowPhase === 'rise') {
+      this._burrowTimer -= dt;
+      anchor.position.y = this._easeTo(anchor.position.y, 0, dt * 5);
+      if (this._burrowTimer <= 0) {
+        anchor.position.y = 0;
+        this._burrowPhase = null;
+        if (this.refs.outlineGroup) this.refs.outlineGroup.visible = true;
+        // On emerge: small brood pop to re-engage
+        if (this.phase === 1) this._broodCooldown = Math.min(this._broodCooldown, 0.5);
+      }
     }
   }
 
-  // --- Phase 2: Telegraph ---
+  _pickRelocatePos(playerPos) {
+    const THREE = this.THREE;
+    const a = Math.random() * Math.PI * 2;
+    const r = 10 + Math.random() * 6; // 10–16 m from player
+    const pos = new THREE.Vector3(playerPos.x + Math.cos(a) * r, this.root.position.y, playerPos.z + Math.sin(a) * r);
+    // clamp to arena
+    pos.x = Math.max(-39, Math.min(39, pos.x));
+    pos.z = Math.max(-39, Math.min(39, pos.z));
+    // nudge off obstacles if helper exists
+    if (typeof this.enemyManager?._nudgeClear === 'function') this.enemyManager._nudgeClear(pos, 0.8);
+    return pos;
+  }
+
+  // ---------------- Phase 2: Telegraph ----------------
   _beginPhaseTelegraph(ctx) {
     this._phaseTelegraph = 0.0001;
-    // Head emissive pulse
     const head = this.root.userData.head;
-    if (head && head.material && head.material.emissive) head.material.emissive.setHex(0xff88aa);
-    // Ground ring under boss
+    if (head?.material?.emissive) head.material.emissive.setHex(0xff88aa);
+    try { (this.refs?.eggs||[]).forEach(s=>{ if (s.material?.emissiveIntensity!=null) s.material.emissiveIntensity = 1.2; }); } catch(_) {}
+
     const THREE = this.THREE;
     const ring = new THREE.Mesh(
       new THREE.RingGeometry(0.9, 1.8, 28),
@@ -149,23 +306,37 @@ export class Broodmaker {
     this._phaseTelegraph = 0;
     if (this._phaseTelegraphRing) { ctx.scene.remove(this._phaseTelegraphRing); this._phaseTelegraphRing = null; }
     const head = this.root.userData.head;
-    if (head && head.material && head.material.emissive) head.material.emissive.setHex(0xbb66ff);
-    // Initialize ability windows so they don't fire instantly together
+    if (head?.material?.emissive) head.material.emissive.setHex(0xbb66ff);
+    try { (this.refs?.eggs||[]).forEach(s=>{ if (s.material?.emissiveIntensity!=null) s.material.emissiveIntensity = 0.85; }); } catch(_) {}
+    // Stagger ability windows
     this._flyerCooldown = 1.5 + Math.random() * 1.0;
     this._gooCooldown = 2.0 + Math.random() * 1.5;
   }
 
-  // --- Phase 2: Flyer Brood ---
-  _updateFlyerBrood(dt, ctx) {
-    if (!this.enemyManager) return; // requires manager
+  // ---------------- Phase 2: Weakpoint exposure cycle ----------------
+  _setWeakpoint(open) {
+    const w = this.refs?.weakpoint;
+    const cover = this.refs?.dorsalCover;
+    this.root.userData.damageMul = open ? 1.6 : 1.0; // let external damage logic read this
+    if (w) w.visible = !!open;
+    if (cover) cover.rotation.x = open ? -1.1 : -0.25; // hinge open/closed
+  }
+  _updateWeakpoint(dt) {
+    if (this._weakpointTimer > 0) {
+      this._weakpointTimer = Math.max(0, this._weakpointTimer - dt);
+      if (this._weakpointTimer === 0) this._setWeakpoint(false);
+    }
+  }
 
-    // Track and prune dead flyers
+  // ---------------- Phase 2: Flyers ----------------
+  _updateFlyerBrood(dt, ctx) {
+    if (!this.enemyManager) return;
+
     for (const r of Array.from(this._flyerRoots)) {
       if (!this.enemyManager.enemies.has(r)) this._flyerRoots.delete(r);
     }
 
-    // Total minion cap across all enemies during boss fight: ≤8
-    const totalMinions = Math.max(0, (this.enemyManager.enemies?.size || 1) - 1); // subtract boss
+    const totalMinions = Math.max(0, (this.enemyManager.enemies?.size || 1) - 1);
     const totalCap = 8;
     const availableSlots = Math.max(0, totalCap - totalMinions);
 
@@ -177,51 +348,41 @@ export class Broodmaker {
     const canSpawn = Math.min(availableSlots, flyerSlots);
     if (canSpawn <= 0) { this._flyerCooldown = 1.2; return; }
 
-    const count = Math.max(1, Math.min(3, 2 + (Math.random() < 0.5 ? 0 : 1), canSpawn));
-    const positions = this._computeSpawnAroundPlayer(ctx, count, 6, 10);
-    for (const p of positions) {
+    // Spawn from ports (feels like a lay/cough-out), then dive toward player
+    const ports = this.refs?.flyerPorts || [];
+    let spawned = 0;
+    const want = Math.min(canSpawn, 2 + (Math.random() < 0.5 ? 1 : 0));
+    for (let i = 0; i < want && ports.length; i++) {
+      const port = ports[Math.floor(Math.random() * ports.length)];
+      const p = port.getWorldPosition(new this.THREE.Vector3());
       const root = this.enemyManager.spawnAt('flyer', p, { countsTowardAlive: true });
       if (root) {
-        // Tuning: low HP flyers with slight speed buff
         root.userData.hp = Math.max(10, Math.floor(18 + Math.random() * 10));
         const inst = this.enemyManager.instanceByRoot.get(root);
         if (inst) {
-          inst.speed *= 1.12; // cruise
-          inst.diveSpeed *= 1.08;
-          // slightly shorter cooldown to feel harassy
-          if (typeof inst.cooldownBase === 'number') inst.cooldownBase = Math.max(0.9, inst.cooldownBase * 0.9);
+          inst.speed *= 1.12;
+          inst.diveSpeed = (inst.diveSpeed || inst.speed * 1.4) * 1.08;
         }
         this._flyerRoots.add(root);
+        spawned++;
       }
-      if (this._flyerRoots.size >= this._flyerCap) break;
     }
-    this._flyerCooldown = 6 + Math.random() * 2; // next window
+    this._flyerCooldown = 6 + Math.random() * 2;
+
+    // Open weakpoint briefly during lay cycle
+    if (spawned > 0) {
+      this._setWeakpoint(true);
+      this._weakpointTimer = 3.0; // exposed window
+      // ping eggs brighter
+      try { (this.refs?.eggs||[]).forEach(s=>{ if (s.material?.emissiveIntensity!=null) s.material.emissiveIntensity = 1.2; }); } catch(_) {}
+    }
   }
 
-  _computeSpawnAroundPlayer(ctx, count, minR = 6, maxR = 10) {
-    const THREE = this.THREE;
-    const out = [];
-    const playerPos = ctx.player.position;
-    for (let i = 0; i < count; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const r = minR + Math.random() * (maxR - minR);
-      const pos = new THREE.Vector3(playerPos.x + Math.cos(a) * r, 1.2, playerPos.z + Math.sin(a) * r);
-      // try keep within arena
-      pos.x = Math.max(-39, Math.min(39, pos.x));
-      pos.z = Math.max(-39, Math.min(39, pos.z));
-      // prefer clear areas if helper exists
-      if (typeof this.enemyManager?._isSpawnAreaClear === 'function') {
-        if (!this.enemyManager._isSpawnAreaClear(pos, 0.4)) continue;
-      }
-      out.push(pos);
-    }
-    return out;
-  }
-
-  // --- Phase 2: Goo Puddles ---
+  // ---------------- Phase 2: Goo ----------------
   _updateGoo(dt, ctx) {
-    // Update existing
     if (!this._lastPlayerPos) this._lastPlayerPos = ctx.player.position.clone();
+
+    // Update existing
     for (let i = this._goo.length - 1; i >= 0; i--) {
       const g = this._goo[i];
       g.update(dt, ctx, this._lastPlayerPos, this._frameIndex);
@@ -235,7 +396,21 @@ export class Broodmaker {
 
     const remainingSlots = this._gooCap - this._goo.length;
     const toSpawn = Math.max(1, Math.min(2, remainingSlots));
-    const positions = this._computeSpawnAroundPlayer(ctx, toSpawn, 3, 6);
+
+    // 50%: drop from abdomen nozzles under boss; 50%: seed near player
+    const rollPorts = Math.random() < 0.5;
+    const positions = [];
+    if (rollPorts && (this.refs?.gooPorts?.length)) {
+      for (let i = 0; i < toSpawn; i++) {
+        const port = this.refs.gooPorts[Math.floor(Math.random() * this.refs.gooPorts.length)];
+        const p = port.getWorldPosition(new this.THREE.Vector3());
+        p.y = 0.05;
+        positions.push(p);
+      }
+    } else {
+      positions.push(...this._computeSpawnAroundPlayer(ctx, toSpawn, 3, 6));
+    }
+
     for (const p of positions) {
       const g = new GooPuddle({ THREE: this.THREE, mats: this.mats, position: p, enemyManager: this.enemyManager });
       ctx.scene.add(g.root);
@@ -244,6 +419,25 @@ export class Broodmaker {
     }
     this._gooCooldown = 10 + Math.random() * 4;
   }
+
+  // ---------------- utils ----------------
+  _computeSpawnAroundPlayer(ctx, count, minR = 6, maxR = 10) {
+    const THREE = this.THREE;
+    const out = [];
+    const playerPos = ctx.player.position;
+    for (let i = 0; i < count; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = minR + Math.random() * (maxR - minR);
+      const pos = new THREE.Vector3(playerPos.x + Math.cos(a) * r, 1.2, playerPos.z + Math.sin(a) * r);
+      pos.x = Math.max(-39, Math.min(39, pos.x));
+      pos.z = Math.max(-39, Math.min(39, pos.z));
+      if (typeof this.enemyManager?._isSpawnAreaClear === 'function') {
+        if (!this.enemyManager._isSpawnAreaClear(pos, 0.4)) continue;
+      }
+      out.push(pos);
+    }
+    return out;
+  }
+
+  _easeTo(current, target, rate) { return current + Math.max(-Math.abs(rate), Math.min(Math.abs(rate), target - current)); }
 }
-
-

@@ -43,6 +43,8 @@ export class ShooterEnemy {
     this._lastFwd = new this.THREE.Vector3(0,0,1);
     // Facing and small gun recoil/flash state
     this._yaw = 0; this._flashTimer = 0; this._recoil = 0;
+    // Smoothed facing to avoid jitter
+    this._faceDir = new this.THREE.Vector3(0, 0, 1);
   }
 
   update(dt, ctx) {
@@ -144,17 +146,31 @@ export class ShooterEnemy {
       steer.add(this._hitJukeDir.clone().multiplyScalar(1.1));
     }
 
+    let movedVec = null;
     if (steer.lengthSq() > 0) {
       steer.y = 0; steer.normalize();
       const step = steer.multiplyScalar(this.speed * dt);
+      const before = e.position.clone();
       ctx.moveWithCollisions(e, step);
+      movedVec = e.position.clone().sub(before);
+      movedVec.y = 0;
     }
 
     // Face the player smoothly (yaw only) so gun points generally toward target
-    const desiredYaw = Math.atan2(toPlayer.x, toPlayer.z);
+    const inBandYaw = dist >= this.preferredRange.min && dist <= this.preferredRange.max;
+    const aiming = this.inBurst || (hasLOS && inBandYaw && (this.windupTime > 0 || this.cooldown <= 0));
+    const faceVec = aiming ? toPlayer.clone().setY(0) : (movedVec && movedVec.lengthSq() > 1e-6 ? movedVec.clone().setY(0) : toPlayer.clone().setY(0));
+    if (faceVec.lengthSq() > 0) {
+      faceVec.normalize();
+      // Low-pass filter the facing vector to prevent vibration
+      const lerpAmt = Math.min(1, 8 * dt); // ~8 Hz responsiveness
+      this._faceDir.lerp(faceVec, lerpAmt);
+      if (this._faceDir.lengthSq() > 0) this._faceDir.normalize();
+    }
+    const desiredYaw = Math.atan2(this._faceDir.x, this._faceDir.z) + Math.PI; // -Z forward faces target
     const wrap = (a)=>{ while(a>Math.PI) a-=2*Math.PI; while(a<-Math.PI) a+=2*Math.PI; return a; };
     let dy = wrap(desiredYaw - this._yaw);
-    const turnRate = 6.0; // rad/s
+    const turnRate = 5.0; // slightly reduced to smooth out jitter
     this._yaw = wrap(this._yaw + Math.max(-turnRate*dt, Math.min(turnRate*dt, dy)));
     e.rotation.set(0, this._yaw, 0);
 
@@ -244,9 +260,9 @@ export class ShooterEnemy {
     }
   }
 
-  _hasLineOfSight(fromRoot, targetPos, objects) {
+  _hasLineOfSight(_fromRoot, targetPos, objects) {
     const THREE = this.THREE;
-    const origin = new THREE.Vector3(fromRoot.position.x, fromRoot.position.y + 1.4, fromRoot.position.z);
+    const origin = this._muzzleWorld();
     const dir = targetPos.clone().sub(origin);
     const dist = dir.length();
     if (dist <= 0.0001) return true;
@@ -423,7 +439,7 @@ export class ShooterEnemy {
       if (this._aimLine) { scene.remove(this._aimLine); this._aimLine = null; }
       return;
     }
-    const from = new THREE.Vector3(this.root.position.x, this.root.position.y + 1.4, this.root.position.z);
+    const from = this._muzzleWorld();
     if (!this._aimLine) {
       const g = new THREE.BufferGeometry().setFromPoints([from, targetPos]);
       const m = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.35 });
@@ -435,6 +451,14 @@ export class ShooterEnemy {
       pos.setXYZ(1, targetPos.x, targetPos.y, targetPos.z);
       pos.needsUpdate = true;
     }
+  }
+
+  _muzzleWorld() {
+    const THREE = this.THREE;
+    if (this._refs && this._refs.muzzle && this._refs.muzzle.parent) {
+      try { return this._refs.muzzle.getWorldPosition(new THREE.Vector3()); } catch(_) {}
+    }
+    return new THREE.Vector3(this.root.position.x, this.root.position.y + 1.4, this.root.position.z);
   }
 
   onRemoved(scene) {

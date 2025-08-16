@@ -4,6 +4,7 @@ import { FlyerEnemy } from './flyer.js';
 import { HealerEnemy } from './healer.js';
 import { SniperEnemy } from './sniper.js';
 import { RusherEnemy } from './rusher.js';
+import { SwarmWarden } from './warden.js';
 import { BossManager } from '../bosses/manager.js';
 
 export class EnemyManager {
@@ -42,11 +43,12 @@ export class EnemyManager {
     this.typeConfig = {
       grunt:  { type: 'grunt',  hp: 100, speedMin: 2.4, speedMax: 3.2, color: 0xef4444, kind: 'melee' },
       rusher: { type: 'rusher', hp:  60, speedMin: 6.4, speedMax: 7.9, color: 0xf97316, kind: 'melee' },
-      tank:   { type: 'tank',   hp: 400, speedMin: 1.6, speedMax: 2.0, color: 0x2563eb, kind: 'melee' },
+      tank:   { type: 'tank',   hp: 450, speedMin: 1.6, speedMax: 2.4, color: 0x2563eb, kind: 'melee' },
       shooter:{ type: 'shooter',hp:  150, speedMin: 2.2, speedMax: 2.8, color: 0x10b981, kind: 'shooter' },
-      flyer:  { type: 'flyer',  hp:  40, speedMin: 12.4, speedMax: 15.6, color: 0xa855f7, kind: 'flyer' },
+      flyer:  { type: 'flyer',  hp:  40, speedMin: 12.4, speedMax: 16.7, color: 0xa855f7, kind: 'flyer' },
       healer: { type: 'healer', hp:   90, speedMin: 2.2, speedMax: 2.6, color: 0x84cc16, kind: 'healer' },
       sniper: { type: 'sniper', hp:   90, speedMin: 2.0, speedMax: 2.4, color: 0x444444, kind: 'sniper' },
+      warden: { type: 'warden', hp: 420, speedMin: 1.9, speedMax: 2.3, color: 0x22d3ee, kind: 'warden' },
       // Boss adds
       gruntling: { type: 'gruntling', hp: 20, speedMin: 3.2, speedMax: 4.0, color: 0xfb7185, kind: 'melee' }
     };
@@ -331,12 +333,13 @@ export class EnemyManager {
   // Factories
   _createInstance(type, spawnPos) {
     const cfg = this.typeConfig[type] || this.typeConfig.grunt;
-    const args = { THREE: this.THREE, mats: this.mats, cfg, spawnPos };
+    const args = { THREE: this.THREE, mats: this.mats, cfg, spawnPos, enemyManager: this };
     switch (cfg.kind) {
       case 'shooter': return new ShooterEnemy(args);
       case 'flyer':   return new FlyerEnemy(args);
       case 'healer':  return new HealerEnemy(args);
       case 'sniper':  return new SniperEnemy(args);
+      case 'warden':  return new SwarmWarden(args);
       case 'melee':
         if (cfg.type === 'rusher') return new RusherEnemy(args);
         return new MeleeEnemy(args);
@@ -613,6 +616,7 @@ export class EnemyManager {
     const pctTank    = wave >= 6 ? 0.10 : 0.0;
     const pctHealer  = wave >= 7 ? 0.08 : 0.0;
     const pctSniper  = wave >= 8 ? 0.05 : 0.0;
+    const pctWarden  = wave >= 20 ? 0.04 : 0.0;
 
     const minFlyer  = wave >= 5 ? 2 : 0;
     let needFlyer   = wave >= 5 ? Math.max(minFlyer, Math.floor(total * pctFlyer)) : 0;
@@ -621,9 +625,10 @@ export class EnemyManager {
     let needTank    = Math.max(wave >= 6 ? 1 : 0, Math.floor(total * pctTank));
     let needHealer  = Math.floor(total * pctHealer);
     let needSniper  = Math.floor(total * pctSniper);
+    let needWarden  = Math.floor(total * pctWarden);
 
     // Cap total replacements to total count
-    let requested = needFlyer + needRusher + needShooter + needTank + needHealer + needSniper;
+    let requested = needFlyer + needRusher + needShooter + needTank + needHealer + needSniper + needWarden;
     if (requested > total) {
       const scale = total / requested;
       needFlyer = Math.floor(needFlyer * scale);
@@ -632,6 +637,7 @@ export class EnemyManager {
       needTank = Math.floor(needTank * scale);
       needHealer = Math.floor(needHealer * scale);
       needSniper = Math.floor(needSniper * scale);
+      needWarden = Math.floor(needWarden * scale);
     }
 
     // Helper to randomly assign a type into a 'grunt' slot
@@ -653,6 +659,7 @@ export class EnemyManager {
 
     // Apply assignments with some precedence
     assignRandom(needTank, 'tank');
+    assignRandom(needWarden, 'warden');
     assignRandom(needSniper, 'sniper');
     assignRandom(needHealer, 'healer');
     assignRandom(needShooter, 'shooter');

@@ -1,6 +1,6 @@
 // Suppression Nodes helper for Commissioner Sanitizer
 // Creates 3 static pillars around a center, tracks their HP and simple pulse
-
+import { createSanitizerNodeAsset } from '../assets/boss_sanitizer.js';
 export class SuppressionNodes {
   constructor({ THREE, mats, center, enemyManager }) {
     this.THREE = THREE;
@@ -9,7 +9,7 @@ export class SuppressionNodes {
     this.enemyManager = enemyManager;
 
     this.roots = [];
-    this._materials = [];
+    this._rings = [];
     this._alive = 0;
 
     // Layout: 3 pillars in an equilateral triangle around the center
@@ -22,25 +22,14 @@ export class SuppressionNodes {
         this.center.z + Math.sin(ang) * radius
       );
 
-      // Root group holds visual children and HP
-      const root = new THREE.Group();
+      // Root group holds visual children and HP, using consistent asset style
+      const asset = createSanitizerNodeAsset({ THREE });
+      const root = asset.root;
       root.position.copy(pos);
       root.userData = { type: 'boss_node', hp: 140 };
 
-      // Node visual: bright pillar + halo
-      const baseMat = new this.THREE.MeshBasicMaterial({ color: 0x60a5fa });
-      const pillar = new this.THREE.Mesh(new this.THREE.CylinderGeometry(0.7, 0.7, 3.4, 12), baseMat);
-      pillar.position.y = 1.7; // stand on floor
-      root.add(pillar);
-
-      const haloMat = new this.THREE.MeshBasicMaterial({ color: 0x93c5fd, transparent: true, opacity: 0.6, depthWrite: false, side: this.THREE.DoubleSide });
-      const halo = new this.THREE.Mesh(new this.THREE.RingGeometry(0.8, 1.6, 28), haloMat);
-      halo.rotation.x = -Math.PI / 2;
-      halo.position.y = 0.06;
-      root.add(halo);
-
       this.roots.push(root);
-      this._materials.push(baseMat);
+      this._rings.push(asset.ring);
     }
 
     this._alive = this.roots.length;
@@ -54,24 +43,21 @@ export class SuppressionNodes {
   }
 
   update(dt, time = 0) {
-    // subtle color pulse + halo scale
+    // pulse glowing ring scale and emissive intensity
     for (let i = 0; i < this.roots.length; i++) {
-      const root = this.roots[i];
-      const mat = this._materials[i];
+      const ring = this._rings[i];
+      if (!ring) continue;
       const t = time + i * 0.37;
-      const k = 0.5 + Math.sin(t * 2.4) * 0.5; // 0..1
-      if (mat && mat.color) {
-        // lerp between two shades
-        const c1 = new this.THREE.Color(0x60a5fa);
-        const c2 = new this.THREE.Color(0x3b82f6);
-        mat.color.copy(c1.lerp(c2, k));
-      }
-      // halo assumed to be child[1]
-      const halo = root.children[1];
-      if (halo && halo.material) {
-        const s = 0.8 + Math.sin(t * 3.2) * 0.15;
-        halo.scale.setScalar(1 + s * 0.25);
-        halo.material.opacity = 0.35 + 0.25 * (0.5 + Math.sin(t * 3.2) * 0.5);
+      const s = 0.95 + Math.sin(t * 3.2) * 0.08;
+      ring.scale.setScalar(s);
+      if (ring.material) {
+        if (ring.material.emissiveIntensity != null) {
+          ring.material.emissiveIntensity = 0.7 + 0.3 * (0.5 + Math.sin(t * 2.4) * 0.5);
+        }
+        if (ring.material.opacity != null) {
+          ring.material.transparent = true;
+          ring.material.opacity = 0.7;
+        }
       }
     }
   }
@@ -95,7 +81,7 @@ export class SuppressionNodes {
       }
     }
     this.roots.length = 0;
-    this._materials.length = 0;
+    this._rings.length = 0;
   }
 }
 

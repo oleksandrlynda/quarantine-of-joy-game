@@ -41,10 +41,17 @@ export class Effects {
     this._tracerTintMix = 0; // 0..1 mix factor
     this._tracerTintColor = new THREE.Color(0x16a34a);
 
-    // convenience hook for enemy landing rings
+    // convenience hook for enemy VFX
     window._EFFECTS = window._EFFECTS || {};
     window._EFFECTS.ring = (center, radius=5, color=0x9bd1ff)=>{
       this.spawnGroundRing(center, radius, color);
+    };
+    window._EFFECTS.groundSlam = (center, radius=5)=>{
+      this.spawnGroundSlam(center, radius);
+    };
+    // alt alias
+    window._EFFECTS.spawnGroundSlam = (center, radius=5)=>{
+      this.spawnGroundSlam(center, radius);
     };
   }
 
@@ -492,13 +499,20 @@ spawnBulletTracer(start, end, options = {}) {
     this.scene.add(beamB);
   }
 
-  // impact flash
+  // impact flash (radial billboard, no square)
   let flash = null;
   if (options.impact !== false) {
-    flash = new THREE.Sprite(new THREE.SpriteMaterial({
-      color: 0xfff1c1, transparent:true, opacity:1, depthWrite:false, blending: THREE.AdditiveBlending
-    }));
-    flash.position.copy(to); flash.scale.set(0.24, 0.24, 1);
+    const fGeom = new THREE.PlaneGeometry(1,1);
+    const fMat = new THREE.ShaderMaterial({
+      transparent:true, depthWrite:false, depthTest:true, blending:THREE.AdditiveBlending, side:THREE.DoubleSide,
+      uniforms:{ uAlpha:{value:1.0}, uTint:{value:new THREE.Color(0xfff1c1)} },
+      vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+      fragmentShader:`precision mediump float; varying vec2 vUv; uniform float uAlpha; uniform vec3 uTint; void main(){ vec2 p=vUv-0.5; float r=length(p)*2.0; float a=uAlpha * smoothstep(1.0, 0.0, r); if(a<0.02) discard; gl_FragColor=vec4(uTint,a); }`
+    });
+    flash = new THREE.Mesh(fGeom, fMat);
+    flash.position.copy(to);
+    flash.scale.set(0.24, 0.24, 1);
+    try { if (this.camera) flash.lookAt(this.camera.position); } catch(_) {}
     this.scene.add(flash);
   }
 
@@ -516,12 +530,16 @@ spawnBulletTracer(start, end, options = {}) {
         beamB.material.uniforms.uAlpha.value = kk;
         beamB.scale.y = width * (1.0 + 0.6*(1-kk));
       }
-      if (flash){ flash.material.opacity = kk; flash.scale.setScalar(0.24 + 0.4*(1-kk)); }
+      if (flash){
+        if (flash.material.uniforms && flash.material.uniforms.uAlpha) flash.material.uniforms.uAlpha.value = kk;
+        flash.scale.setScalar(0.24 + 0.4*(1-kk));
+        try { if (this.camera) flash.lookAt(this.camera.position); } catch(_) {}
+      }
     },
     cleanup: () => {
       this.scene.remove(beamA); beamA.geometry.dispose(); beamA.material.dispose();
       if (beamB){ this.scene.remove(beamB); beamB.geometry.dispose(); beamB.material.dispose(); }
-      if (flash){ this.scene.remove(flash); flash.material.dispose(); }
+      if (flash){ this.scene.remove(flash); if (flash.geometry) flash.geometry.dispose(); if (flash.material) flash.material.dispose(); }
     }
   };
   this._alive.push(entry);
@@ -693,6 +711,61 @@ spawnBulletImpact(position, normal){
     const ring = new THREE.Mesh(ringGeom, ringMat); ring.position.copy(center.clone().setY(0.05)); ring.rotation.x = -Math.PI/2; this.scene.add(ring);
     this._alive.push({ points: ring, uniforms: ringMat.uniforms, maxLife: ringMat.uniforms.uLife.value });
     return ring;
+  }
+
+  // Composite ground slam: expanding ring + dirt burst + dust puffs
+  spawnGroundSlam(center, radius=5.0){
+    const THREE = this.THREE;
+    const c = center.clone(); c.y = Math.max(0.02, c.y);
+    // 1) Expanding ring
+    this.spawnGroundRing(c, radius * 1.2, 0xdff3ff);
+    // 2) Dirt burst (points)
+    const count = 140;
+    const positions = new Float32Array(count * 3);
+    const dirs = new Float32Array(count * 3);
+    const speeds = new Float32Array(count);
+    const lifes = new Float32Array(count);
+    for (let i=0;i<count;i++){
+      const i3 = i*3;
+      positions[i3]=c.x; positions[i3+1]=c.y+0.02; positions[i3+2]=c.z;
+      const theta = Math.random()*Math.PI*2;
+      const up = 0.25 + Math.random()*0.45; // slight upward
+      const dir = new THREE.Vector3(Math.cos(theta), up, Math.sin(theta)).normalize();
+      dirs[i3]=dir.x; dirs[i3+1]=dir.y; dirs[i3+2]=dir.z;
+      speeds[i] = (radius*0.9) + Math.random()*(radius*1.4); // bigger throw
+      lifes[i] = 0.7 + Math.random()*0.6;
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(positions,3));
+    g.setAttribute('aDir', new THREE.BufferAttribute(dirs,3));
+    g.setAttribute('aSpeed', new THREE.BufferAttribute(speeds,1));
+    g.setAttribute('aLife', new THREE.BufferAttribute(lifes,1));
+    const uniforms = { uElapsed:{value:0}, uOrigin:{value:c.clone()}, uGravity:{value:new THREE.Vector3(0,-30,0)}, uSize:{value:1.1} };
+    const mat = new THREE.ShaderMaterial({
+      transparent:true, depthWrite:false, blending:THREE.NormalBlending, // dirt should occlude a bit
+      uniforms,
+      vertexShader:`uniform float uElapsed; uniform vec3 uOrigin; uniform vec3 uGravity; uniform float uSize; attribute vec3 aDir; attribute float aSpeed; attribute float aLife; varying float vAlpha; void main(){ float t=min(uElapsed,aLife); vec3 pos = uOrigin + aDir*(aSpeed*t) + 0.5*uGravity*(t*t); vec4 mv = modelViewMatrix*vec4(pos,1.0); gl_Position=projectionMatrix*mv; float dist=-mv.z; gl_PointSize = uSize * clamp(160.0/dist, 1.0, 10.0); vAlpha = 1.0 - (t/aLife); }`,
+      fragmentShader:`precision mediump float; varying float vAlpha; void main(){ vec2 pc=gl_PointCoord-0.5; float d=length(pc); float a = smoothstep(0.55,0.0,d) * vAlpha; if(a<0.02) discard; vec3 col = vec3(0.35,0.28,0.20); gl_FragColor = vec4(col, a); }`
+    });
+    const pts = new THREE.Points(g, mat);
+    this.scene.add(pts);
+    this._alive.push({ points: pts, uniforms, maxLife: 1.2 });
+    
+    // 3) Soft dust puffs
+    const puffs = 6 + Math.floor(radius*0.9);
+    for (let i=0;i<puffs;i++){
+      const sm = new THREE.Sprite(new THREE.SpriteMaterial({ color: 0x6b7280, opacity: 0.25, transparent:true, depthWrite:false }));
+      sm.position.copy(c); sm.position.x += (Math.random()*2-1)*radius*0.15; sm.position.z += (Math.random()*2-1)*radius*0.15; sm.position.y += 0.05;
+      const base = 0.8 + Math.random()*0.8; sm.scale.set(base, base, 1);
+      this.scene.add(sm);
+      this._alive.push({ mesh: sm, life:0, maxLife: 0.8 + Math.random()*0.4, tick: dt=>{
+        sm.material.opacity = Math.max(0, sm.material.opacity - dt*0.35);
+        sm.position.y += dt * 0.4;
+        const s = sm.scale.x + dt * (1.1 + Math.random()*0.3); sm.scale.set(s,s,1);
+        if (this.camera) sm.lookAt(this.camera.position);
+      }, cleanup: ()=>{ sm.material.dispose(); } });
+    }
+    return true;
   }
 
   _createHitOverlay(){

@@ -3,6 +3,7 @@
 // Phase 2 (<=60% HP): calls in Ad Zeppelin; Captain becomes shielded (invuln) until pods destroyed
 
 import { ZeppelinSupport } from './zeppelin.js';
+import { createInfluencerCaptainAsset, createBillboardWallAsset, createAdZoneMarkerAsset } from '../assets/boss_captain.js';
 
 export class Captain {
   constructor({ THREE, mats, spawnPos, enemyManager }) {
@@ -10,14 +11,12 @@ export class Captain {
     this.mats = mats;
     this.enemyManager = enemyManager;
 
-    // Visual: sleek commander with distinct head
-    const base = mats.enemy.clone(); base.color = new THREE.Color(0xf59e0b); // amber-ish
-    const body = new THREE.Mesh(new THREE.BoxGeometry(2.0, 2.4, 2.0), base);
-    const head = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.1, 1.1), mats.head.clone());
-    head.position.y = 1.9; body.add(head);
-    body.position.copy(spawnPos);
-    body.userData = { type: 'boss_captain', head, hp: 1400 };
-    this.root = body;
+    // Visual: use asset pack model for the Captain
+    const { root, head, refs } = createInfluencerCaptainAsset({ THREE, mats, scale: 1.2 });
+    root.position.copy(spawnPos);
+    root.userData = { type: 'boss_captain', head, hp: 3500 };
+    this.root = root;
+    this._assetRefs = refs; // muzzle, shieldAnchor, volleyHardpoints, etc.
 
     // Movement tuning (standoff 12–18u, engage 24–36u)
     this.speed = 2.3;
@@ -43,6 +42,7 @@ export class Captain {
 
     // Ad zones
     this.zones = []; // { mesh, timer, center, delay }
+    this._zoneMarkers = []; // visuals using createAdZoneMarkerAsset
     this.zoneCooldown = 5.5 + Math.random() * 1.5; // cadence for marking
 
     // Phase/Shield
@@ -163,7 +163,13 @@ export class Captain {
   _updateAimLine(targetPos, scene, color = 0xf59e0b){
     const THREE = this.THREE;
     if (!targetPos){ if (this._aimLine){ scene.remove(this._aimLine); this._aimLine = null; } return; }
-    const from = new THREE.Vector3(this.root.position.x, this.root.position.y + 1.6, this.root.position.z);
+    let from;
+    const head = this.root.userData?.head;
+    if (head && typeof head.getWorldPosition === 'function'){
+      from = head.getWorldPosition(new THREE.Vector3());
+    } else {
+      from = new THREE.Vector3(this.root.position.x, this.root.position.y + 1.6, this.root.position.z);
+    }
     if (!this._aimLine){
       const g = new THREE.BufferGeometry().setFromPoints([from, targetPos]);
       const m = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.35 });
@@ -188,14 +194,12 @@ export class Captain {
       // Adjust to safe spot if blocked
       const safe = (typeof this.enemyManager._isSpawnAreaClear === 'function' && this.enemyManager._isSpawnAreaClear(p.clone().setY(0.8), 0.5));
       const center = safe ? p : playerPos.clone(); center.y = 0.06;
-      const ring = new THREE.Mesh(
-        new THREE.RingGeometry(1.6, 2.2, 28),
-        new THREE.MeshBasicMaterial({ color: 0xf43f5e, transparent: true, opacity: 0.85, side: THREE.DoubleSide })
-      );
-      ring.rotation.x = -Math.PI/2; ring.position.copy(center);
-      ring.userData = { life: 0 };
-      ctx.scene.add(ring);
-      this.zones.push({ mesh: ring, timer: 0, center: center.clone(), delay: 1.0 });
+      const marker = createAdZoneMarkerAsset({ THREE, radius: 2.0 });
+      marker.root.position.copy(center);
+      marker.root.userData = { life: 0 };
+      ctx.scene.add(marker.root);
+      this._zoneMarkers.push(marker);
+      this.zones.push({ mesh: marker.root, timer: 0, center: center.clone(), delay: 1.0, refs: marker.refs });
     }
     this.zoneCooldown = 6.5 + Math.random()*2.0;
   }
@@ -203,10 +207,14 @@ export class Captain {
   _updateZones(dt, ctx){
     for (let i = this.zones.length - 1; i >= 0; i--){
       const z = this.zones[i]; z.timer += dt; z.mesh.userData.life = (z.mesh.userData.life||0) + dt;
-      // subtle scale/opacity pulse while arming
-      const s = 1.0 + Math.sin(z.mesh.userData.life * 12) * 0.06; z.mesh.scale.set(s, s, s);
-      if (z.mesh.material && z.mesh.material.opacity !== undefined){
-        z.mesh.material.opacity = Math.max(0.25, 0.9 - z.timer * 0.7);
+      // pulse elements: ring opacity and pylon scale
+      const ring = z.refs?.ring, disk = z.refs?.disk, pylon = z.refs?.pylon;
+      if (ring && ring.material && ring.material.opacity != null){
+        ring.material.opacity = Math.max(0.25, 0.9 - z.timer * 0.7);
+      }
+      if (pylon){
+        const s = 1.0 + Math.sin((z.mesh.userData.life||0) * 12) * 0.12;
+        pylon.scale.set(1, s, 1);
       }
       if (z.timer >= z.delay){
         // pop: damage if player inside radius 2.2

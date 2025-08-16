@@ -1,13 +1,13 @@
+import { createSniperBot } from '../assets/sniper_bot.js';
+
 export class SniperEnemy {
   constructor({ THREE, mats, cfg, spawnPos }) {
     this.THREE = THREE;
     this.cfg = cfg;
 
-    const baseMat = mats.enemy.clone();
-    baseMat.color = new THREE.Color(cfg.color);
-    const body = new THREE.Mesh(new THREE.BoxGeometry(1.0,1.5,1.0), baseMat);
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.8,0.8,0.8), mats.head.clone());
-    head.position.y = 1.3; body.add(head);
+    // Use dedicated SniperBot asset with long rifle
+    const built = createSniperBot({ THREE, mats, scale: 0.70 });
+    const body = built.root; const head = built.head; this._refs = built.refs || {};
     body.position.copy(spawnPos);
     body.userData = { type: cfg.type, head, hp: cfg.hp, maxHp: cfg.hp };
     this.root = body;
@@ -22,6 +22,12 @@ export class SniperEnemy {
     this.postShotRelocate = 0;
     this._raycaster = new THREE.Raycaster();
     this._aimLine = null;
+    // Smoothed facing vector
+    this._faceDir = new this.THREE.Vector3(0, 0, 1);
+
+    // Small temp vectors to avoid GC in hot paths
+    this._tmpV1 = new THREE.Vector3();
+    this._tmpV2 = new THREE.Vector3();
   }
 
   update(dt, ctx){
@@ -31,6 +37,22 @@ export class SniperEnemy {
     const toPlayer = playerPos.clone().sub(e.position);
     const dist = toPlayer.length();
     const hasLOS = this._hasLOS(e.position, playerPos, ctx.objects);
+
+    // --- Face player by yaw only (ensure -Z forward aims at player) ---
+    const inBandYaw = dist >= this.engageRange.min && dist <= this.engageRange.max;
+    const aiming = hasLOS && inBandYaw && (this.windup > 0 || this.cooldown <= 0);
+    const faceVec = aiming ? toPlayer.clone().setY(0) : toPlayer.clone().multiplyScalar(0.8).setY(0); // slight off-player bias when not aiming
+    if (faceVec.lengthSq() > 0) {
+      faceVec.normalize();
+      const lerpAmt = Math.min(1, 6 * dt); // slightly slower than shooter
+      this._faceDir.lerp(faceVec, lerpAmt);
+      if (this._faceDir.lengthSq() > 0) this._faceDir.normalize();
+    }
+    const lookTarget = this._tmpV1.copy(e.position).add(this._faceDir);
+    lookTarget.y = e.position.y; // keep yaw only
+    e.lookAt(lookTarget);
+    // Our asset faces +Z visually; Three.js lookAt aims -Z toward target. Flip 180° so face looks at player.
+    e.rotateY(Math.PI);
 
     // Movement: maintain long sightlines, break aim if LOS lost, minor strafe
     const desired = new THREE.Vector3();
@@ -47,7 +69,8 @@ export class SniperEnemy {
     if (this._projectiles && this._projectiles.length){ this._updateProjectiles(dt, ctx); }
 
     const canFireWindow = (ctx.blackboard && (ctx.blackboard.time - (ctx.blackboard.sniperLastFireAt||-Infinity)) >= 1.0);
-    if (hasLOS && dist >= this.preferredRange.min && dist <= 36 && this.cooldown<=0 && this.postShotRelocate<=0 && canFireWindow){
+    // Use engageRange bounds for valid firing window
+    if (hasLOS && dist >= this.engageRange.min && dist <= this.engageRange.max && this.cooldown<=0 && this.postShotRelocate<=0 && canFireWindow){
       this.windup += dt;
       this._updateAimLine(playerPos, ctx.scene, 0xff3344);
       if (this.windup >= this.windupReq){
@@ -63,9 +86,17 @@ export class SniperEnemy {
     }
   }
 
+  _muzzleWorld() {
+    const THREE = this.THREE;
+    if (this._refs && this._refs.muzzle && this._refs.muzzle.parent) {
+      try { return this._refs.muzzle.getWorldPosition(new THREE.Vector3()); } catch(_) {}
+    }
+    return new THREE.Vector3(this.root.position.x, this.root.position.y + 1.4, this.root.position.z);
+  }
+
   _fireProjectile(targetPos, ctx){
     const THREE = this.THREE;
-    const origin = new THREE.Vector3(this.root.position.x, this.root.position.y + 1.4, this.root.position.z);
+    const origin = this._muzzleWorld();
     const dir = targetPos.clone().sub(origin).normalize();
     const speed = 60;
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 10), new THREE.MeshBasicMaterial({ color: 0xff3344 }));
@@ -107,7 +138,7 @@ export class SniperEnemy {
   _updateAimLine(targetPos, scene, color){
     const THREE = this.THREE;
     if (!targetPos){ if (this._aimLine){ scene.remove(this._aimLine); this._aimLine=null; } return; }
-    const from = new THREE.Vector3(this.root.position.x, this.root.position.y + 1.4, this.root.position.z);
+    const from = this._muzzleWorld();
     if (!this._aimLine){
       const g = new THREE.BufferGeometry().setFromPoints([from, targetPos]);
       const m = new THREE.LineBasicMaterial({ color: color||0xff3344, transparent:true, opacity:0.5 });
@@ -118,9 +149,9 @@ export class SniperEnemy {
     }
   }
 
-  _hasLOS(fromPos, toPos, objects){
+  _hasLOS(_fromPos, toPos, objects){
     const THREE = this.THREE;
-    const origin = new THREE.Vector3(fromPos.x, fromPos.y + 1.4, fromPos.z);
+    const origin = this._muzzleWorld();
     const target = new THREE.Vector3(toPos.x, 1.6, toPos.z);
     const dir = target.clone().sub(origin); const dist = dir.length(); if (dist<=0.0001) return true; dir.normalize();
     this._raycaster.set(origin, dir); this._raycaster.far = dist - 0.1;

@@ -7,11 +7,12 @@ const GRUNT_ATTACKS = [
   { name: 'hook', hand: 'rear', windup: 0.32, active: 0.10, recover: 0.60, damage: 16, reach: 2.3, knockback: 0.35 }
 ];
 
+// Tank only. 'slam' radius is computed from the model size at runtime.
 const TANK_ATTACKS = [
-  { name: 'haymaker', hand: 'rear', windup: 0.45, active: 0.10, recover: 0.9, damage: 34, reach: 2.4, knockback: 0.9 },
-  { name: 'shove', hand: 'both', windup: 0.30, active: 0.08, recover: 0.60, damage: 14, reach: 2.0, knockback: 1.2 },
-  // Heavy jump slam with radial damage on landing
-  { name: 'slam', hand: 'both', windup: 0.6, active: 0.1, recover: 1.0, damage: 0, reach: 0, radius: 5.0, radialDamage: 28, radialKnock: 0.9 }
+  { name: 'haymaker', hand: 'rear',  windup: 0.45, active: 0.10, recover: 0.90, damage: 34, reach: 2.4, knockback: 0.9 },
+  { name: 'shove',    hand: 'both',  windup: 0.30, active: 0.08, recover: 0.60, damage: 14, reach: 2.0, knockback: 1.2 },
+  { name: 'slam',     hand: 'both',  windup: 0.55, active: 0.10, recover: 1.00, damage: 0,  reach: 0,
+    radialDamage: 28, radialKnock: 1.0, radial: true }
 ];
 
 export class MeleeEnemy {
@@ -19,64 +20,74 @@ export class MeleeEnemy {
     this.THREE = THREE;
     this.cfg = cfg;
 
-    // Model: use chunky BlockBot for tanks; default to simple boxy grunt
+    // Model
     let body, head;
     if (cfg && cfg.type === 'tank') {
       const built = createBlockBot({ THREE, mats, scale: 1.1 });
       body = built.root; head = built.head; this._animRefs = built.refs || {};
     } else {
-      // Default grunt model (slightly smaller)
       const built = createGruntBot({ THREE, mats, scale: 0.88 });
       body = built.root; head = built.head; this._animRefs = built.refs || {};
     }
-
     body.position.copy(spawnPos);
 
-    // Keep compatibility with existing shooting logic
-    body.userData = {
-      type: cfg.type,
-      head,
-      hp: cfg.hp
+    // Runtime body radius for slam sizing
+    this._recalcSlamRadius = () => {
+      const box = new this.THREE.Box3().setFromObject(body);
+      const sphere = new this.THREE.Sphere();
+      box.getBoundingSphere(sphere);
+      this._bodyRadius = Math.max(0.6, sphere.radius);
+      // Larger radius for a more dramatic effect
+      this._slamRadius = Math.max(4.0, this._bodyRadius * 4.0);
     };
+    this._recalcSlamRadius();
 
+    body.userData = { type: cfg.type, head, hp: cfg.hp };
     this.root = body;
+
     this.speed = cfg.speedMin + Math.random() * (cfg.speedMax - cfg.speedMin);
+
     this._lastPos = body.position.clone();
     this._stuckTime = 0;
     this._nudgeCooldown = 0;
-    // Intercept lead: track player velocity (simple EMA)
+
+    // Player tracking
     this._prevPlayerPos = null;
     this._playerVel = new this.THREE.Vector3();
-    // Juke behavior to counter kiting
+
+    // Movement / combat helpers
     this._jukeCooldown = 0;
     this._jukeTime = 0;
     this._jukeDir = new this.THREE.Vector3();
-    this._raycaster = new THREE.Raycaster();
-    this._yaw = 0; // facing yaw
-    this._walkPhase = 0; // gait animation phase
-    // Flanking behavior tuning (used when role==='flanker')
-    this._flankBack = 4 + Math.random() * 4;   // desired meters behind player
-    this._flankSide = 4 + Math.random() * 4;   // desired meters to side of player
-    this._anchorSlack = 1.0 + Math.random() * 0.6; // distance threshold to switch from anchor to pursue
-    // On-hit reaction + temporary DR/slow (for tanks)
+    this._raycaster = new this.THREE.Raycaster();
+    this._yaw = 0;
+    this._walkPhase = 0;
+
+    // Roles
+    this._flankBack = 4 + Math.random() * 4;
+    this._flankSide = 4 + Math.random() * 4;
+    this._anchorSlack = 1.0 + Math.random() * 0.6;
+
+    // Reactions
     this._hitJukeTime = 0;
     this._hitJukeDir = new this.THREE.Vector3();
     this._slowTimer = 0;
     this._damageReductionTimer = 0;
     this._damageReductionValue = 0;
-    // Cached forward for on-hit lateral juke orientation
-    this._lastFwd = new this.THREE.Vector3(1,0,0);
-    // Stagger and burst mechanics
-    this._staggerTimer = 0;             // active stagger slow
-    this._staggerImmunityTimer = 0;     // prevents stun-lock
-    this._burstTimer = 0;               // post-regroup gap-close burst
-    this._regroupWasPaused = false;     // detect end of regroup pause
 
-    // Melee combat state
-    this._attack = null;          // current attack descriptor
-    this._attackTimer = 0;        // counts down windup/active/recover
-    this._attackPhase = 'idle';   // 'idle'|'windup'|'active'|'recover'
-    this._attackCooldown = 0;     // general cooldown between attacks
+    this._lastFwd = new this.THREE.Vector3(1,0,0);
+    this._staggerTimer = 0;
+    this._staggerImmunityTimer = 0;
+    this._burstTimer = 0;
+
+    // Melee state
+    this._attack = null;
+    this._attackTimer = 0;
+    this._attackPhase = 'idle';
+    this._attackCooldown = 0;
+
+    // NEW: Per-slam cooldown (prevents spam)
+    this._slamCooldown = 0;
   }
 
   update(dt, ctx) {
@@ -84,24 +95,26 @@ export class MeleeEnemy {
     const playerPos = ctx.player.position.clone();
     const toPlayer = playerPos.clone().sub(e.position);
     const dist = toPlayer.length();
-    // Attack selection and execution
+
     this._attackCooldown = Math.max(0, this._attackCooldown - dt);
+    this._slamCooldown   = Math.max(0, this._slamCooldown   - dt);
+
+    // Handle melee first (can early-return)
     this._updateMelee(dt, ctx, dist, toPlayer, playerPos);
     if (dist > 60) return;
 
-    toPlayer.y = 0;
-    if (toPlayer.lengthSq() === 0) return;
-    toPlayer.normalize();
+    // --- movement / steering (unchanged, trimmed) ---
+    toPlayer.y = 0; if (toPlayer.lengthSq() === 0) return; toPlayer.normalize();
 
-    // Estimate player horizontal velocity (EMA over frames)
+    // Player velocity EMA (for next frame predictions)
     if (this._prevPlayerPos) {
       const delta = playerPos.clone().sub(this._prevPlayerPos);
       const instVel = delta.multiplyScalar(dt > 0 ? 1 / dt : 0);
-      // smooth with EMA factor (favor stability)
       this._playerVel.lerp(instVel, Math.min(1, 0.35 + dt * 0.5));
       this._playerVel.y = 0;
     }
     this._prevPlayerPos = playerPos.clone();
+
 
     // If designated flanker, bias movement toward an anchor point to the player's rear/side
     let desired = toPlayer.clone();
@@ -301,113 +314,143 @@ export class MeleeEnemy {
   _updateMelee(dt, ctx, dist, toPlayer, playerPos) {
     const isTank = (this.cfg && this.cfg.type === 'tank');
     const attacks = isTank ? TANK_ATTACKS : GRUNT_ATTACKS;
-    const reach = (this._attack ? this._attack.reach : (isTank ? 2.0 : 1.8));
-    // Predictive timing: estimate when we can be in range based on current relative velocity
-    // Simple heuristic: if projected distance within reach in tPredict, start windup now
-    const tPredict = isTank ? 0.45 : 0.28; // average windup
-    // Estimate our next movement step magnitude per second
-    const speed = Math.max(0.1, this.speed);
-    const predictedClosing = dist - speed * tPredict; // ignore player velocity (kept simple)
 
-    // If currently in an attack, progress its phases
+    // Reach when idle vs. when already attacking
+    const reachBase = isTank ? 2.0 : 1.8;
+    const reach = (this._attack ? this._attack.reach : reachBase);
+
+    // --- Better predictive timing (relative closing speed) ---
+    const tPredict = isTank ? 0.45 : 0.28;
+    const toDir = toPlayer.clone().setY(0); if (toDir.lengthSq()>0) toDir.normalize();
+    const closingPlayer = (this._playerVel || new this.THREE.Vector3()).dot(toDir);   // +ve means player running away
+    const relClosing = this.speed - closingPlayer;                                     // how fast we close the gap
+    const predictedClosing = dist - Math.max(-2, Math.min(6, relClosing * tPredict));  // clamp for stability
+
+    // Progress current attack (windup/active/recover)
     if (this._attack) {
       this._attackTimer = Math.max(0, this._attackTimer - dt);
+
       if (this._attackPhase === 'windup') {
-        // Face target more aggressively during windup
         const desiredYaw = Math.atan2(toPlayer.x, toPlayer.z);
-        let deltaYaw = desiredYaw - (this._yaw || 0); deltaYaw = ((deltaYaw + Math.PI) % (Math.PI * 2)) - Math.PI;
-        const turnRate = 9.0; this._yaw = (this._yaw || 0) + Math.max(-turnRate*dt, Math.min(turnRate*dt, deltaYaw));
+        let deltaYaw = desiredYaw - (this._yaw || 0);
+        deltaYaw = ((deltaYaw + Math.PI) % (Math.PI * 2)) - Math.PI;
+        const turnRate = 9.0;
+        this._yaw = (this._yaw || 0) + Math.max(-turnRate*dt, Math.min(turnRate*dt, deltaYaw));
         this.root.rotation.y = this._yaw;
-        // For slam, crouch/compress and begin vertical lift preparation
+
         if (this._attack.name === 'slam') {
-          // compress stance
-          this.root.position.y = Math.max(0.8, this.root.position.y - 0.4 * dt);
+          const a = this._animRefs || {};
+          if (a.leftArm)  { a.leftArm.rotation.x = -1.4; a.leftArm.rotation.z =  0.10; }
+          if (a.rightArm) { a.rightArm.rotation.x = -1.4; a.rightArm.rotation.z = -0.10; }
+          this.root.position.y = Math.max(0.78, this.root.position.y - 0.35 * dt);
         } else {
           this._animateArmsWindup(this._attack);
         }
-        if (this._attackTimer <= 0) { this._attackPhase = 'active'; this._attackTimer = this._attack.active; this._didHitThisSwing = false; }
-        return; // windup overrides regular movement intent subtly
-      }
-      if (this._attackPhase === 'active') {
-        if (this._attack.name === 'slam') {
-          // Leap upward and forward a bit; on timer end we land
-          const up = 4.2; const fwdAmt = 2.4; // tuned simple arc
-          const fwd = new this.THREE.Vector3(Math.sin(this._yaw||0), 0, Math.cos(this._yaw||0));
-          this.root.position.add(new this.THREE.Vector3(fwd.x * fwdAmt * dt, up * dt, fwd.z * fwdAmt * dt));
-        } else {
-          this._animateArmsStrike(this._attack);
-        }
-        // Apply hit once if in range and LOS
-        // Require that player is within a narrow forward arc to prevent side/back hits
-        const forward = new this.THREE.Vector3( Math.sin(this._yaw||0), 0, Math.cos(this._yaw||0) );
-        // aim slightly upward to account for chest height
-        const toP3 = new this.THREE.Vector3(playerPos.x - this.root.position.x, (1.6) - (this.root.position.y||0), playerPos.z - this.root.position.z);
-        const toP = toP3.clone().setY(0).normalize();
-        const facingCos = forward.dot(toP);
-        if (!this._didHitThisSwing && this._attack.name !== 'slam' && dist <= reach && facingCos > 0.5 && ctx.onPlayerDamage) {
-          this._didHitThisSwing = true;
-          ctx.onPlayerDamage(this._attack.damage, 'melee');
-          // Tank shove: add small knockback
-          const kb = this._attack.knockback || 0;
-          if (kb > 0 && ctx.player && ctx.player.position) {
-            const knock = toP.clone().multiplyScalar(-kb);
-            // push player object slightly if available
-            ctx.player.position.add(knock);
-          }
-        }
         if (this._attackTimer <= 0) {
-          // For slam, apply radial landing damage and small camera shake/SFX
-          if (this._attack.name === 'slam') {
-            // Land back to ground level
-            this.root.position.y = 0.8;
-            const radius = this._attack.radius || 5.0;
-            const toPlayerNow = new this.THREE.Vector3(playerPos.x - this.root.position.x, 0, playerPos.z - this.root.position.z);
-            const dNow = toPlayerNow.length();
-            if (dNow <= radius && ctx.onPlayerDamage) {
-              ctx.onPlayerDamage(this._attack.radialDamage, 'melee');
-              // Radial knockback outward
-              const dirOut = toPlayerNow.length()>0? toPlayerNow.clone().multiplyScalar(1/Math.max(0.0001,dNow)) : new this.THREE.Vector3();
-              const k = this._attack.radialKnock || 0.8;
-              if (ctx.player && ctx.player.position) ctx.player.position.add(dirOut.multiplyScalar(-k));
-            }
-            // Small shock ring VFX via effects if present
-            try { window?._EFFECTS?.ring?.(this.root.position.clone(), radius); } catch(_) {}
-          }
-          this._attackPhase = 'recover'; this._attackTimer = this._attack.recover;
+          this._attackPhase = 'active';
+          this._attackTimer = this._attack.active;
+          this._didHitThisSwing = false;
         }
         return;
       }
+
+      if (this._attackPhase === 'active') {
+        if (this._attack.name === 'slam') {
+          if (!this._slamDidImpact) {
+            const a = this._animRefs || {};
+            if (a.leftArm)  a.leftArm.rotation.x  = 0.25;
+            if (a.rightArm) a.rightArm.rotation.x = 0.25;
+            this.root.position.y = 0.80;
+            this._doGroundSlam(ctx);        // radial damage + VFX
+            this._slamDidImpact = true;
+          }
+        } else {
+          this._animateArmsStrike(this._attack);
+        }
+
+        // Single-target hit (skip slam), with tiny grace on reach
+        const forward = new this.THREE.Vector3(Math.sin(this._yaw||0), 0, Math.cos(this._yaw||0));
+        const toP3 = new this.THREE.Vector3(
+          playerPos.x - this.root.position.x,
+          (1.6) - (this.root.position.y||0),
+          playerPos.z - this.root.position.z
+        );
+        const toP = toP3.clone().setY(0).normalize();
+        const facingCos = forward.dot(toP);
+
+        const reachGrace = (this._attack.reach || reach) + 0.12; // <= grace
+        if (!this._didHitThisSwing &&
+            this._attack.name !== 'slam' &&
+            dist <= reachGrace && facingCos > 0.5 && ctx.onPlayerDamage) {
+          this._didHitThisSwing = true;
+          ctx.onPlayerDamage(this._attack.damage, 'melee');
+          const kb = this._attack.knockback || 0;
+          if (kb > 0 && ctx.player && ctx.player.position) {
+            ctx.player.position.add(toP.clone().multiplyScalar(-kb));
+          }
+        }
+
+        if (this._attackTimer <= 0) {
+          this._attackPhase = 'recover';
+          this._attackTimer = this._attack.recover;
+          if (this._attack.name === 'slam') this._slamDidImpact = false;
+        }
+        return;
+      }
+
       if (this._attackPhase === 'recover') {
         this._animateArmsRecover(this._attack, dt);
-        if (this._attackTimer <= 0) { this._attack = null; this._attackPhase = 'idle'; this._attackCooldown = 0.25 + Math.random() * 0.2; }
+        if (this._attack.name === 'slam') this._slamDidImpact = false;
+        if (this._attackTimer <= 0) {
+          this._attack = null;
+          this._attackPhase = 'idle';
+          this._attackCooldown = 0.25 + Math.random() * 0.2;
+        }
         return;
       }
     }
 
-    // Not attacking; consider starting one earlier if we are about to be in range
+    // --- Consider starting a new attack ---
     const canStartByPredict = (this._attackCooldown <= 0) && (predictedClosing <= (reach + 0.15));
-    const canStartNow = (this._attackCooldown <= 0) && dist <= (isTank ? 2.0 : 1.9);
+    const canStartNow       = (this._attackCooldown <= 0) && dist <= (isTank ? 2.0 : 1.9);
     if (canStartByPredict || canStartNow) {
-      // Pick attack: prefer quick jab for grunts, haymaker for tanks; 30% chance alternate
-      const prefer = (isTank && Math.random() < 0.25) ? (TANK_ATTACKS[2]) : attacks[0]; // sometimes pick slam
-      const alt = attacks[1] || attacks[0];
+      // Tank slam gates: cooldown + LOS + range + vertical clearance
+      const hasLOS = this._hasLineOfSight(this.root.position, playerPos, ctx.objects);
+      const canSlam = isTank &&
+        this._slamCooldown <= 0 &&
+        hasLOS &&
+        dist <= (Math.max(1.0, this._slamRadius || 5.0) * 1.1) &&
+        this._hasVerticalClearance(ctx);
+
+      let prefer; // default pick
+      if (isTank) {
+        // 25% chance prefer slam (only if allowed), else haymaker
+        prefer = (canSlam && Math.random() < 0.25) ? TANK_ATTACKS[2] : TANK_ATTACKS[0];
+      } else {
+        prefer = GRUNT_ATTACKS[0]; // jab
+      }
+      const alt = isTank ? TANK_ATTACKS[1] : GRUNT_ATTACKS[1]; // shove | hook
       const choice = (Math.random() < 0.3 ? alt : prefer);
+
       this._beginAttack(choice);
-      // Nudge forward a bit on windup start to feel like stepping in
-      // When beginning a punch, raise the striking hand and extend slightly to reduce need to be face-to-face
-      const stepIn = toPlayer.clone().multiplyScalar(this._attack?.name === 'slam' ? 0.05 : (isTank ? 0.18 : 0.26));
-      const before = this.root.position.clone();
+
+      // NEW: arm a per-slam cooldown as soon as we commit
+      if (choice.name === 'slam') {
+        this._slamCooldown = 3.5 + Math.random() * 1.0; // 3.5–4.5s
+      }
+
+      // Small step-in and orientation
+      const toNorm = toPlayer.clone().setY(0); if (toNorm.lengthSq()>0) toNorm.normalize();
+      const stepIn = toNorm.multiplyScalar(choice.name === 'slam' ? 0.05 : (isTank ? 0.18 : 0.26));
       ctx.moveWithCollisions(this.root, stepIn);
-      // Rotate toward target immediately
-      const desiredYaw = Math.atan2(toPlayer.x, toPlayer.z);
-      this._yaw = desiredYaw; this.root.rotation.y = this._yaw;
+      this._yaw = Math.atan2(toPlayer.x, toPlayer.z);
+      this.root.rotation.y = this._yaw;
     }
   }
 
   _beginAttack(desc) {
     this._attack = { ...desc };
     this._attackPhase = 'windup';
-    // Add small randomization to timings
     const jitter = (v) => v * (0.9 + Math.random()*0.2);
     this._attackTimer = jitter(desc.windup);
     this._didHitThisSwing = false;
@@ -415,40 +458,35 @@ export class MeleeEnemy {
 
   _animateArmsWindup(attack) {
     const a = this._animRefs || {}; const lead = a.leftArm; const rear = a.rightArm;
-    const amt = 0.6; // radians range
+    const amt = 0.6;
     if (attack.hand === 'lead' && lead) { lead.rotation.x = -amt; lead.rotation.z = 0.1; }
     if (attack.hand === 'rear' && rear) { rear.rotation.x = -amt*0.9; rear.rotation.z = -0.1; }
     if (attack.hand === 'both') {
       if (lead) { lead.rotation.x = -amt*0.7; lead.rotation.z = 0.1; }
       if (rear) { rear.rotation.x = -amt*0.7; rear.rotation.z = -0.1; }
     }
-    // small torso lean forward
     this.root.rotation.x = -0.05;
-    // glow telegraph via emissive intensity if available (set on arm stripe if present)
     try {
       const stripeL = lead?.children?.find?.(c => c.material && c.material.emissiveIntensity != null);
       const stripeR = rear?.children?.find?.(c => c.material && c.material.emissiveIntensity != null);
       if (stripeL) stripeL.material.emissiveIntensity = 1.2;
       if (stripeR) stripeR.material.emissiveIntensity = 1.2;
     } catch(_){}
-    // SFX whoosh: use global SFX if available
-    try { window?._SFX?.enemyVocal?.(this.cfg?.type || 'grunt'); } catch(_) {}
+    try { window?._SFX?.enemyVocal?.(this.cfg?.type || 'grunt'); } catch(_){}
   }
 
   _animateArmsStrike(attack) {
     const a = this._animRefs || {}; const lead = a.leftArm; const rear = a.rightArm;
-    const thrust = 1.0; // radians forward
+    const thrust = 1.0;
     if (attack.hand === 'lead' && lead) { lead.rotation.x = thrust; lead.rotation.z = -0.05; }
     if (attack.hand === 'rear' && rear) { rear.rotation.x = thrust; rear.rotation.z = 0.05; }
     if (attack.hand === 'both') {
       if (lead) { lead.rotation.x = thrust*0.9; lead.rotation.z = -0.05; }
       if (rear) { rear.rotation.x = thrust*0.9; rear.rotation.z = 0.05; }
     }
-    // brief forward lunge
     if (!this._strikeLungeApplied) {
       const fwd = new this.THREE.Vector3(Math.sin(this._yaw||0), 0, Math.cos(this._yaw||0)).normalize();
-      const lunge = fwd.multiplyScalar(0.12);
-      this.root.position.add(lunge);
+      this.root.position.add(fwd.multiplyScalar(0.12));
       this._strikeLungeApplied = true;
     }
   }
@@ -457,14 +495,11 @@ export class MeleeEnemy {
     const a = this._animRefs || {}; const arms = [a.leftArm, a.rightArm];
     for (const arm of arms) {
       if (!arm) continue;
-      // Smoothly blend back rotations to idle (0) without altering absolute position offsets
       arm.rotation.x += (0 - arm.rotation.x) * Math.min(1, dt * 10);
       arm.rotation.z += (0 - arm.rotation.z) * Math.min(1, dt * 10);
     }
-    // ease torso lean back to 0
     this.root.rotation.x *= Math.max(0, 1 - dt*6);
     this._strikeLungeApplied = false;
-    // reset glow intensity if we boosted it
     try {
       for (const arm of arms) {
         if (!arm) continue;
@@ -475,26 +510,23 @@ export class MeleeEnemy {
   }
 
   onHit(damage, isHead) {
-    // Short lateral micro-juke 0.12–0.2s
     const base = 0.12 + Math.random() * 0.08;
     this._hitJukeTime = Math.max(this._hitJukeTime, base);
-    // lateral relative to last forward toward player
     const fwd = this._lastFwd.lengthSq() > 0 ? this._lastFwd.clone() : new this.THREE.Vector3(0,0,1);
     const side = new this.THREE.Vector3(-fwd.z, 0, fwd.x);
     const sideSign = Math.random() < 0.5 ? 1 : -1;
     this._hitJukeDir.copy(side.multiplyScalar(sideSign));
-    // Tank reaction: brief slow and minor DR
+
     if (this.cfg && this.cfg.type === 'tank') {
       this._slowTimer = Math.max(this._slowTimer, 0.35);
       this._damageReductionTimer = Math.max(this._damageReductionTimer, 0.35);
       this._damageReductionValue = 0.25;
     }
-    // Light stagger on headshot or heavy damage, with immunity to prevent stun-lock
+
     const heavy = damage >= 30;
     if ((isHead || heavy) && this._staggerImmunityTimer <= 0) {
-      this._staggerTimer = 0.18 + Math.random() * 0.06;      // 0.18–0.24s
-      this._staggerImmunityTimer = 0.6 + Math.random() * 0.2; // 0.6–0.8s
-      // cancel current juke during stagger
+      this._staggerTimer = 0.18 + Math.random() * 0.06;
+      this._staggerImmunityTimer = 0.6 + Math.random() * 0.2;
       this._jukeTime = 0;
     }
   }
@@ -515,5 +547,43 @@ export class MeleeEnemy {
     this._raycaster.far = dist - 0.1;
     const hits = this._raycaster.intersectObjects(objects, false);
     return !(hits && hits.length > 0);
+  }
+
+  // NEW: space check to avoid slamming under low ceilings
+  _hasVerticalClearance(ctx){
+    const up = new this.THREE.Vector3(0,1,0);
+    const origin = this.root.position.clone().setY(this.root.position.y + 0.4);
+    this._raycaster.set(origin, up);
+    this._raycaster.far = 1.4; // need ~1.4m to raise arms
+    const hits = this._raycaster.intersectObjects(ctx.objects, false);
+    return !(hits && hits.length > 0);
+  }
+
+  _doGroundSlam(ctx){
+    const THREE = this.THREE;
+    const pos = this.root.position.clone();
+    const radius = Math.max(1.0, this._slamRadius || 5.0);
+
+    // damage/knockback falloff (linear)
+    const toP = new THREE.Vector3(ctx.player.position.x - pos.x, 0, ctx.player.position.z - pos.z);
+    const d = toP.length();
+    if (d <= radius) {
+      const falloff = 1.0 - (d / radius);
+      if (ctx.onPlayerDamage) ctx.onPlayerDamage(Math.round((this._attack.radialDamage || 28) * falloff), 'melee');
+      if (ctx.player && ctx.player.position) {
+        const dirOut = d > 0 ? toP.multiplyScalar(1/d) : new THREE.Vector3();
+        const knock = (this._attack.radialKnock || 1.0) * (0.6 + 0.4*falloff);
+        ctx.player.position.add(dirOut.multiplyScalar(-knock));
+      }
+    }
+
+    // VFX hooks
+    try { window?._EFFECTS?.ring?.(pos.clone(), radius, 0xdff3ff); } catch(_) {}
+    try { window?._EFFECTS?.spawnBulletImpact?.(pos.clone().setY(0.05), new THREE.Vector3(0,1,0)); } catch(_) {}
+    try {
+      if (window?._EFFECTS?.spawnGroundSlam) window._EFFECTS.spawnGroundSlam(pos.clone(), radius);
+      else window?._EFFECTS?.ring?.(pos.clone(), radius, 0xdff3ff);
+    } catch(_) {}
+    try { window?._SFX?.tankSlam?.(); } catch(_) {}
   }
 }

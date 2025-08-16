@@ -154,6 +154,7 @@ const MELEE_SFX_COOLDOWN = 0.25; // seconds
 const MELEE_VFX_COOLDOWN = 0.10; // seconds; allow gentle pulsing while holding contact
 const hpEl = document.getElementById('hp'), ammoEl = document.getElementById('ammo'), magEl = document.getElementById('mag'), scoreEl = document.getElementById('score'), bestEl = document.getElementById('best'), waveEl = document.getElementById('wave');
 const staminaBarEl = document.getElementById('staminaBar');
+const fpsEl = document.getElementById('fps');
 const weaponNameEl = document.getElementById('weapon');
 const weaponIconEl = document.getElementById('weaponIcon');
 const hpPillEl = document.getElementById('hpPill');
@@ -374,7 +375,27 @@ updateHUD();
 const clock = new THREE.Clock();
 let gameOver=false;
 let gameTime = 0; // advances only when not paused and controls are locked
+// FPS limit
+const TARGET_FPS = 60;
+const FRAME_MIN_MS = 1000 / TARGET_FPS;
+let _lastFrameAt = performance.now();
 function step(){
+  const now = performance.now();
+  const elapsedMs = now - _lastFrameAt;
+
+  // --- FPS calc (EMA over ~0.5s) using RAF intervals ---
+  const dtRaf = Math.min(0.1, Math.max(0, elapsedMs / 1000));
+  if (!step._fps) { step._fps = { ema: null, accum: 0 }; }
+  const instFps = elapsedMs > 0 ? 1000 / elapsedMs : 0;
+  const alpha = 1 - Math.exp(-(dtRaf || 0.016) / 0.5);
+  step._fps.ema = (step._fps.ema == null) ? instFps : (step._fps.ema * (1 - alpha) + instFps * alpha);
+  step._fps.accum += dtRaf;
+  if (fpsEl && step._fps.accum >= 0.2) { fpsEl.textContent = String(Math.round(step._fps.ema)); step._fps.accum = 0; }
+
+  // Throttle to 60 FPS
+  if (elapsedMs < FRAME_MIN_MS - 0.25) { requestAnimationFrame(step); return; }
+  _lastFrameAt = now;
+
   const dt = Math.min(0.033, clock.getDelta());
   if(controls.isLocked && !paused && !gameOver){
     // advance game time only while active

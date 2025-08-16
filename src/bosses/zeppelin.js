@@ -1,5 +1,7 @@
-// Ad Zeppelin Support (MVP)
-// Flies a straight carpet path over the arena and drops pods. While any pods are alive, boss shield remains.
+// Ad Zeppelin Support using asset pack
+// Flies a straight carpet path over the arena and drops bombs. While any ENGINE pods (on the zeppelin body) are alive, boss shield remains.
+
+import { createAdZeppelinAsset } from '../assets/boss_captain.js';
 
 export class ZeppelinSupport {
   constructor({ THREE, mats, enemyManager, scene, onPodsCleared }) {
@@ -8,26 +10,33 @@ export class ZeppelinSupport {
     this.enemyManager = enemyManager;
     this.scene = scene;
     this.onPodsCleared = onPodsCleared;
-
-    // Simple airship visual
-    const hullMat = mats.enemy.clone(); hullMat.color = new THREE.Color(0x64748b); // slate
-    const hull = new THREE.Mesh(new THREE.BoxGeometry(3.2, 1.0, 1.0), hullMat);
-    const gondola = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.6, 0.8), mats.head.clone());
-    gondola.position.y = -0.9; hull.add(gondola);
-    hull.position.set(-44, 7.0, -30 + Math.random()*60);
-    hull.userData = { type: 'boss_zeppelin' };
-    this.root = hull;
+    // Build zeppelin asset with engine pods, bomb rails, and gondola pivot
+    const built = createAdZeppelinAsset({ THREE, mats, scale: 2.0, podCount: 3 });
+    built.root.position.set(-44, 7.0, -30 + Math.random()*60);
+    built.root.userData = { type: 'boss_zeppelin' };
+    this.root = built.root;
+    this.refs = built.refs; // { body, gondola, bombRails, pods }
     this.scene.add(this.root);
+
+    // Register engine pods so they can be shot down to lift shield
+    this.enginePods = [];
+    for (const p of (this.refs?.pods || [])) {
+      const podRoot = p.root;
+      if (!podRoot) continue;
+      podRoot.userData = { type: 'boss_pod_engine', hp: 220 };
+      this.enemyManager.registerExternalEnemy({ root: podRoot, update(){} }, { countsTowardAlive: true });
+      this.enginePods.push(podRoot);
+    }
 
     // Path
     this.speed = 10.0; // u/s across arena
     this.direction = new THREE.Vector3(1, 0, 0); // left -> right
     this.life = 0; this.maxLife = 20; // despawn failsafe
 
-    // Drop pods config
+    // Bomb drop config (visual/hazard; not tied to shield)
     this.dropEvery = 1.1; // seconds
     this.dropTimer = 0;
-    this.pods = []; // roots of pods registered as enemies
+    this.bombs = []; // visual ground pods (hazards) we drop while flying
 
     // Telegraph path line (brief)
     this._pathLine = null;
@@ -50,8 +59,11 @@ export class ZeppelinSupport {
   _dropPod(){
     const THREE = this.THREE;
     const podRoot = new THREE.Group();
-    podRoot.position.set(this.root.position.x, 0.8, this.root.position.z);
-    podRoot.userData = { type: 'boss_pod', hp: 250 };
+    // choose a bomb rail and convert to world position
+    const rail = (this.refs?.bombRails || [])[Math.floor(Math.random() * (this.refs?.bombRails?.length || 1))];
+    const dropPos = rail?.getWorldPosition ? rail.getWorldPosition(new THREE.Vector3()) : this.root.position.clone();
+    podRoot.position.set(dropPos.x, 0.8, dropPos.z);
+    podRoot.userData = { type: 'boss_bomb', hp: 1 };
 
     const body = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 1.6, 12), new THREE.MeshLambertMaterial({ color: 0xf87171 }));
     body.position.y = 0.8; podRoot.add(body);
@@ -68,17 +80,17 @@ export class ZeppelinSupport {
     outline.position.copy(body.position);
     podRoot.add(outline);
 
-    // Register as enemy so hitscan can damage
-    this.enemyManager.registerExternalEnemy({ root: podRoot, update(){} }, { countsTowardAlive: true });
-    this.pods.push(podRoot);
+    // Add to scene (not tracked as enemy for shield logic)
+    this.scene.add(podRoot);
+    this.bombs.push({ root: podRoot, life: 8.0 });
   }
 
   _checkPodsCleared(){
-    // Remove references to dead pods
-    for (let i = this.pods.length - 1; i >= 0; i--){
-      if (!this.enemyManager.enemies.has(this.pods[i])) this.pods.splice(i,1);
+    // Remove references to engine pods that were shot down
+    for (let i = this.enginePods.length - 1; i >= 0; i--){
+      if (!this.enemyManager.enemies.has(this.enginePods[i])) this.enginePods.splice(i,1);
     }
-    if (this.pods.length === 0 && this.onPodsCleared){
+    if (this.enginePods.length === 0 && this.onPodsCleared){
       const cb = this.onPodsCleared; this.onPodsCleared = null; cb();
     }
   }
@@ -94,17 +106,23 @@ export class ZeppelinSupport {
     const step = this.direction.clone().multiplyScalar(this.speed * dt);
     this.root.position.add(step);
 
-    // Drop pods periodically
+    // Drop bombs periodically
     this.dropTimer -= dt;
     if (this.dropTimer <= 0){
       this._dropPod();
       this.dropTimer = this.dropEvery;
     }
 
-    // If off arena or after timeout, cleanup self when pods cleared
+    // Tick bombs lifetime and clean up
+    for (let i = this.bombs.length - 1; i >= 0; i--){
+      const b = this.bombs[i]; b.life -= dt;
+      if (b.life <= 0){ this.scene.remove(b.root); this.bombs.splice(i,1); }
+    }
+
+    // If off arena or after timeout, cleanup self when engine pods cleared
     const off = Math.abs(this.root.position.x) > 46;
     this._checkPodsCleared();
-    if ((off || this.life >= this.maxLife) && (!this.pods || this.pods.length === 0)){
+    if ((off || this.life >= this.maxLife) && (!this.enginePods || this.enginePods.length === 0)){
       this.cleanup();
     }
   }
@@ -112,8 +130,10 @@ export class ZeppelinSupport {
   cleanup(){
     if (this._pathLine){ this.scene.remove(this._pathLine); this._pathLine = null; }
     if (this.root){ this.scene.remove(this.root); }
-    // Do not force-remove pods; EnemyManager lifecycle handles them. Just clear list.
-    this.pods = [];
+    // Do not force-remove engine pods; EnemyManager lifecycle handles them. Just clear lists.
+    this.enginePods = [];
+    for (const b of this.bombs){ this.scene.remove(b.root); }
+    this.bombs = [];
   }
 }
 
