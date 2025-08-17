@@ -20,6 +20,10 @@ export class Effects {
     this.fatigueOverlay.renderOrder = 9998;
     this.fatigueLevel = 0; // 0..1
 
+    // Ensure overlays are not culled (screen-space quads)
+    try { if (this.overlay) this.overlay.frustumCulled = false; } catch(_) {}
+    try { if (this.fatigueOverlay) this.fatigueOverlay.frustumCulled = false; } catch(_) {}
+
     // Promotion pulse element (simple DOM overlay to avoid heavy post)
     this._promoEl = document.getElementById('promoPulse');
 
@@ -41,10 +45,64 @@ export class Effects {
     this._tracerTintMix = 0; // 0..1 mix factor
     this._tracerTintColor = new THREE.Color(0x16a34a);
 
+    // --- Init pooled resources for tracers, flashes, and decals ---
+    // Tracer (beam) shared geo + material prototype and pools
+    this._beamGeo = new THREE.PlaneGeometry(1, 1);
+    this._beamMatProto = new THREE.ShaderMaterial({
+      transparent: true,
+      depthTest: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      uniforms: {
+        uAlpha: { value: 1.0 },
+        uTint:  { value: new THREE.Color(0xfff4c0) },
+        uNoise: { value: 0.0 }
+      },
+      vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+      fragmentShader: `precision mediump float; varying vec2 vUv; uniform float uAlpha; uniform vec3 uTint; uniform float uNoise; void main(){ float d = abs(vUv.y - 0.5) * 2.0; float core = smoothstep(1.0, 0.0, d); float sparkle = 0.85 + 0.15 * sin((vUv.x + uNoise)*20.0); float a = uAlpha * core * sparkle; if(a < 0.02) discard; gl_FragColor = vec4(uTint, a); }`
+    });
+    this._beamMatPool = [];
+    this._allTracerMats = new Set();
+
+    // Impact flash (at hit point) geo + material prototype and pool
+    this._flashGeo = new THREE.PlaneGeometry(1, 1);
+    this._flashMatProto = new THREE.ShaderMaterial({
+      transparent: true,
+      depthTest: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      uniforms: { uAlpha: { value: 1.0 } },
+      vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+      fragmentShader: `precision mediump float; varying vec2 vUv; uniform float uAlpha; void main(){ vec2 p=vUv-0.5; float r=length(p)*2.0; float a = smoothstep(1.0, 0.0, r) * uAlpha; if(a<0.02) discard; gl_FragColor = vec4(1.0,0.85,0.45,a); }`
+    });
+    this._flashMatPool = [];
+
+    // Bullet decal (bullet hole) geo + material prototype and pool
+    this._decalGeo = new THREE.PlaneGeometry(1, 1);
+    this._decalMatProto = new THREE.ShaderMaterial({
+      transparent: true,
+      depthTest: true,
+      depthWrite: false,
+      blending: THREE.NormalBlending,
+      uniforms: {
+        uAlpha: { value: 0.95 },
+        uColor: { value: new THREE.Color(0x151515) },
+        uSoft:  { value: 0.5 }
+      },
+      vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+      fragmentShader: `precision mediump float; varying vec2 vUv; uniform float uAlpha; uniform vec3 uColor; uniform float uSoft; void main(){ vec2 p = vUv - 0.5; float r = length(p) * 2.0; float edge = smoothstep(1.0, uSoft, r); float a = (1.0 - edge) * uAlpha; if (a < 0.02) discard; gl_FragColor = vec4(uColor, a); }`
+    });
+    this._decalMatPool = [];
+
     // Pools
     this._tracerPool = { free: [], active: [], cap: 256 };
     this._flashPool = { free: [], active: [], cap: 128 };
     this._ringPool = { free: [], active: [], cap: 24 };
+    this._impactPool = { free: [], cap: 16 };
+    this._deathPool = { free: [], cap: 6 };
+
+    // Shared geometries for pools
+    this._geoPlane1x1 = new THREE.PlaneGeometry(1,1);
 
     // convenience hook for enemy VFX
     window._EFFECTS = window._EFFECTS || {};
@@ -62,34 +120,71 @@ export class Effects {
 
   // --- Tracer pool internals ---
   _allocTracer(){
-    const THREE = this.THREE;
     let m = this._tracerPool.free.pop();
     if (!m && (this._tracerPool.active.length < this._tracerPool.cap)) {
-      m = new THREE.Mesh();
+      const mat = this._beamMatPool.pop() || this._beamMatProto.clone();
+      m = new this.THREE.Mesh(this._beamGeo, mat);
       this.scene.add(m);
     }
-    if (m) this._tracerPool.active.push(m);
-    return m || null;
+    if (!m) return null;
+    m.userData.poolIndex = this._tracerPool.active.length;
+    this._tracerPool.active.push(m);
+    // Ensure material is tracked for tinting
+    if (m.material) this._allTracerMats.add(m.material);
+    return m;
   }
   _freeTracer(m){
     if (!m) return;
     m.visible = false;
-    this._tracerPool.active = this._tracerPool.active.filter(x=>x!==m);
+    // swap-pop optimization
+    const a = this._tracerPool.active;
+    const idx = m.userData.poolIndex;
+    if (idx !== undefined && idx < a.length) {
+      const last = a[a.length - 1];
+      a[idx] = last; 
+      if (last) last.userData.poolIndex = idx; 
+      a.pop();
+    }
+    // return its material to pool (do NOT dispose)
+    if (m.material) {
+      this._beamMatPool.push(m.material);
+      this._allTracerMats.add(m.material);
+    }
+    m.material = null; // keep geo reference; it's shared
     this._tracerPool.free.push(m);
   }
   _updateTracerPool(_dt){ /* visuals updated by entry tick; nothing global needed */ }
 
   // --- Flash pool internals ---
   _allocFlash(){
-    const THREE = this.THREE;
     let m = this._flashPool.free.pop();
     if (!m && (this._flashPool.active.length < this._flashPool.cap)) {
-      m = new THREE.Mesh(); this.scene.add(m);
+      const mat = this._flashMatPool.pop() || this._flashMatProto.clone();
+      m = new this.THREE.Mesh(this._flashGeo, mat);
+      this.scene.add(m);
     }
-    if (m) this._flashPool.active.push(m);
-    return m || null;
+    if (!m) return null;
+    m.userData.poolIndex = this._flashPool.active.length;
+    this._flashPool.active.push(m);
+    return m;
   }
-  _freeFlash(m){ if (!m) return; m.visible = false; this._flashPool.active = this._flashPool.active.filter(x=>x!==m); this._flashPool.free.push(m); }
+  _freeFlash(m){ 
+    if (!m) return; 
+    m.visible = false; 
+    // swap-pop optimization
+    const a = this._flashPool.active;
+    const idx = m.userData.poolIndex;
+    if (idx !== undefined && idx < a.length) {
+      const last = a[a.length - 1];
+      a[idx] = last; 
+      if (last) last.userData.poolIndex = idx; 
+      a.pop();
+    }
+    // return material to pool (do NOT dispose)
+    if (m.material) this._flashMatPool.push(m.material);
+    m.material = null; // keep geo reference; it's shared
+    this._flashPool.free.push(m); 
+  }
   _updateFlashPool(_dt){ /* fade handled per entry; no-op */ }
 
   // --- Ring pool internals ---
@@ -143,8 +238,7 @@ export class Effects {
       // If bound to an owner that has been removed from scene, drop immediately
       if (d.owner && !d.owner.parent) {
         this.scene.remove(d.mesh);
-        if (d.mesh.geometry) d.mesh.geometry.dispose();
-        if (d.mesh.material) d.mesh.material.dispose();
+        if (d.cleanup) d.cleanup(); // return material to pool, don't dispose
         this._decals.splice(i,1);
         continue;
       }
@@ -157,8 +251,7 @@ export class Effects {
       }
       if (d.age >= d.ttl) {
         this.scene.remove(d.mesh);
-        if (d.mesh.geometry) d.mesh.geometry.dispose();
-        if (d.mesh.material) d.mesh.material.dispose();
+        if (d.cleanup) d.cleanup(); // return material to pool, don't dispose
         this._decals.splice(i,1);
       }
     }
@@ -198,10 +291,15 @@ export class Effects {
 
   prewarm(counts = {}){
     const t = Math.max(0, counts.tracers || 64);
+    const f = Math.max(0, counts.flashes || 32);
     const r = Math.max(0, counts.rings || 8);
     for (let i=0;i<t;i++){
       const m = this._allocTracer();
       if (m) this._freeTracer(m);
+    }
+    for (let i=0;i<f;i++){
+      const m = this._allocFlash();
+      if (m) this._freeFlash(m);
     }
     for (let i=0;i<r;i++){
       const ring = this._allocRing();
@@ -220,8 +318,7 @@ export class Effects {
       const old = this._decals.shift();
       if (old) {
         this.scene.remove(old.mesh);
-        if (old.mesh.geometry) old.mesh.geometry.dispose();
-        if (old.mesh.material) old.mesh.material.dispose();
+        if (old.cleanup) old.cleanup(); // return material to pool, don't dispose
       }
     }
 
@@ -239,32 +336,19 @@ export class Effects {
     }
     if (n.lengthSq() === 0) n.set(0,1,0);
 
-    // Build tiny quad with radial alpha mask using a simple shader (regular blending)
-    const geom = new THREE.PlaneGeometry(1, 1);
-    const mat = new THREE.ShaderMaterial({
-      transparent: true,
-      depthTest: true,
-      depthWrite: false,
-      blending: THREE.NormalBlending,
-      side: THREE.DoubleSide,
-      uniforms: {
-        uAlpha: { value: 0.95 },
-        uColor: { value: color },
-        uSoft: { value: 0.35 + 0.5 * softness }
-      },
-      vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-      fragmentShader: `precision mediump float; varying vec2 vUv; uniform vec3 uColor; uniform float uAlpha; uniform float uSoft; void main(){ vec2 p = vUv - 0.5; float d = length(p) * 2.0; // alpha highest in center, fade to edge
-        float a = (1.0 - smoothstep(uSoft, 1.0, d)) * uAlpha; if (a < 0.01) discard; gl_FragColor = vec4(uColor, a); }`
-    });
-    const mesh = new THREE.Mesh(geom, mat);
+    // Use shared geometry and pooled material (no per-decal allocation)
+    const mesh = new THREE.Mesh(this._decalGeo, this._decalMatPool.pop() || this._decalMatProto.clone());
+    mesh.material.uniforms.uAlpha.value = 0.95;
+    mesh.material.uniforms.uColor.value.copy(color);
+    mesh.material.uniforms.uSoft.value = 0.35 + 0.5 * softness;
 
     // Random slight non-square scale and roll
     const sx = size * (0.9 + Math.random()*0.3);
     const sy = size * (0.9 + Math.random()*0.3);
     mesh.scale.set(sx, sy, 1);
 
-    // Orient plane's +Z (plane normal) to align with surface normal
-    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), n.clone().normalize());
+    // Orient plane's +Z (plane normal) to align with surface normal (invert normal to face outward)
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), n.clone().negate().normalize());
     mesh.quaternion.copy(q);
 
     // Keep canonical orientation (no roll); bullet holes should look circular
@@ -283,7 +367,9 @@ export class Effects {
       options.attachTo.attach(mesh);
     }
 
-    const entry = { mesh, material: mat, ttl, age: 0, baseAlpha: mat.uniforms.uAlpha.value, owner: options.owner || null };
+    const entry = { mesh, material: mesh.material, ttl, age: 0, baseAlpha: mesh.material.uniforms.uAlpha.value, owner: options.owner || null };
+    // Add cleanup callback to return material to pool
+    entry.cleanup = () => { this._decalMatPool.push(mesh.material); };
     this._decals.push(entry);
   }
 
@@ -294,8 +380,7 @@ export class Effects {
       const d = this._decals[i];
       if (d.owner === owner) {
         this.scene.remove(d.mesh);
-        if (d.mesh.geometry) d.mesh.geometry.dispose();
-        if (d.mesh.material) d.mesh.material.dispose();
+        if (d.cleanup) d.cleanup(); // return material to pool, don't dispose
         this._decals.splice(i,1);
       }
     }
@@ -507,60 +592,22 @@ spawnBulletTracer(start, end, options = {}) {
   const y     = new THREE.Vector3().crossVectors(z, x).normalize();
   const rot   = new THREE.Matrix4().makeBasis(x, y, z);
 
-  // --- MATERIAL/SHADER ---
-  const makeBeamMaterial = () => new THREE.ShaderMaterial({
-      transparent: true,
-      depthWrite: false,
-      depthTest: options.depthTest ?? true,
-      blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
-      uniforms: {
-        uAlpha:{value:1.0},
-        uTint:{value: color},
-        uNoise:{value: Math.random()*1000.0}
-      },
-      vertexShader: `
-        varying vec2 vUv;
-        void main(){ vUv=uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-      fragmentShader: `
-        precision mediump float; varying vec2 vUv;
-        uniform float uAlpha, uNoise; uniform vec3 uTint;
-        float h(float n){ return fract(sin(n)*43758.5453); }
-        float noise(vec2 p){
-          vec2 i=floor(p), f=fract(p);
-          float a=h(dot(i,vec2(1.0,57.0)));
-          float b=h(dot(i+vec2(1.0,0.0),vec2(1.0,57.0)));
-          float c=h(dot(i+vec2(0.0,1.0),vec2(1.0,57.0)));
-          float d=h(dot(i+vec2(1.0,1.0),vec2(1.0,57.0)));
-          vec2 u=f*f*(3.0-2.0*f);
-          return mix(a,b,u.x)+(c-a)*u.y*(1.0-u.x)+(d-b)*u.x*u.y;
-        }
-        void main(){
-          float x=vUv.x;
-          float y=abs(vUv.y*2.0-1.0);
-          float core   = smoothstep(1.0, 0.0, y*1.4);          // bright core
-          float taper  = mix(1.0, 0.55, x);                    // taper to tail
-          float fray   = 0.85 + 0.15*noise(vec2(x*18.0, y*8.0 + uNoise));
-          // smooth "caps" on both ends (to avoid pulling into the sky)
-          float capS = smoothstep(0.00, 0.06, x);
-          float capE = smoothstep(0.00, 0.06, 1.0-x);
-          float caps = capS * capE;
-
-          float a = uAlpha * core * taper * fray * caps;
-          if(a < 0.02) discard;
-          vec3 col = mix(vec3(1.0,0.85,0.35), uTint, 0.35);
-          gl_FragColor = vec4(col, a);
-        }`
-  });
   const beamA = this._allocTracer();
   if (!beamA) return;
-  if (!beamA.material || !beamA.geometry) {
-    beamA.geometry = new THREE.PlaneGeometry(1,1);
-    beamA.material = makeBeamMaterial();
-  } else {
-    beamA.material.dispose?.();
-    beamA.material = makeBeamMaterial();
+  
+  // Ensure geometry and material are properly assigned
+  beamA.geometry = this._beamGeo;
+  if (!beamA.material) {
+    beamA.material = this._beamMatPool.pop() || this._beamMatProto.clone();
+    this._allTracerMats.add(beamA.material);
   }
+  
+  // Reset material uniforms for reuse
+  beamA.material.uniforms.uAlpha.value = 1.0;
+  beamA.material.uniforms.uTint.value.copy(new THREE.Color(0xfff4c0).lerp(this._tracerTintColor, this._tracerTintMix || 0));
+  beamA.material.uniforms.uNoise.value = Math.random()*1000.0;
+  
+  // Set transform
   beamA.scale.set(len, width, 1);
   beamA.position.copy(mid);
   beamA.setRotationFromMatrix(rot);
@@ -571,13 +618,14 @@ spawnBulletTracer(start, end, options = {}) {
   if (cross) {
     beamB = this._allocTracer();
     if (beamB) {
-      if (!beamB.material || !beamB.geometry) {
-        beamB.geometry = new THREE.PlaneGeometry(1,1);
-        beamB.material = makeBeamMaterial();
-      } else {
-        beamB.material.dispose?.();
-        beamB.material = makeBeamMaterial();
+      beamB.geometry = this._beamGeo;
+      if (!beamB.material) {
+        beamB.material = this._beamMatPool.pop() || this._beamMatProto.clone();
+        this._allTracerMats.add(beamB.material);
       }
+      beamB.material.uniforms.uAlpha.value = 1.0;
+      beamB.material.uniforms.uTint.value.copy(beamA.material.uniforms.uTint.value);
+      beamB.material.uniforms.uNoise.value = Math.random()*1000.0;
       beamB.scale.set(len, width, 1);
       beamB.position.copy(mid);
       beamB.setRotationFromMatrix(rot);
@@ -586,22 +634,16 @@ spawnBulletTracer(start, end, options = {}) {
     }
   }
 
-  // impact flash (radial billboard, no square)
+  // impact flash
   let flash = null;
   if (options.impact !== false) {
     flash = this._allocFlash();
     if (flash) {
-      if (!flash.material || !flash.geometry) {
-        flash.geometry = new THREE.PlaneGeometry(1,1);
-        flash.material = new THREE.ShaderMaterial({
-          transparent:true, depthWrite:false, depthTest:true, blending:THREE.AdditiveBlending, side:THREE.DoubleSide,
-          uniforms:{ uAlpha:{value:1.0}, uTint:{value:new THREE.Color(0xfff1c1)} },
-          vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-          fragmentShader:`precision mediump float; varying vec2 vUv; uniform float uAlpha; uniform vec3 uTint; void main(){ vec2 p=vUv-0.5; float r=length(p)*2.0; float a=uAlpha * smoothstep(1.0, 0.0, r); if(a<0.02) discard; gl_FragColor=vec4(uTint,a); }`
-        });
-      } else {
-        if (flash.material.uniforms && flash.material.uniforms.uAlpha) flash.material.uniforms.uAlpha.value = 1.0;
+      flash.geometry = this._flashGeo;
+      if (!flash.material) {
+        flash.material = this._flashMatPool.pop() || this._flashMatProto.clone();
       }
+      flash.material.uniforms.uAlpha.value = 1.0;
       flash.position.copy(to);
       flash.scale.set(0.24, 0.24, 1);
       try { if (this.camera) flash.lookAt(this.camera.position); } catch(_) {}
@@ -640,118 +682,123 @@ spawnBulletTracer(start, end, options = {}) {
 
 spawnBulletImpact(position, normal){
     const THREE = this.THREE;
-    const count = 80;
-    const positions = new Float32Array(count * 3);
-    const dirs = new Float32Array(count * 3);
-    const speeds = new Float32Array(count);
-    const lifes = new Float32Array(count);
-    const n = (normal && normal.lengthSq()>0) ? normal.clone().normalize() : new THREE.Vector3(0,1,0);
-    for(let i=0;i<count;i++){
-      const i3=i*3;
-      positions[i3]=position.x; positions[i3+1]=position.y; positions[i3+2]=position.z;
-      // hemisphere direction around normal
-      const u = Math.random(); const v = Math.random();
-      const theta = 2*Math.PI*u; const r = Math.sqrt(v);
-      const local = new THREE.Vector3(r*Math.cos(theta), Math.sqrt(1-v), r*Math.sin(theta));
-      // align local y to normal
-      const basis = new THREE.Matrix4();
-      const up = new THREE.Vector3(0,1,0);
-      const axis = new THREE.Vector3().crossVectors(up, n);
-      const angle = Math.acos(Math.max(-1, Math.min(1, up.dot(n))));
-      basis.makeRotationAxis(axis.normalize(), angle || 0);
-      local.applyMatrix4(basis);
-      dirs[i3]=local.x; dirs[i3+1]=local.y; dirs[i3+2]=local.z;
-      speeds[i] = 8 + Math.random()*16;
-      lifes[i] = 0.35 + Math.random()*0.25;
+    // Reuse a single small instanced points system per impact via pool
+    let sys = this._impactPool.free.pop();
+    if (!sys) {
+      // Build a reusable points system with attributes sized for 80
+      const count = 80;
+      const positions = new Float32Array(count * 3);
+      const dirs = new Float32Array(count * 3);
+      const speeds = new Float32Array(count);
+      const lifes = new Float32Array(count);
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(positions,3));
+      g.setAttribute('aDir', new THREE.BufferAttribute(dirs,3));
+      g.setAttribute('aSpeed', new THREE.BufferAttribute(speeds,1));
+      g.setAttribute('aLife', new THREE.BufferAttribute(lifes,1));
+      const uniforms = { uElapsed:{value:0}, uOrigin:{value: new THREE.Vector3()}, uGravity:{value:new THREE.Vector3(0,-80,0)}, uSize:{value:0.5} };
+      const mat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, uniforms,
+        vertexShader:`uniform float uElapsed; uniform vec3 uOrigin; uniform vec3 uGravity; uniform float uSize; attribute vec3 aDir; attribute float aSpeed; attribute float aLife; varying float vAlpha; void main(){ float t=min(uElapsed,aLife); vec3 pos = uOrigin + aDir * (aSpeed*t) + 0.5*uGravity*(t*t); vec4 mv = modelViewMatrix*vec4(pos,1.0); gl_Position=projectionMatrix*mv; float dist = -mv.z; gl_PointSize = uSize * clamp(180.0/dist, 1.0, 10.0); vAlpha = 1.0 - (t/aLife); }`,
+        fragmentShader:`precision mediump float; varying float vAlpha; void main(){ vec2 pc = gl_PointCoord-0.5; float d=length(pc); float a = smoothstep(0.5,0.0,d) * vAlpha; if(a<0.02) discard; vec3 col = mix(vec3(1.0,0.85,0.4), vec3(1.0), 0.5); gl_FragColor = vec4(col, a); }`});
+      sys = { points: new THREE.Points(g, mat), geom: g, uniforms, cap: 80 };
+      this.scene.add(sys.points);
     }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(positions,3));
-    g.setAttribute('aDir', new THREE.BufferAttribute(dirs,3));
-    g.setAttribute('aSpeed', new THREE.BufferAttribute(speeds,1));
-    g.setAttribute('aLife', new THREE.BufferAttribute(lifes,1));
-    const uniforms = { uElapsed:{value:0}, uOrigin:{value: position.clone()}, uGravity:{value:new THREE.Vector3(0,-80,0)}, uSize:{value:0.5} };
-    const material = new THREE.ShaderMaterial({
-      transparent:true, depthWrite:false, blending:THREE.AdditiveBlending,
-      uniforms,
-      vertexShader:`uniform float uElapsed; uniform vec3 uOrigin; uniform vec3 uGravity; uniform float uSize; attribute vec3 aDir; attribute float aSpeed; attribute float aLife; varying float vAlpha; void main(){ float t=min(uElapsed,aLife); vec3 pos = uOrigin + aDir * (aSpeed*t) + 0.5*uGravity*(t*t); vec4 mv = modelViewMatrix*vec4(pos,1.0); gl_Position=projectionMatrix*mv; float dist = -mv.z; gl_PointSize = uSize * clamp(180.0/dist, 1.0, 10.0); vAlpha = 1.0 - (t/aLife); }`,
-      fragmentShader:`precision mediump float; varying float vAlpha; void main(){ vec2 pc = gl_PointCoord-0.5; float d=length(pc); float a = smoothstep(0.5,0.0,d) * vAlpha; if(a<0.02) discard; vec3 col = mix(vec3(1.0,0.85,0.4), vec3(1.0), 0.5); gl_FragColor = vec4(col, a); }`
-    });
-    const points = new THREE.Points(g, material);
-    this.scene.add(points);
-    this._alive.push({ points, uniforms, maxLife: 0.6 });
+    // Fill attributes quickly for a new burst
+    const g = sys.geom; const pos = g.attributes.position.array; const dir = g.attributes.aDir.array; const spd = g.attributes.aSpeed.array; const life = g.attributes.aLife.array;
+    const n = (normal && normal.lengthSq()>0) ? normal.clone().normalize() : new THREE.Vector3(0,1,0);
+    const basis = new THREE.Matrix4();
+    const up = new THREE.Vector3(0,1,0);
+    const axis = new THREE.Vector3().crossVectors(up, n);
+    const angle = Math.acos(Math.max(-1, Math.min(1, up.dot(n))));
+    basis.makeRotationAxis(axis.normalize(), angle || 0);
+    for (let i=0;i<sys.cap;i++){
+      const i3=i*3;
+      pos[i3]=position.x; pos[i3+1]=position.y; pos[i3+2]=position.z;
+      const u=Math.random(), v=Math.random(); const theta=2*Math.PI*u; const r=Math.sqrt(v);
+      const local = new THREE.Vector3(r*Math.cos(theta), Math.sqrt(1-v), r*Math.sin(theta));
+      local.applyMatrix4(basis);
+      dir[i3]=local.x; dir[i3+1]=local.y; dir[i3+2]=local.z;
+      spd[i] = 8 + Math.random()*16; life[i] = 0.35 + Math.random()*0.25;
+    }
+    g.attributes.position.needsUpdate = true;
+    g.attributes.aDir.needsUpdate = true;
+    g.attributes.aSpeed.needsUpdate = true;
+    g.attributes.aLife.needsUpdate = true;
+    sys.uniforms.uOrigin.value.copy(position);
+    sys.uniforms.uElapsed.value = 0;
+    // Track lifetime on _alive to return to pool
+    this._alive.push({ points: sys.points, uniforms: sys.uniforms, maxLife: 0.6, cleanup: ()=>{ this._impactPool.free.push(sys); } });
   }
 
   enemyDeath(center){
     const THREE = this.THREE;
-    const count = 140;
-    const positions = new Float32Array(count * 3);
-    const dirs = new Float32Array(count * 3);
-    const speeds = new Float32Array(count);
-    const lifes = new Float32Array(count);
-    for(let i=0;i<count;i++){
-      const i3=i*3;
-      positions[i3]=center.x; positions[i3+1]=center.y+0.8; positions[i3+2]=center.z;
-      // random sphere dir biased upward
-      const u = Math.random(); const v = Math.random();
-      const theta = 2*Math.PI*u; const phi = Math.acos(2*v-1);
-      const d = new THREE.Vector3(Math.sin(phi)*Math.cos(theta), Math.cos(phi), Math.sin(phi)*Math.sin(theta));
-      d.y = Math.abs(d.y); d.normalize();
-      dirs[i3]=d.x; dirs[i3+1]=d.y; dirs[i3+2]=d.z;
-      speeds[i] = 3.0 + Math.random()*6.0;
-      lifes[i] = 0.6 + Math.random()*0.4;
+    let sys = this._deathPool.free.pop();
+    if (!sys) {
+      const count = 140;
+      const positions = new Float32Array(count * 3);
+      const dirs = new Float32Array(count * 3);
+      const speeds = new Float32Array(count);
+      const lifes = new Float32Array(count);
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(positions,3));
+      g.setAttribute('aDir', new THREE.BufferAttribute(dirs,3));
+      g.setAttribute('aSpeed', new THREE.BufferAttribute(speeds,1));
+      g.setAttribute('aLife', new THREE.BufferAttribute(lifes,1));
+      const uniforms = { uElapsed:{value:0}, uOrigin:{value:new THREE.Vector3()}, uGravity:{value:new THREE.Vector3(0,-16,0)}, uSize:{value:3.0} };
+      const material = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, uniforms,
+        vertexShader:`uniform float uElapsed; uniform vec3 uOrigin; uniform vec3 uGravity; uniform float uSize; attribute vec3 aDir; attribute float aSpeed; attribute float aLife; varying float vAlpha; void main(){ float t=min(uElapsed,aLife); float k = smoothstep(0.0, 0.2, t); vec3 pos = uOrigin + aDir * (aSpeed*t*k) + 0.5*uGravity*(t*t); pos.x += sin(t*8.0 + aSpeed)*0.06; pos.z += cos(t*7.0 + aSpeed)*0.06; vec4 mv = modelViewMatrix*vec4(pos,1.0); gl_Position=projectionMatrix*mv; float dist=-mv.z; gl_PointSize = uSize * clamp(180.0/dist, 1.2, 9.0); vAlpha = 1.0 - (t/aLife); }`,
+        fragmentShader:`precision mediump float; varying float vAlpha; void main(){ vec2 pc=gl_PointCoord-0.5; float d=length(pc); float a = smoothstep(0.45,0.0,d) * vAlpha; if(a<0.02) discard; vec3 col = mix(vec3(1.0,0.45,0.25), vec3(1.0,0.8,0.2), 0.15); gl_FragColor = vec4(col, a*0.85); }`});
+      sys = { points: new THREE.Points(g, material), geom: g, uniforms, cap: 140 };
+      this.scene.add(sys.points);
     }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(positions,3));
-    g.setAttribute('aDir', new THREE.BufferAttribute(dirs,3));
-    g.setAttribute('aSpeed', new THREE.BufferAttribute(speeds,1));
-    g.setAttribute('aLife', new THREE.BufferAttribute(lifes,1));
-    const uniforms = { uElapsed:{value:0}, uOrigin:{value:center.clone()}, uGravity:{value:new THREE.Vector3(0,-16,0)}, uSize:{value:3.0} };
-    const material = new THREE.ShaderMaterial({
-      transparent:true, depthWrite:false, blending:THREE.AdditiveBlending,
-      uniforms,
-      vertexShader:`uniform float uElapsed; uniform vec3 uOrigin; uniform vec3 uGravity; uniform float uSize; attribute vec3 aDir; attribute float aSpeed; attribute float aLife; varying float vAlpha; void main(){ float t=min(uElapsed,aLife); float k = smoothstep(0.0, 0.2, t); vec3 pos = uOrigin + aDir * (aSpeed*t*k) + 0.5*uGravity*(t*t); pos.x += sin(t*8.0 + aSpeed)*0.06; pos.z += cos(t*7.0 + aSpeed)*0.06; vec4 mv = modelViewMatrix*vec4(pos,1.0); gl_Position=projectionMatrix*mv; float dist=-mv.z; gl_PointSize = uSize * clamp(180.0/dist, 1.2, 9.0); vAlpha = 1.0 - (t/aLife); }`,
-      fragmentShader:`precision mediump float; varying float vAlpha; void main(){ vec2 pc=gl_PointCoord-0.5; float d=length(pc); float a = smoothstep(0.45,0.0,d) * vAlpha; if(a<0.02) discard; vec3 col = mix(vec3(1.0,0.45,0.25), vec3(1.0,0.8,0.2), 0.15); gl_FragColor = vec4(col, a*0.85); }`
-    });
-    const points = new THREE.Points(g, material);
-    this.scene.add(points);
-    this._alive.push({ points, uniforms, maxLife: 1.0 });
+    // Refill burst
+    const g = sys.geom; const pos = g.attributes.position.array; const dir = g.attributes.aDir.array; const spd = g.attributes.aSpeed.array; const life = g.attributes.aLife.array;
+    for (let i=0;i<sys.cap;i++){
+      const i3=i*3; pos[i3]=center.x; pos[i3+1]=center.y+0.8; pos[i3+2]=center.z;
+      const u=Math.random(), v=Math.random(); const theta=2*Math.PI*u; const phi=Math.acos(2*v-1);
+      const d=new THREE.Vector3(Math.sin(phi)*Math.cos(theta), Math.abs(Math.cos(phi)), Math.sin(phi)*Math.sin(theta));
+      dir[i3]=d.x; dir[i3+1]=d.y; dir[i3+2]=d.z; spd[i]=3.0+Math.random()*6.0; life[i]=0.6+Math.random()*0.4;
+    }
+    g.attributes.position.needsUpdate = true;
+    g.attributes.aDir.needsUpdate = true;
+    g.attributes.aSpeed.needsUpdate = true;
+    g.attributes.aLife.needsUpdate = true;
+    sys.uniforms.uOrigin.value.copy(center);
+    sys.uniforms.uElapsed.value = 0;
+    this._alive.push({ points: sys.points, uniforms: sys.uniforms, maxLife: 1.0, cleanup: ()=>{ this._deathPool.free.push(sys); } });
   }
 
   // Composite explosion: shockwave, fireball, sparks, smoke, light flash
   spawnExplosion(center, radius=3.0){
     const THREE = this.THREE;
-    // 1) Shockwave ring on ground
-    const segs = 72;
-    const ringGeom = new THREE.RingGeometry(radius*0.22, radius*0.24, segs, 1);
-    const ringMat = new THREE.ShaderMaterial({
-      transparent:true, depthWrite:false, blending:THREE.AdditiveBlending,
-      uniforms:{ uElapsed:{value:0}, uLife:{value:0.5}, uStart:{value:radius*0.22}, uEnd:{value:radius*1.4}, uColor:{value:new THREE.Color(0xfff1a1)} },
-      vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-      fragmentShader:`precision mediump float; varying vec2 vUv; uniform float uElapsed; uniform float uLife; uniform float uStart; uniform float uEnd; uniform vec3 uColor; void main(){ float t = clamp(uElapsed/uLife, 0.0, 1.0); float r = mix(uStart, uEnd, t); float d = abs(length(vUv-0.5)*2.0 - r); float a = smoothstep(0.1, 0.0, d) * (1.0 - t); if(a<0.01) discard; gl_FragColor = vec4(uColor, a); }`
-    });
-    const ring = new THREE.Mesh(ringGeom, ringMat); ring.position.copy(center.clone().setY(0.05)); ring.rotation.x = -Math.PI/2; this.scene.add(ring);
-    this._alive.push({ points: ring, uniforms: ringMat.uniforms, maxLife: 0.5 });
+    // 1) Shockwave ring on ground (reuse shared geometry and clone material)
+    const ringMat = this._ringSharedMatProto.clone();
+    ringMat.uniforms.uElapsed.value = 0;
+    ringMat.uniforms.uLife.value = 0.5;
+    ringMat.uniforms.uStart.value = radius*0.22;
+    ringMat.uniforms.uEnd.value = radius*1.4;
+    ringMat.uniforms.uColor.value.copy(new THREE.Color(0xfff1a1));
+    const ring = new THREE.Mesh(this._ringSharedGeo, ringMat); 
+    ring.position.copy(center.clone().setY(0.05)); 
+    ring.rotation.x = -Math.PI/2; 
+    this.scene.add(ring);
+    this._alive.push({ points: ring, uniforms: ringMat.uniforms, maxLife: 0.5, cleanup: ()=>{ ringMat.dispose(); } });
 
-    // 2) Fireball core (circular billboard with radial fade + soft noise) — no square film
-    const coreGeom = new THREE.PlaneGeometry(1,1);
-    const coreMat = new THREE.ShaderMaterial({
-      transparent:true, depthWrite:false, blending:THREE.AdditiveBlending,
-      uniforms:{ uAlpha:{value:0.95}, uTint:{value:new THREE.Color(0xffb347)}, uTime:{value:0} },
-      vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-      fragmentShader:`precision mediump float; varying vec2 vUv; uniform float uAlpha; uniform vec3 uTint; float hash(vec2 p){ p=fract(p*vec2(123.34, 345.45)); p+=dot(p, p+34.345); return fract(p.x*p.y); } void main(){ vec2 p=vUv-0.5; float r=length(p)*2.0; // radial falloff
-        float ring = smoothstep(1.0, 0.0, r) * smoothstep(0.0, 0.55, r);
-        // soft noise breakup to avoid film look
-        float n = hash(floor(vUv*32.0));
-        float a = uAlpha * ring * (0.85 + 0.15*n);
-        if(a<0.02) discard; gl_FragColor = vec4(uTint, a); }`
-    });
-    const core = new THREE.Mesh(coreGeom, coreMat); core.position.copy(center.clone().setY(center.y + 0.6)); core.scale.set(radius*0.3, radius*0.3, 1); this.scene.add(core);
+    // 2) Fireball core (reuse shared geometry and clone material)
+    const coreMat = this._explCoreMatProto.clone();
+    coreMat.uniforms.uAlpha.value = 0.95;
+    coreMat.uniforms.uTint.value.copy(new THREE.Color(0xffb347));
+    coreMat.uniforms.uTime.value = 0;
+    const core = new THREE.Mesh(this._explCoreGeo, coreMat); 
+    core.position.copy(center.clone().setY(center.y + 0.6)); 
+    core.scale.set(radius*0.3, radius*0.3, 1); 
+    this.scene.add(core);
     this._alive.push({ mesh: core, life: 0, maxLife: 0.45, tick: dt=>{
       coreMat.uniforms.uAlpha.value = Math.max(0, coreMat.uniforms.uAlpha.value - dt*2.2);
       const s = core.scale.x + dt * radius * 1.8; core.scale.set(s, s, 1);
       // billboard toward camera
       if (this.camera && this.camera.position) core.lookAt(this.camera.position);
-    }, cleanup: ()=>{ coreMat.dispose(); coreGeom.dispose(); } });
+    }, cleanup: ()=>{ coreMat.dispose(); } });
 
     // 3) Sparks burst (short‑lived particles)
     const sparks = 120; const positions = new Float32Array(sparks*3); const dirs = new Float32Array(sparks*3); const speeds = new Float32Array(sparks); const lifes = new Float32Array(sparks);

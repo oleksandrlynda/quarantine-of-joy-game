@@ -77,35 +77,36 @@ export class EnemyManager {
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.count = 0;
       this.scene.add(mesh);
+      const ray = new THREE.Raycaster();
+      try { ray.firstHitOnly = true; } catch(_) {}
       return {
         mesh,
         max,
         count: 0,
-        items: new Array(max), // { pos:Vector3, vel:Vector3, life:number, maxLife:number, damage:number }
+        items: new Array(max), // each: { px,py,pz, vx,vy,vz, life, maxLife, damage }
         tmpMat: new THREE.Matrix4(),
-        ray: new THREE.Raycaster()
+        ray,
+        _orig: new THREE.Vector3(),
+        _dir: new THREE.Vector3()
       };
     };
     this._bulletPools = {
       shooter: mkPool(0x10b981, 0.12, 600),
-      sniper: mkPool(0xff3344, 0.09, 300)
+      sniper:  mkPool(0xff3344, 0.09, 300)
     };
-    try { this._bulletPools.shooter.ray.firstHitOnly = true; } catch(_) {}
-    try { this._bulletPools.sniper.ray.firstHitOnly = true; } catch(_) {}
   }
+  
 
   _spawnBullet(kind, origin, velocity, maxLife, damage = 10) {
     const pool = (this._bulletPools && this._bulletPools[kind]) ? this._bulletPools[kind] : null;
     if (!pool) return false;
     if (pool.count >= pool.max) return false;
-    const THREE = this.THREE;
+  
     const slot = pool.count++;
     pool.items[slot] = {
-      pos: origin.clone(),
-      vel: velocity.clone(),
-      life: 0,
-      maxLife: maxLife,
-      damage
+      px: origin.x, py: origin.y, pz: origin.z,
+      vx: velocity.x, vy: velocity.y, vz: velocity.z,
+      life: 0, maxLife, damage
     };
     pool.tmpMat.makeTranslation(origin.x, origin.y, origin.z);
     pool.mesh.setMatrixAt(slot, pool.tmpMat);
@@ -113,59 +114,86 @@ export class EnemyManager {
     pool.mesh.count = pool.count;
     return true;
   }
+  
 
   _updateBulletPools(dt, ctx) {
     if (!this._bulletPools) return;
-    const THREE = this.THREE;
+  
     const updatePool = (pool) => {
       if (!pool || pool.count <= 0) return;
       const playerPos = ctx.player.position;
-      let write = 0; // compact active items to front
+      let write = 0;
+  
       for (let read = 0; read < pool.count; read++) {
         const b = pool.items[read];
-        // Integrate
-        const step = b.vel.clone().multiplyScalar(dt);
-        const next = b.pos.clone().add(step);
-        let hitSomething = false;
-        // Player hit (horizontal band)
-        const y = next.y;
-        if (y >= 1.2 && y <= 1.8) {
-          const dx = next.x - playerPos.x;
-          const dz = next.z - playerPos.z;
-          if ((dx*dx + dz*dz) < 0.36) { // 0.6^2
+  
+        // integrate
+        const dx = b.vx * dt, dy = b.vy * dt, dz = b.vz * dt;
+        const nx = b.px + dx, ny = b.py + dy, nz = b.pz + dz;
+  
+        let hit = false;
+  
+        // player band check (no vectors)
+        if (ny >= 1.2 && ny <= 1.8) {
+          const pdx = nx - playerPos.x, pdz = nz - playerPos.z;
+          if ((pdx*pdx + pdz*pdz) < 0.36) { // 0.6^2
             ctx.onPlayerDamage?.(b.damage);
-            hitSomething = true;
+            hit = true;
           }
         }
-        // World hit via short ray
-        if (!hitSomething) {
-          const dir = step.lengthSq() > 0 ? step.clone().normalize() : new THREE.Vector3(0,0,1);
-          const dist = step.length();
-          pool.ray.set(b.pos, dir); pool.ray.far = dist;
-          const hits = pool.ray.intersectObjects(this.objects, false);
-          if (hits && hits.length > 0) hitSomething = true;
+  
+        // world broadphase vs AABBs (only then precise ray)
+        if (!hit) {
+          const minX = Math.min(b.px, nx) - 0.12;
+          const maxX = Math.max(b.px, nx) + 0.12;
+          const minY = Math.min(b.py, ny) - 0.12;
+          const maxY = Math.max(b.py, ny) + 0.12;
+          const minZ = Math.min(b.pz, nz) - 0.12;
+          const maxZ = Math.max(b.pz, nz) + 0.12;
+  
+          let broadHit = false;
+          const list = this.objectBBs;
+          for (let k = 0, L = list.length; k < L; k++) {
+            const obb = list[k];
+            if (obb.max.x < minX || obb.min.x > maxX) continue;
+            if (obb.max.y < minY || obb.min.y > maxY) continue;
+            if (obb.max.z < minZ || obb.min.z > maxZ) continue;
+            broadHit = true; break;
+          }
+  
+          if (broadHit) {
+            // precise segment test via short ray
+            const len = Math.hypot(dx, dy, dz) || 1e-6;
+            pool._orig.set(b.px, b.py, b.pz);
+            pool._dir.set(dx / len, dy / len, dz / len);
+            pool.ray.set(pool._orig, pool._dir);
+            pool.ray.far = len;
+            const hits = pool.ray.intersectObjects(this.objects, false);
+            if (hits && hits.length > 0) hit = true;
+          }
         }
-        if (!hitSomething) {
-          // alive → write back
-          b.pos.copy(next); b.life += dt;
-          if (b.life <= b.maxLife && Math.abs(b.pos.x) <= 90 && Math.abs(b.pos.z) <= 90) {
-            // keep
+  
+        if (!hit) {
+          b.px = nx; b.py = ny; b.pz = nz; b.life += dt;
+          if (b.life <= b.maxLife && Math.abs(b.px) <= 90 && Math.abs(b.pz) <= 90) {
             pool.items[write] = b;
-            pool.tmpMat.makeTranslation(b.pos.x, b.pos.y, b.pos.z);
+            pool.tmpMat.makeTranslation(b.px, b.py, b.pz);
             pool.mesh.setMatrixAt(write, pool.tmpMat);
             write++;
             continue;
           }
         }
-        // drop bullet: skip copying, effectively removed
+        // else: drop bullet (not copied to new slot)
       }
+  
       pool.count = write;
       pool.mesh.count = pool.count;
       pool.mesh.instanceMatrix.needsUpdate = true;
     };
+  
     updatePool(this._bulletPools.shooter);
     updatePool(this._bulletPools.sniper);
-  }
+  }  
 
   getEnemyRaycastTargets() {
     return this._enemyRootsArr;
@@ -298,22 +326,41 @@ export class EnemyManager {
   }
 
   _isSpawnAreaClear(pos, margin = 0.4) {
-    // Ensure spawn AABB with extra margin does not intersect world objects
     const THREE = this.THREE;
-    const half = new THREE.Vector3(
-      this.enemyHalf.x + margin,
-      this.enemyHalf.y,
-      this.enemyHalf.z + margin
+    if (!this._tmp) {
+      this._tmp = {
+        v1: new THREE.Vector3(),
+        v2: new THREE.Vector3(),
+        v3: new THREE.Vector3(),
+        min: new THREE.Vector3(),
+        max: new THREE.Vector3(),
+        boxA: new THREE.Box3(),
+        boxB: new THREE.Box3()
+      };
+    }
+    const half = this.enemyHalf;
+    const hx = half.x + margin, hz = half.z + margin, hy = half.y;
+  
+    const bb = this._tmp.boxA.set(
+      this._tmp.min.set(pos.x - hx, pos.y - hy, pos.z - hz),
+      this._tmp.max.set(pos.x + hx, pos.y + hy, pos.z + hz)
     );
-    const bb = new THREE.Box3(pos.clone().sub(half), pos.clone().add(half));
+  
+    // against world
     for (const obb of this.objectBBs) { if (bb.intersectsBox(obb)) return false; }
-    // Avoid overlapping existing enemies
+  
+    // against other enemies (use a second box!)
     for (const e of this.enemies) {
-      const ebb = new THREE.Box3(e.position.clone().sub(half), e.position.clone().add(half));
+      const ex = e.position.x, ey = e.position.y, ez = e.position.z;
+      const ebb = this._tmp.boxB.set(
+        this._tmp.min.set(ex - hx, ey - hy, ez - hz),
+        this._tmp.max.set(ex + hx, ey + hy, ez + hz)
+      );
       if (bb.intersectsBox(ebb)) return false;
     }
     return true;
   }
+    
 
   _avoidObstacles(origin, desiredDir, maxDist) {
     const THREE = this.THREE;
@@ -352,48 +399,58 @@ export class EnemyManager {
   }
 
   _moveWithCollisions(enemy, step) {
-    // Attempt axis-separated movement with AABB checks against static objects
     const THREE = this.THREE;
+    if (!this._tmp) {
+      this._tmp = {
+        v1: new THREE.Vector3(),
+        v2: new THREE.Vector3(),
+        v3: new THREE.Vector3(),
+        min: new THREE.Vector3(),
+        max: new THREE.Vector3(),
+        boxA: new THREE.Box3(),
+        boxB: new THREE.Box3()
+      };
+    }
     const half = this.enemyHalf;
-    const pos = enemy.position.clone();
-
+    const t = this._tmp;
+  
+    let px = enemy.position.x;
+    let pz = enemy.position.z;
+    let py = enemy.position.y;
+  
     const tryAxis = (dx, dz) => {
-      const nx = pos.x + dx, nz = pos.z + dz;
-      // Use feet Y to build probe box to allow stepping over small rises
-      const feetY = pos.y - half.y;
-      const bb = new THREE.Box3(
-        new THREE.Vector3(nx - half.x, Math.max(0.0, feetY + 0.05), nz - half.z),
-        new THREE.Vector3(nx + half.x, feetY + (half.y*2), nz + half.z)
-      );
-      for (const obb of this.objectBBs) { if (bb.intersectsBox(obb)) return false; }
-      pos.x = nx; pos.z = nz; return true;
+      const nx = px + dx, nz = pz + dz;
+      const feetY = py - half.y;
+      t.min.set(nx - half.x, Math.max(0.0, feetY + 0.05), nz - half.z);
+      t.max.set(nx + half.x, feetY + (half.y*2),            nz + half.z);
+      t.boxA.set(t.min, t.max);
+      for (const obb of this.objectBBs) { if (t.boxA.intersectsBox(obb)) return false; }
+      // accept & update running position for next axis
+      px = nx; pz = nz; return true;
     };
-
-    // X then Z for simple sliding with step/jump assist similar to player
-    const beforeGround = this._groundHeightAt(enemy.position.x, enemy.position.z);
+  
+    const beforeGround = this._groundHeightAt(px, pz);
     tryAxis(step.x, 0);
     tryAxis(0, step.z);
-    const afterGround = this._groundHeightAt(pos.x, pos.z);
+  
+    const afterGround = this._groundHeightAt(px, pz);
     const rise = Math.max(0, afterGround - beforeGround);
     const stepUpMax = 0.12 * this.enemyFullHeight;
     const jumpAssistMax = 0.30 * this.enemyFullHeight;
     const desiredY = afterGround + half.y;
-    const currentY = enemy.position.y;
+  
     if (rise > 0) {
-      // Clamp vertical lift per frame to avoid teleporting up long ramps
       const maxLift = (rise <= stepUpMax + 1e-3) ? stepUpMax : (rise <= jumpAssistMax + 1e-3 ? jumpAssistMax : 0);
       if (maxLift > 0) {
-        const lift = Math.min(desiredY - currentY, maxLift);
-        enemy.position.set(pos.x, currentY + Math.max(0, lift), pos.z);
-      } else {
-        // too high; keep horizontal change only
-        enemy.position.set(pos.x, currentY, pos.z);
+        const lift = Math.min(desiredY - py, maxLift);
+        py = py + Math.max(0, lift);
       }
     } else {
-      // Follow ground on descent instantly for stability
-      enemy.position.set(pos.x, desiredY, pos.z);
+      py = desiredY;
     }
-  }
+  
+    enemy.position.set(px, py, pz);
+  }  
 
   // Compute highest ground at XZ from colliders using raycast fallback to AABB top
   _groundHeightAt(x, z) {
@@ -423,20 +480,29 @@ export class EnemyManager {
 
   // Simple separation utility reusable by types
   separation(position, radius, selfRoot) {
-    const THREE = this.THREE;
-    const sep = new THREE.Vector3();
-    const r2 = radius * radius;
+    if (!this._tmp) {
+      this._tmp = {
+        v1: new this.THREE.Vector3(),
+        v2: new this.THREE.Vector3(),
+        v3: new this.THREE.Vector3(),
+        min: new this.THREE.Vector3(),
+        max: new this.THREE.Vector3(),
+        box: new this.THREE.Box3()
+      };
+    }
+    const sep = this._tmp.v1.set(0,0,0);
+    const r = radius; const r2 = r*r;
     for (const other of this.enemies) {
       if (other === selfRoot) continue;
       const dx = other.position.x - position.x;
       const dz = other.position.z - position.z;
-      const d2 = dx*dx + dz*dz;
-      if (d2 > r2) continue;
-      const d = Math.max(0.0001, Math.sqrt(d2));
-      sep.add(new THREE.Vector3(-dx, 0, -dz).multiplyScalar((radius - d) / radius / d));
+      const d2 = dx*dx + dz*dz; if (d2 > r2 || d2 === 0) continue;
+      const d = Math.sqrt(d2);
+      const k = (r - d) / (r * d);
+      sep.x -= dx * k; sep.z -= dz * k;
     }
-    return sep;
-  }
+    return sep.clone(); // callers sometimes mutate; return a copy to be safe
+  }  
 
   // Factories
   _createInstance(type, spawnPos) {
@@ -492,85 +558,115 @@ export class EnemyManager {
   }
 
   tickAI(playerObject, dt, onPlayerDamage) {
+    // lazy init (kept)
+    if (!this._ctx) {
+      this._healReg = new Map();
+      this._ctx = {
+        player: null, objects: this.objects, scene: this.scene, onPlayerDamage: null,
+        _spawnBullet: (kind, origin, velocity, maxLife, damage) =>
+          this._spawnBullet(kind, origin, velocity, maxLife, damage),
+        separation: (position, radius, selfRoot) => this.separation(position, radius, selfRoot),
+        avoidObstacles: (origin, desiredDir, maxDist) => this._avoidObstacles(origin, desiredDir, maxDist),
+        moveWithCollisions: (enemy, step) => this._moveWithCollisions(enemy, step),
+        alliesNearbyCount: (position, radius = 8.0, selfRoot = null) => {
+          const r2 = radius * radius; let count = 0;
+          for (const other of this.enemies) {
+            if (selfRoot && other === selfRoot) continue;
+            const dx = other.position.x - position.x;
+            const dy = other.position.y - position.y;
+            const dz = other.position.z - position.z;
+            if (dx*dx + dy*dy + dz*dz <= r2) count++;
+          }
+          return count;
+        },
+        // heal aggregator
+        proposeHeal: (targetRoot, amount) => {
+          if (!targetRoot || !amount || amount <= 0) return;
+          const prev = this._healReg.get(targetRoot) || 0;
+          if (amount > prev) this._healReg.set(targetRoot, amount);
+        },
+        blackboard: {
+          playerForward: null,
+          playerSpeed: 0,
+          suppression: false,
+          regroup: false,
+          alive: 0,
+          waveStartingAlive: 0,
+          time: 0,
+          sniperLastFireAt: -Infinity
+        }
+      };
+    }
+    if (!this._tmp) {
+      this._tmp = {
+        v1: new this.THREE.Vector3(),
+        v2: new this.THREE.Vector3(),
+        v3: new this.THREE.Vector3(),
+        min: new this.THREE.Vector3(),
+        max: new this.THREE.Vector3(),
+        boxA: new this.THREE.Box3(),
+        boxB: new this.THREE.Box3()
+      };
+    }
+  
     this._aiClock += dt;
-    // Update heal sprites
+  
+    // heal sprite upkeep (unchanged)
     if (this._healSprites && this._healSprites.length) {
       for (let i = this._healSprites.length - 1; i >= 0; i--) {
         const s = this._healSprites[i];
-        s.life += dt; if (s.life >= s.maxLife) { this.scene.remove(s.sprite); this._healSprites.splice(i,1); continue; }
+        s.life += dt;
+        if (s.life >= s.maxLife) {
+          this.scene.remove(s.sprite);
+          this._healSprites.splice(i, 1);
+          continue;
+        }
         s.sprite.position.addScaledVector(s.velocity, dt);
         if (s.sprite.material && s.sprite.material.opacity !== undefined) {
           s.sprite.material.opacity = Math.max(0, 1 - s.life / s.maxLife);
         }
       }
     }
-    const ctx = {
-      player: playerObject,
-      objects: this.objects,
-      scene: this.scene,
-      onPlayerDamage,
-      // expose bullet spawner to types
-      _spawnBullet: (kind, origin, velocity, maxLife, damage) => this._spawnBullet(kind, origin, velocity, maxLife, damage),
-      separation: (...args) => this.separation(...args),
-      avoidObstacles: (origin, desiredDir, maxDist) => this._avoidObstacles(origin, desiredDir, maxDist),
-      moveWithCollisions: (enemy, step) => this._moveWithCollisions(enemy, step),
-      // Count allies within a radius around a position, excluding an optional self root
-      alliesNearbyCount: (position, radius = 8.0, selfRoot = null) => {
-        const r2 = Math.max(0, radius) * Math.max(0, radius);
-        let count = 0;
-        for (const other of this.enemies) {
-          if (selfRoot && other === selfRoot) continue;
-          const dx = other.position.x - position.x;
-          const dy = other.position.y - position.y;
-          const dz = other.position.z - position.z;
-          const d2 = dx*dx + dy*dy + dz*dz;
-          if (d2 <= r2) count++;
-        }
-        return count;
-      },
-      // Healer support: register max heal per target per tick (non-stacking)
-      proposeHeal: (() => {
-        const registry = new Map();
-        // attach to ctx so post-loop can access
-        const fn = (targetRoot, amount) => {
-          if (!targetRoot || !amount || amount <= 0) return;
-          const prev = registry.get(targetRoot) || 0;
-          if (amount > prev) registry.set(targetRoot, amount);
-        };
-        fn._registry = registry;
-        return fn;
-      })(),
-      // Sniper coordination: record last shot to stagger others
-      sniperFired: () => { this._sniperLastFireAt = this._aiClock; },
-      // temporary helper so non-implemented types behave sanely
-      fallbackMeleeUpdate: (inst, _dt) => {
-        const fake = new MeleeEnemy({ THREE: this.THREE, mats: this.mats, cfg: { type: 'grunt', hp: 1, speedMin: inst.speed, speedMax: inst.speed, color: 0xffffff }, spawnPos: inst.root.position.clone() });
-        fake.root = inst.root; // reuse same root; only use update logic
-        fake.update(_dt, ctx);
-      },
-      // Blackboard
-      blackboard: (() => {
-        const info = this.getPlayer ? this.getPlayer() : null;
-        const forward = info && info.forward ? info.forward.clone() : null;
-        const bossActive = !!(this.bossManager && this.bossManager.active && this.bossManager.boss);
-        const regroup = !bossActive && this.waveStartingAlive > 0 && this.alive <= Math.max(1, Math.floor(this.waveStartingAlive * 0.25));
-        return {
-          playerForward: forward,
-          playerSpeed: this._playerSpeedEMA || 0,
-          suppression: false,
-          regroup,
-          alive: this.alive,
-          waveStartingAlive: this.waveStartingAlive,
-          time: this._aiClock,
-          sniperLastFireAt: this._sniperLastFireAt
-        };
-      })()
-    };
-
-    // Boss abilities and behavior
+  
+    // --- fill ctx + blackboard the way enemies expect ---
+    const ctx = this._ctx;
+    ctx.player = playerObject;
+    ctx.objects = this.objects;
+    ctx.scene = this.scene;
+    ctx.onPlayerDamage = onPlayerDamage;
+  
+    const bb = ctx.blackboard;
+    // forward from the provider (used by some behaviors to flank/plan)
+    const info = this.getPlayer ? this.getPlayer() : null;
+    bb.playerForward = info && info.forward ? info.forward : null;
+  
+    // player speed EMA (used by some to decide chase vs hold)
+    if (!this._playerPrevPos && playerObject && playerObject.position) {
+      this._playerPrevPos = playerObject.position.clone();
+      this._playerSpeedEMA = 0;
+    }
+    if (playerObject && playerObject.position) {
+      const d = this._tmp.v1.copy(playerObject.position).sub(this._playerPrevPos || playerObject.position);
+      const instSpeed = d.length() / Math.max(1e-3, dt);
+      const alpha = 0.25; // EMA smoothing
+      this._playerSpeedEMA = (this._playerSpeedEMA == null) ? instSpeed : (alpha*instSpeed + (1-alpha)*this._playerSpeedEMA);
+      this._playerPrevPos.copy(playerObject.position);
+    }
+    bb.playerSpeed = this._playerSpeedEMA || 0;
+  
+    // regroup heuristic (restored)
+    const bossActive = !!(this.bossManager && this.bossManager.active && this.bossManager.boss);
+    bb.regroup = !bossActive && this.waveStartingAlive > 0 && this.alive <= Math.max(1, Math.floor(this.waveStartingAlive * 0.25));
+  
+    bb.alive = this.alive;
+    bb.waveStartingAlive = this.waveStartingAlive;
+    bb.time = this._aiClock;
+    bb.sniperLastFireAt = this._sniperLastFireAt;
+  
+    // boss update
     if (this.bossManager) this.bossManager.update(dt, ctx);
-
-    // Time-sliced AI: near updates every frame, far updates every 3rd frame with dt compensation
+  
+    // time-sliced AI
     this._aiFrame = (this._aiFrame || 0) + 1;
     const playerPos = ctx.player && ctx.player.position ? ctx.player.position : null;
     let i = 0;
@@ -580,7 +676,6 @@ export class EnemyManager {
       const dx = inst.root.position.x - playerPos.x;
       const dz = inst.root.position.z - playerPos.z;
       const d2 = dx*dx + dz*dz;
-      // Thresholds: <= 25m near, > 25m far
       if (d2 > (25*25)) {
         if (((i + this._aiFrame) % 3) !== 0) continue;
         inst.update(dt * 3, ctx);
@@ -588,15 +683,14 @@ export class EnemyManager {
         inst.update(dt, ctx);
       }
     }
-
-    // Update pooled bullets after per-enemy updates
+  
+    // bullets
     try { this._updateBulletPools(dt, ctx); } catch(_) {}
-
-    // Low-rate ambient enemy vocals when aggroed (simple heuristic: while enemies exist)
+  
+    // ambient vocals
     if (this.alive > 0) {
       this._lastAmbientVocalAt = (this._lastAmbientVocalAt || 0);
       if (this._aiClock - this._lastAmbientVocalAt > 2.2 + Math.random() * 2.0) {
-        // pick a random instance and attempt a vocal via global S if present
         const pick = (() => { for (const e of this.instances) return e; return null; })();
         if (pick && window && window._SFX && typeof window._SFX.enemyVocal === 'function') {
           try { window._SFX.enemyVocal(pick.root?.userData?.type || 'grunt'); } catch(_) {}
@@ -604,24 +698,40 @@ export class EnemyManager {
         this._lastAmbientVocalAt = this._aiClock;
       }
     }
-    // Apply healing after updates
-    const reg = ctx.proposeHeal && ctx.proposeHeal._registry;
-    if (reg && reg.size) {
-      for (const [root, heal] of reg.entries()) {
+  
+    // apply heals with budget
+    if (this._healReg.size) {
+      let vfxBudget = 6;
+      for (const [root, heal] of this._healReg.entries()) {
         if (!root || !root.userData) continue;
         const maxHp = root.userData.maxHp || root.userData.hp;
         if (maxHp == null) continue;
         root.userData.hp = Math.min(maxHp, (root.userData.hp || 0) + heal);
-        // spawn heal VFX with per-target cooldown
-        const lastAt = this._lastHealVfxAt.get(root) || -Infinity;
-        if ((this._aiClock - lastAt) >= this._healVfxCooldown) {
-          this._lastHealVfxAt.set(root, this._aiClock);
-          const count = Math.max(1, Math.min(4, Math.round(heal * 0.15)));
-          this._spawnHealBurst(root, count);
+        if (vfxBudget > 0) {
+          const lastAt = this._lastHealVfxAt.get(root) || -Infinity;
+          if ((this._aiClock - lastAt) >= this._healVfxCooldown) {
+            this._lastHealVfxAt.set(root, this._aiClock);
+            const count = Math.max(1, Math.min(4, Math.round(heal * 0.15)));
+            this._spawnHealBurst(root, count);
+            vfxBudget--;
+          }
+        }
+      }
+      this._healReg.clear();
+    }
+  
+    // optional delayed spawns
+    if (this._spawnQueue && this._spawnQueue.length) {
+      const now = performance.now();
+      for (let s = this._spawnQueue.length - 1; s >= 0; s--) {
+        const it = this._spawnQueue[s];
+        if (it.at <= now) {
+          this.spawn(it.type);
+          this._spawnQueue.splice(s, 1);
         }
       }
     }
-  }
+  }  
 
   _ensureHealTexture() {
     if (this._healTexture) return this._healTexture;
@@ -676,24 +786,35 @@ export class EnemyManager {
 
   remove(enemyRoot) {
     if (!this.enemies.has(enemyRoot)) return;
+  
     this.enemies.delete(enemyRoot);
     this.scene.remove(enemyRoot);
-    // remove from cached array
-    const idx = this._enemyRootsArr.indexOf(enemyRoot);
-    if (idx >= 0) this._enemyRootsArr.splice(idx, 1);
+  
+    // O(1) swap-pop from _enemyRootsArr
+    if (!this._rootIndex) this._rootIndex = new WeakMap();
+    const idx = this._rootIndex.get(enemyRoot);
+    if (idx != null) {
+      const last = this._enemyRootsArr.length - 1;
+      const lastRoot = this._enemyRootsArr[last];
+      this._enemyRootsArr[idx] = lastRoot;
+      this._rootIndex.set(lastRoot, idx);
+      this._enemyRootsArr.pop();
+      this._rootIndex.delete(enemyRoot);
+    }
+  
     const inst = this.instanceByRoot.get(enemyRoot);
     if (inst) {
-      // allow instance-specific cleanup (e.g., projectiles)
       if (typeof inst.onRemoved === 'function') inst.onRemoved(this.scene);
       this.instances.delete(inst);
     }
+  
     this.alive--;
     if (this.onRemaining) this.onRemaining(this.alive);
-    // If we just removed the boss, notify boss manager to cleanup adds
+  
     if (this.bossManager && this.bossManager.active && this.bossManager.boss && enemyRoot === this.bossManager.boss.root) {
       this.bossManager._onBossDeath();
     }
-    // Only advance to the next wave when no enemies remain AND no boss fight is active
+  
     const bossActive = !!(this.bossManager && this.bossManager.active && this.bossManager.boss);
     if (this.alive <= 0 && !bossActive && !this._advancingWave) {
       this._advancingWave = true;
@@ -701,7 +822,7 @@ export class EnemyManager {
       this.startWave();
       this._advancingWave = false;
     }
-  }
+  }  
 
   // --- Boss integration helpers ---
 
@@ -710,21 +831,23 @@ export class EnemyManager {
     this.enemies.add(instance.root);
     this.instances.add(instance);
     this.instanceByRoot.set(instance.root, instance);
+  
+    if (!this._rootIndex) this._rootIndex = new WeakMap();
+    this._rootIndex.set(instance.root, this._enemyRootsArr.length);
     this._enemyRootsArr.push(instance.root);
+  
     if (countsTowardAlive) {
       this.alive++;
       if (this.onRemaining) this.onRemaining(this.alive);
     }
     return instance.root;
   }
-
+  
   spawnAt(type, position, { countsTowardAlive = true } = {}) {
     const inst = this._createInstance(type, position);
-    // Adjust per-type randomization (e.g., gruntlings low HP)
     if (type === 'gruntling') {
       inst.root.userData.hp = 10 + Math.floor(Math.random() * 21); // 10–30
     }
-    // Ensure maxHp for healing clamp
     if (inst && inst.root && inst.root.userData) {
       if (inst.root.userData.maxHp == null && inst.root.userData.hp != null) inst.root.userData.maxHp = inst.root.userData.hp;
     }
@@ -732,7 +855,11 @@ export class EnemyManager {
     this.enemies.add(inst.root);
     this.instances.add(inst);
     this.instanceByRoot.set(inst.root, inst);
+  
+    if (!this._rootIndex) this._rootIndex = new WeakMap();
+    this._rootIndex.set(inst.root, this._enemyRootsArr.length);
     this._enemyRootsArr.push(inst.root);
+  
     if (countsTowardAlive) {
       this.alive++;
       if (this.onRemaining) this.onRemaining(this.alive);
