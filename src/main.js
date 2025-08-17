@@ -15,6 +15,7 @@ import { WeaponSystem } from './weapons/system.js';
 import { WeaponView } from './weapons/view.js';
 import { startEditor } from './editor.js';
 import { Progression } from './progression.js';
+import { loadAllModels, prewarmAllShaders } from '../loader.js';
 import { StoryManager } from './story.js';
 
 // ------ Seeded RNG + URL persistence ------
@@ -56,6 +57,29 @@ const { renderer, scene, camera, skyMat, hemi, dir, mats, objects } = createWorl
 const wantEditor = (new URL(window.location.href)).searchParams.get('editor') === '1';
 const storyParam = (new URL(window.location.href)).searchParams.get('story');
 const storyDisabled = storyParam === '0' || storyParam === 'false';
+
+// Show loading overlay during asset + shader prewarm
+const loadingEl = document.getElementById('loading');
+const loadingBar = document.getElementById('loadingBar');
+const loadingText = document.getElementById('loadingText');
+function setLoading(pct, label){
+  if (!loadingEl) return;
+  const v = Math.max(0, Math.min(1, pct||0));
+  if (loadingBar) loadingBar.style.width = `${(v*100).toFixed(0)}%`;
+  if (loadingText) loadingText.textContent = `${(v*100).toFixed(0)}%${label?` — ${label}`:''}`;
+}
+
+// Kick asset load + shader warmup before proceeding
+try {
+  setLoading(0.02, 'Loading models');
+  const progress = (done, total)=>{ setLoading(0.02 + 0.48*(done/Math.max(1,total)), `Loading models ${done}/${total}`); };
+  const { registry } = await loadAllModels({ renderer, onProgress: progress });
+  setLoading(0.55, 'Compiling shaders');
+  await prewarmAllShaders(renderer, { registry, includeShadows: renderer.shadowMap?.enabled, includeDepthVariants: true, extras: [] });
+  setLoading(1.0, 'Ready');
+  // Hide overlay
+  if (loadingEl) loadingEl.style.display = 'none';
+} catch(e) { console.warn('Warmup failed', e); if (loadingEl) loadingEl.style.display = 'none'; }
 
 // Obstacles / Level loading (deterministic per seed or explicit map)
 const obstacleManager = new ObstacleManager(THREE, scene, mats);
@@ -339,7 +363,7 @@ function addTracer(from, to){
   // New: use effects-driven sprite tracer for motion
   if (effects && typeof effects.spawnBulletTracer === 'function') {
     const muzzlePos = effects.getMuzzleWorldPos(new THREE.Vector3());
-    effects.spawnBulletTracer(muzzlePos, to, { ttl: 0.08, width: 0.08, impact: true });
+    effects.spawnBulletTracer(muzzlePos, to, { ttl: 0.12, width: 0.04, impact: true });
   } else {
     // Fallback to legacy line if effects unavailable
     const g = new THREE.BufferGeometry().setFromPoints([from.clone(), to.clone()]);
