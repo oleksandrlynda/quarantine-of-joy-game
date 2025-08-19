@@ -167,7 +167,7 @@ export class ShooterEnemy {
       this._faceDir.lerp(faceVec, lerpAmt);
       if (this._faceDir.lengthSq() > 0) this._faceDir.normalize();
     }
-    const desiredYaw = Math.atan2(this._faceDir.x, this._faceDir.z) + Math.PI; // -Z forward faces target
+    const desiredYaw = Math.atan2(this._faceDir.x, this._faceDir.z); // +Z forward faces target
     const wrap = (a)=>{ while(a>Math.PI) a-=2*Math.PI; while(a<-Math.PI) a+=2*Math.PI; return a; };
     let dy = wrap(desiredYaw - this._yaw);
     const turnRate = 5.0; // slightly reduced to smooth out jitter
