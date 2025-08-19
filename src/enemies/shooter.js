@@ -1,20 +1,15 @@
 import { createShooterBot } from '../assets/shooter_bot.js';
-const _shooterCache = { model: null };
 export class ShooterEnemy {
   constructor({ THREE, mats, cfg, spawnPos }) {
     this.THREE = THREE;
     this.cfg = cfg;
 
     // Use ShooterBot asset with right-hand gun; shots originate from muzzle, not head
-    if (!_shooterCache.model) _shooterCache.model = createShooterBot({ THREE, mats, scale: 0.62 });
-    const src = _shooterCache.model;
-    const clone = src.root.clone(true);
-    const body = clone; const head = clone.userData?.head || src.head; this._refs = src.refs || {};
+    const built = createShooterBot({ THREE, mats, scale: 0.62 });
+    const body = built.root; const head = built.head; this._refs = built.refs || {};
     body.position.copy(spawnPos);
-    // Ensure head has a unique material to avoid global highlight
+    // Ensure head has a unique material so emissive glow doesn't affect other shooters
     try { if (head && head.material) head.material = head.material.clone(); } catch(_) {}
-    // Ensure muzzle has its own material to avoid cross-instance emissive flicker
-    try { if (this._refs && this._refs.muzzle && this._refs.muzzle.material) this._refs.muzzle.material = this._refs.muzzle.material.clone(); } catch(_) {}
 
     body.userData = { type: cfg.type, head, hp: cfg.hp };
     this.root = body;
@@ -75,8 +70,8 @@ export class ShooterEnemy {
 
     const e = this.root;
     const playerPos = ctx.player.position.clone();
-    const toPlayer = playerPos.sub(e.position.clone());
-    const dist = Math.hypot(toPlayer.x, toPlayer.z);
+    const toPlayer = playerPos.clone().sub(e.position);
+    const dist = toPlayer.length();
     const hasLOS = this._hasLineOfSight(e, playerPos, ctx.objects);
     const playerStationary = (ctx.blackboard && (ctx.blackboard.playerSpeed || 0) < 0.8);
 
@@ -215,7 +210,7 @@ export class ShooterEnemy {
           }
           // Reroll next burst parameters for variety
           this.maxBurst = 3 + ((Math.random() * 2) | 0); // 3–4
-          this.baseCadence = 0.12 + Math.random() * 0.12; // intra-burst spacing
+          this.baseCadence = 0.6 + Math.random() * 0.4; // intra-burst spacing
           this.interBurstBase = 1.6 + Math.random() * 0.6;
           this.windupRequired = 0.5 + Math.random() * 0.2;
         } else {
@@ -243,7 +238,7 @@ export class ShooterEnemy {
         this.inBurst = true;
         // fresh parameters for this burst
         this.maxBurst = 3 + ((Math.random() * 2) | 0);   // 3–4 shots per burst
-        this.baseCadence = 0.12 + Math.random() * 0.12;  // intra-burst spacing
+        this.baseCadence = 0.6 + Math.random() * 0.4;  // intra-burst spacing
         this.interBurstBase = 1.6 + Math.random() * 0.6; // inter-burst gap
         // First shot now, then set spacing for next
         this._fireProjectile(playerPos, ctx.scene);
@@ -303,19 +298,20 @@ export class ShooterEnemy {
     }
     const dir = targetPos.clone().sub(origin).normalize();
     const speed = 25; // units/s
-    // Use instanced bullet pool on manager
-    try {
-      const vel = dir.clone().multiplyScalar(speed);
-      const ok = this._enemyManager?._spawnBullet('shooter', origin, vel, 2.5, 22);
-      if (!ok) {
-        // fallback minimal mesh if pool full
-        const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 10), new THREE.MeshBasicMaterial({ color: 0x10b981 }));
-        mesh.position.copy(origin);
-        mesh.material.transparent = true; mesh.material.opacity = 1;
-        scene.add(mesh);
-        this.projectiles.push({ mesh, velocity: vel, life: 0, maxLife: 2.5, damage: 22 });
-      }
-    } catch(_) {}
+
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 10), new THREE.MeshBasicMaterial({ color: 0x10b981 }));
+    mesh.position.copy(origin);
+    mesh.material.transparent = true;
+    mesh.material.opacity = 1;
+    scene.add(mesh);
+
+    this.projectiles.push({
+      mesh,
+      velocity: dir.multiplyScalar(speed),
+      life: 0,
+      maxLife: 2.5,
+      damage: 22
+    });
     this.shotsThisBurst += 1;
   }
 

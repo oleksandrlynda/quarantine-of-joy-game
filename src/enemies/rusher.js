@@ -10,7 +10,15 @@ export class RusherEnemy {
     if (!_rusherCache.model) _rusherCache.model = createRunnerBot({ THREE, mats, scale: 0.6 });
     const src = _rusherCache.model;
     const clone = src.root.clone(true);
-    const body = clone; const head = clone.userData?.head || src.head; this._animRefs = src.refs || {};
+    // Remap anim refs from asset to this clone so gait/arm anims work
+    const remapRefs = (srcRoot, cloneRoot, refs) => {
+      const out = {};
+      const getPath = (node) => { const path = []; let cur = node; while (cur && cur !== srcRoot) { const parent = cur.parent; if (!parent) return null; const idx = parent.children.indexOf(cur); if (idx < 0) return null; path.push(idx); cur = parent; } return path.reverse(); };
+      const follow = (root, path) => { let cur = root; for (const idx of (path||[])) { if (!cur || !cur.children || idx >= cur.children.length) return null; cur = cur.children[idx]; } return cur; };
+      for (const k of Object.keys(refs||{})) { const p = getPath(refs[k]); out[k] = p ? follow(cloneRoot, p) : null; }
+      return out;
+    };
+    const body = clone; const head = clone.userData?.head || src.head; this._animRefs = remapRefs(src.root, clone, src.refs || {});
     body.position.copy(spawnPos);
     body.rotation.x = 0; // world yaw only
 

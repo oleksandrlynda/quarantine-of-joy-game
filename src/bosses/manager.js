@@ -62,7 +62,7 @@ export class BossManager {
     // - Wave 35: Strike Adjudicator
     let boss;
     if (wave === 5) {
-      boss = new Broodmaker({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager, mode: 'light' });
+      boss = new StrikeAdjudicator({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager });
     } else if (wave == 10) {
       boss = new Sanitizer({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager });
     } else if (wave == 15) {

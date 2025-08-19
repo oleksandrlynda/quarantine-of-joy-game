@@ -15,7 +15,7 @@ import { WeaponSystem } from './weapons/system.js';
 import { WeaponView } from './weapons/view.js';
 import { startEditor } from './editor.js';
 import { Progression } from './progression.js';
-import { loadAllModels, prewarmAllShaders } from '../loader.js';
+import { loadAllModels, prewarmAllShaders } from '../loader.js?v=3';
 import { StoryManager } from './story.js';
 
 // ------ Seeded RNG + URL persistence ------
@@ -73,13 +73,16 @@ function setLoading(pct, label){
 try {
   setLoading(0.02, 'Loading models');
   const progress = (done, total)=>{ setLoading(0.02 + 0.48*(done/Math.max(1,total)), `Loading models ${done}/${total}`); };
-  const { registry } = await loadAllModels({ renderer, onProgress: progress });
-  setLoading(0.55, 'Compiling shaders');
-  await prewarmAllShaders(renderer, { registry, includeShadows: renderer.shadowMap?.enabled, includeDepthVariants: true, extras: [] });
+  const shaderWarm = params.get('warmup') === '1';
+  const { registry } = await loadAllModels({ renderer, onProgress: progress, skipWarmup: !shaderWarm });
+  if (shaderWarm) {
+    setLoading(0.55, 'Compiling shaders');
+    await prewarmAllShaders(renderer, { registry, includeShadows: renderer.shadowMap?.enabled, includeDepthVariants: true, extras: [] });
+  }
   setLoading(1.0, 'Ready');
   // Hide overlay
   if (loadingEl) loadingEl.style.display = 'none';
-} catch(e) { console.warn('Warmup failed', e); if (loadingEl) loadingEl.style.display = 'none'; }
+} catch(e) { console.warn('Warmup failed — continuing without precompiled shaders'); if (loadingEl) loadingEl.style.display = 'none'; }
 
 // Obstacles / Level loading (deterministic per seed or explicit map)
 const obstacleManager = new ObstacleManager(THREE, scene, mats);

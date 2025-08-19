@@ -90,7 +90,7 @@ export class Effects {
         uSoft:  { value: 0.5 }
       },
       vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-      fragmentShader: `precision mediump float; varying vec2 vUv; uniform float uAlpha; uniform vec3 uColor; uniform float uSoft; void main(){ vec2 p = vUv - 0.5; float r = length(p) * 2.0; float edge = smoothstep(1.0, uSoft, r); float a = (1.0 - edge) * uAlpha; if (a < 0.02) discard; gl_FragColor = vec4(uColor, a); }`
+      fragmentShader: `precision mediump float; varying vec2 vUv; uniform float uAlpha; uniform vec3 uColor; uniform float uSoft; void main(){ vec2 p = vUv - 0.5; float r = length(p) * 2.0; float edge = smoothstep(uSoft, 1.0, r); float a = (1.0 - edge) * uAlpha; if (a < 0.02) discard; gl_FragColor = vec4(uColor, a); }`
     });
     this._decalMatPool = [];
 
@@ -289,6 +289,33 @@ export class Effects {
     }
   }
 
+  // Remove all transient visuals and decals immediately (used by test harness)
+  clearAll(){
+    // transient entries
+    for (let i=this._alive.length-1;i>=0;i--){
+      const fx = this._alive[i];
+      try { if (fx.cleanup) fx.cleanup(); } catch(_) {}
+      try {
+        if (fx.points && this.scene) this.scene.remove(fx.points);
+        if (fx.mesh && this.scene) this.scene.remove(fx.mesh);
+        if (fx.light && this.scene) this.scene.remove(fx.light);
+      } catch(_) {}
+    }
+    this._alive.length = 0;
+    // pooled actives
+    try { for (const m of this._tracerPool?.active||[]) this._freeTracer(m); this._tracerPool.active.length = 0; } catch(_) {}
+    try { for (const m of this._flashPool?.active||[]) this._freeFlash(m); this._flashPool.active.length = 0; } catch(_) {}
+    try { for (const it of this._ringPool?.active||[]) this._freeRing(it.mesh); this._ringPool.active.length = 0; } catch(_) {}
+    // decals
+    for (let i=this._decals.length-1;i>=0;i--){
+      const d = this._decals[i];
+      try { if (this.scene) this.scene.remove(d.mesh); } catch(_) {}
+      try { if (d.cleanup) d.cleanup(); } catch(_) {}
+    }
+    this._decals.length = 0;
+    // overlays + muzzle get reset implicitly next frame
+  }
+
   prewarm(counts = {}){
     const t = Math.max(0, counts.tracers || 64);
     const f = Math.max(0, counts.flashes || 32);
@@ -347,8 +374,8 @@ export class Effects {
     const sy = size * (0.9 + Math.random()*0.3);
     mesh.scale.set(sx, sy, 1);
 
-    // Orient plane's +Z (plane normal) to align with surface normal (invert normal to face outward)
-    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), n.clone().negate().normalize());
+    // Orient plane's +Z (plane normal) to align with the surface normal so the decal faces outward
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1), n.clone().normalize());
     mesh.quaternion.copy(q);
 
     // Keep canonical orientation (no roll); bullet holes should look circular

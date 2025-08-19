@@ -35,6 +35,8 @@ export class EnemyManager {
     this._aiClock = 0; // accumulated AI time for coordination
     this._sniperLastFireAt = -Infinity;
     this._lastAmbientVocalAt = 0;
+    // In sandbox/test harness we may want to stop automatic wave spawning
+    this.suspendWaves = false;
     // Heal VFX state
     this._healSprites = [];
     this._healTexture = null;
@@ -46,13 +48,13 @@ export class EnemyManager {
       grunt:  { type: 'grunt',  hp: 100, speedMin: 2.4, speedMax: 3.2, color: 0xef4444, kind: 'melee' },
       rusher: { type: 'rusher', hp:  60, speedMin: 6.4, speedMax: 7.9, color: 0xf97316, kind: 'melee' },
       tank:   { type: 'tank',   hp: 450, speedMin: 1.6, speedMax: 2.4, color: 0x2563eb, kind: 'melee' },
-      shooter:{ type: 'shooter',hp:  150, speedMin: 2.2, speedMax: 2.8, color: 0x10b981, kind: 'shooter' },
+      shooter:{ type: 'shooter',hp:   80, speedMin: 2.2, speedMax: 2.8, color: 0x10b981, kind: 'shooter' },
       flyer:  { type: 'flyer',  hp:  40, speedMin: 12.4, speedMax: 16.7, color: 0xa855f7, kind: 'flyer' },
       healer: { type: 'healer', hp:   90, speedMin: 2.2, speedMax: 2.6, color: 0x84cc16, kind: 'healer' },
       sniper: { type: 'sniper', hp:   90, speedMin: 2.0, speedMax: 2.4, color: 0x444444, kind: 'sniper' },
       warden: { type: 'warden', hp: 420, speedMin: 1.9, speedMax: 2.3, color: 0x22d3ee, kind: 'warden' },
       // Boss adds
-      gruntling: { type: 'gruntling', hp: 20, speedMin: 3.2, speedMax: 4.0, color: 0xfb7185, kind: 'melee' }
+      gruntling: { type: 'gruntling', hp: 20, speedMin: 3.2, speedMax: 4.0, color: 0x3d355d, kind: 'melee' }
     };
 
     // Boss system
@@ -94,6 +96,14 @@ export class EnemyManager {
       shooter: mkPool(0x10b981, 0.12, 600),
       sniper:  mkPool(0xff3344, 0.09, 300)
     };
+  }
+  // Expose a quick reset for sandbox to clear any lingering projectiles/VFX owned by manager
+  clearProjectiles(){
+    const pools = this._bulletPools || {};
+    for (const key of Object.keys(pools)){
+      const p = pools[key]; if (!p) continue;
+      p.count = 0; if (p.mesh){ p.mesh.count = 0; p.mesh.instanceMatrix.needsUpdate = true; }
+    }
   }
   
 
@@ -529,6 +539,7 @@ export class EnemyManager {
   }
 
   startWave() {
+    if (this.suspendWaves) return; // disabled in test harness
     // Gate boss waves
     if (this.wave % 5 === 0) {
       if (this.onWave) this.onWave(this.wave, 1);
@@ -552,9 +563,9 @@ export class EnemyManager {
     for (const e of this.enemies) this.scene.remove(e);
     this.enemies.clear();
     this.instances.clear();
-    this.wave = 1; this.alive = 0;
+    this.wave = 4; this.alive = 0;
     if (this.bossManager) this.bossManager.reset();
-    this.startWave();
+    if (!this.suspendWaves) this.startWave();
   }
 
   tickAI(playerObject, dt, onPlayerDamage) {
@@ -816,11 +827,13 @@ export class EnemyManager {
     }
   
     const bossActive = !!(this.bossManager && this.bossManager.active && this.bossManager.boss);
-    if (this.alive <= 0 && !bossActive && !this._advancingWave) {
-      this._advancingWave = true;
-      this.wave++;
-      this.startWave();
-      this._advancingWave = false;
+    if (!this.suspendWaves) {
+      if (this.alive <= 0 && !bossActive && !this._advancingWave) {
+        this._advancingWave = true;
+        this.wave++;
+        this.startWave();
+        this._advancingWave = false;
+      }
     }
   }  
 
@@ -872,7 +885,8 @@ export class EnemyManager {
 
     // Desired proportions as wave scales
     const pctRusher  = wave >= 3 ? 0.15 : 0.0;
-    const pctShooter = wave >= 4 ? 0.15 : 0.0;
+    // Shooters appear starting wave 2 at a lower proportion
+    const pctShooter = wave >= 2 ? 0.08 : 0.0;
     // Flyers now appear starting at wave 1 with a gentle ramp
     const pctFlyer   = Math.min(0.6, 0.10 + 0.05 * (wave - 1));
     const pctTank    = wave >= 6 ? 0.10 : 0.0;

@@ -13,7 +13,7 @@ export class Broodmaker {
     const built = createBroodmakerAsset({ THREE, mats, scale: 1.0 });
     const type = this.enablePhase2 ? 'boss_broodmaker_heavy' : 'boss_broodmaker';
     built.root.position.copy(spawnPos);
-    built.root.userData = { type, head: built.head, hp: this.enablePhase2 ? 18000 : 4500, damageMul: 1.0 };
+    built.root.userData = { type, head: built.head, hp: this.enablePhase2 ? 18000 : 3200, damageMul: 1.0 };
     this.root = built.root;
     this.refs = built.refs || {};
 
@@ -486,8 +486,17 @@ export class Broodmaker {
     const tMaxByBoss = Math.max(0, maxDistFromBoss) / Math.max(0.0001, L);
     const tUpper = Math.min(0.9, tMaxByPlayer, tMaxByBoss);
 
-    for (let i = 0; i < count; i++) {
-      if (tUpper <= safeMinT + 1e-3) break; // no safe segment
+    if (tUpper <= safeMinT + 1e-3) return out; // no safe segment
+
+    // Bounded-attempt sampler to avoid infinite retries under tight constraints
+    const fwd = (ctx.blackboard && ctx.blackboard.playerForward) ? ctx.blackboard.playerForward.clone().setY(0) : null;
+    const dirToBoss = bossPos.clone().sub(playerPos).setY(0);
+    if (dirToBoss.lengthSq() > 0) dirToBoss.normalize();
+
+    const maxAttempts = Math.max(8, count * 12);
+    let attempts = 0;
+    while (out.length < count && attempts < maxAttempts) {
+      attempts++;
       const t = safeMinT + Math.random() * (tUpper - safeMinT);
       const base = bossPos.clone().add(dir.clone().multiplyScalar(L * t));
       const jitterMag = (0.8 + Math.random() * 1.2) * lateralJitterMul;
@@ -496,26 +505,24 @@ export class Broodmaker {
       pos.y = 1.2;
       pos.x = Math.max(-39, Math.min(39, pos.x));
       pos.z = Math.max(-39, Math.min(39, pos.z));
+
       // Enforce 60° vision cone relative to player's forward; fallback to 'in front of player toward boss' if forward missing
-      const fwd = (ctx.blackboard && ctx.blackboard.playerForward) ? ctx.blackboard.playerForward.clone().setY(0) : null;
       const dirFromPlayer = pos.clone().sub(playerPos).setY(0);
-      if (dirFromPlayer.lengthSq() === 0) { i--; continue; }
+      if (dirFromPlayer.lengthSq() === 0) continue;
       dirFromPlayer.normalize();
       if (fwd && fwd.lengthSq() > 0) {
         const f = fwd.normalize();
         const cosHalfAngle = Math.cos(Math.PI / 6); // 30° half-angle => 60° cone
-        if (f.dot(dirFromPlayer) < cosHalfAngle) { i--; continue; }
-      } else {
-        const dirToBoss = bossPos.clone().sub(playerPos).setY(0);
-        if (dirToBoss.lengthSq() > 0) {
-          dirToBoss.normalize();
-          const frontDot = dirToBoss.dot(dirFromPlayer);
-          if (frontDot < 0) { i--; continue; }
-        }
+        if (f.dot(dirFromPlayer) < cosHalfAngle) continue;
+      } else if (dirToBoss.lengthSq() > 0) {
+        const frontDot = dirToBoss.dot(dirFromPlayer);
+        if (frontDot < 0) continue;
       }
+
       if (typeof this.enemyManager?._isSpawnAreaClear === 'function') {
-        if (!this.enemyManager._isSpawnAreaClear(pos, 0.4)) { i--; continue; }
+        if (!this.enemyManager._isSpawnAreaClear(pos, 0.4)) continue;
       }
+
       out.push(pos);
     }
     return out;

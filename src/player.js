@@ -57,6 +57,7 @@ export class PlayerController {
     this.colliderHalf = new THREE.Vector3(0.35, 0.9, 0.35); // approx capsule half extents
     this.fullHeight = this.colliderHalf.y * 2; // ~1.8m
     this._groundRaycaster = new THREE.Raycaster();
+    this._forwardRaycaster = new THREE.Raycaster();
 
     // Scratch temporaries to avoid per-frame allocations
     this._tmp = {
@@ -194,7 +195,11 @@ export class PlayerController {
     const pos = t.pos.copy(o.position);
     // Cache ground at start and thresholds for step/jump assist
     const groundAt = this._groundHeightAt(pos.x, pos.z);
-    const stepUpMax = 0.12 * this.fullHeight;  // ≤12%: auto step
+    // Track the resolved ground used later for gravity snap so we don't
+    // instantly "teleport" up to tall wall tops when merely touching them
+    let resolvedGround = groundAt;
+    // Tighten step-up to reduce unintended wall climbing
+    const stepUpMax = 0.08 * this.fullHeight;  // ≤8%: auto step (~14cm)
     const jumpAssistMax = 0.30 * this.fullHeight; // ≤30%: auto jump
     const tryAxis = (dx, dz)=>{
       const nx = pos.x + dx, nz = pos.z + dz;
@@ -206,13 +211,7 @@ export class PlayerController {
       t.pbb.min.copy(t.min); t.pbb.max.copy(t.max);
       for(const obb of this.objectBBs){
         if(t.pbb.intersectsBox(obb)){
-          // Collision at current eye height; allow attempt to step if target ground is only slightly higher
-          const newGround = this._groundHeightAt(nx, nz);
-          const rise = Math.max(0, newGround - groundAt);
-          if (rise > 0 && rise <= jumpAssistMax + 1e-3) {
-            // Tentatively allow horizontal move; vertical resolution will be handled below
-            pos.x = nx; pos.z = nz; return true;
-          }
+          // Collision detected - completely block this axis movement
           return false;
         }
       }
@@ -220,34 +219,51 @@ export class PlayerController {
     };
     tryAxis(step.x, 0);
     tryAxis(0, step.z);
-    // Step-up assist: if the ground height increased by a small step, climb it; otherwise auto-jump for medium ledges
-    const newGround = this._groundHeightAt(pos.x, pos.z);
-    const rise = Math.max(0, newGround - groundAt);
-    if (rise > 0) {
-      if (rise <= stepUpMax + 1e-3) {
-        // Snap onto the higher ground while preserving eye offset
-        o.position.x = pos.x; o.position.z = pos.z;
-        const eye = this.crouching ? 1.25 : 1.7;
-        o.position.y = newGround + eye;
-        this.velocityY = 0; this.canJump = true;
-      } else if (rise <= jumpAssistMax + 1e-3) {
-        // Auto-jump if we can; helps climb short ledges without pressing Space
-        if (this.canJump && this.stamina >= this.staminaJumpCost) {
+    // Step-up assist: only works when we successfully moved horizontally (no collisions)
+    // Check if we actually moved from where we started
+    const actuallyMoved = (Math.abs(pos.x - o.position.x) > 1e-6 || Math.abs(pos.z - o.position.z) > 1e-6);
+    if (actuallyMoved) {
+      const newGround = this._groundHeightAt(pos.x, pos.z, true);
+      const rise = Math.max(0, newGround - groundAt);
+      if (rise > 0) {
+        if (rise <= stepUpMax + 1e-3) {
+          // Small step-up onto accessible surface
           o.position.x = pos.x; o.position.z = pos.z;
-          this.velocityY = 7; this.canJump = false; this._spendStamina(this.staminaJumpCost);
-        } else { /* if cannot jump now, still allow horizontal position and gravity will handle */
+          const eye = this.crouching ? 1.25 : 1.7;
+          o.position.y = newGround + eye;
+          this.velocityY = 0; this.canJump = true;
+          resolvedGround = newGround;
+        } else if (rise <= jumpAssistMax + 1e-3) {
+          // Auto-jump for medium ledges (only if we have stamina and can jump)
+          if (this.canJump && this.stamina >= this.staminaJumpCost) {
+            o.position.x = pos.x; o.position.z = pos.z;
+            this.velocityY = 7; this.canJump = false; this._spendStamina(this.staminaJumpCost);
+            resolvedGround = groundAt;
+          } else {
+            // Can't jump - don't move horizontally, stay where we are
+            o.position.x = pos.x; o.position.z = pos.z;
+            resolvedGround = groundAt;
+          }
+        } else {
+          // Too high - just move horizontally, don't snap up
           o.position.x = pos.x; o.position.z = pos.z;
+          resolvedGround = groundAt;
         }
       } else {
+        // Normal movement to same or lower ground
         o.position.x = pos.x; o.position.z = pos.z;
+        resolvedGround = newGround;
       }
     } else {
-      o.position.x = pos.x; o.position.z = pos.z;
+      // Didn't move due to collisions - don't change position or ground reference
+      resolvedGround = groundAt;
     }
 
     // Gravity, ground, head-bob
     const eyeHeight = this.crouching ? 1.25 : 1.7;
-    const groundNow = this._groundHeightAt(o.position.x, o.position.z);
+    // Use the ground we resolved during the step/jump phase to avoid
+    // snapping up to nearby tall walls just because our footprint overlaps them
+    const groundNow = resolvedGround;
     const desiredEyeY = groundNow + eyeHeight;
     this.velocityY -= this.gravity * dt; o.position.y += this.velocityY * dt;
     if (o.position.y <= desiredEyeY) { o.position.y = desiredEyeY; this.velocityY = 0; this.canJump = true; }
