@@ -1,3 +1,8 @@
+// Ensure global effects namespace with safe no-op fallbacks
+window._EFFECTS = window._EFFECTS || {};
+window._EFFECTS.spawnBulletTracer = window._EFFECTS.spawnBulletTracer || (()=>{});
+window._EFFECTS.spawnBulletImpact = window._EFFECTS.spawnBulletImpact || (()=>{});
+
 export class Effects {
   constructor(THREE, scene, camera){
     this.THREE = THREE;
@@ -115,6 +120,12 @@ export class Effects {
     // alt alias
     window._EFFECTS.spawnGroundSlam = (center, radius=5)=>{
       this.spawnGroundSlam(center, radius);
+    };
+    window._EFFECTS.spawnBulletTracer = (start, end, options={})=>{
+      this.spawnBulletTracer(start, end, options);
+    };
+    window._EFFECTS.spawnBulletImpact = (position, normal)=>{
+      this.spawnBulletImpact(position, normal);
     };
   }
 
@@ -606,7 +617,8 @@ spawnBulletTracer(start, end, options = {}) {
   const width = Math.max(0.015, options.width || 0.04);       // thicker by default
   const ttl   = Math.max(0.03,  options.ttl   || 0.08);
   const cross = options.cross ?? false;                        // <— disabled by default
-  const color = new THREE.Color(0xfff4c0).lerp(this._tracerTintColor, this._tracerTintMix || 0);
+  const baseColor = new THREE.Color(options.color ?? 0xfff4c0);
+  const color = baseColor.lerp(this._tracerTintColor, this._tracerTintMix || 0);
 
   // --- BASE QUAD (XY-plane, normal +Z looks at camera) ---
   const mid   = from.clone().add(to).multiplyScalar(0.5);
@@ -631,7 +643,7 @@ spawnBulletTracer(start, end, options = {}) {
   
   // Reset material uniforms for reuse
   beamA.material.uniforms.uAlpha.value = 1.0;
-  beamA.material.uniforms.uTint.value.copy(new THREE.Color(0xfff4c0).lerp(this._tracerTintColor, this._tracerTintMix || 0));
+  beamA.material.uniforms.uTint.value.copy(color);
   beamA.material.uniforms.uNoise.value = Math.random()*1000.0;
   
   // Set transform
