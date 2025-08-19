@@ -4,6 +4,7 @@ import { FlyerEnemy } from './flyer.js';
 import { HealerEnemy } from './healer.js';
 import { SniperEnemy } from './sniper.js';
 import { RusherEnemy } from './rusher.js';
+import { BailiffEnemy } from './bailiff.js';
 import { SwarmWarden } from './warden.js';
 import { BossManager } from '../bosses/manager.js';
 
@@ -47,6 +48,7 @@ export class EnemyManager {
     this.typeConfig = {
       grunt:  { type: 'grunt',  hp: 100, speedMin: 2.4, speedMax: 3.2, color: 0xef4444, kind: 'melee' },
       rusher: { type: 'rusher', hp:  60, speedMin: 6.4, speedMax: 7.9, color: 0xf97316, kind: 'melee' },
+      bailiff:{ type: 'bailiff',hp:  80, speedMin: 3.8, speedMax: 4.4, color: 0x60a5fa, kind: 'melee' },
       tank:   { type: 'tank',   hp: 450, speedMin: 1.6, speedMax: 2.4, color: 0x2563eb, kind: 'melee' },
       shooter:{ type: 'shooter',hp:   80, speedMin: 2.2, speedMax: 2.8, color: 0x10b981, kind: 'shooter' },
       flyer:  { type: 'flyer',  hp:  40, speedMin: 12.4, speedMax: 16.7, color: 0xa855f7, kind: 'flyer' },
@@ -526,6 +528,7 @@ export class EnemyManager {
       case 'warden':  return new SwarmWarden(args);
       case 'melee':
         if (cfg.type === 'rusher') return new RusherEnemy(args);
+        if (cfg.type === 'bailiff') return new BailiffEnemy(args);
         return new MeleeEnemy(args);
       default:
         return new MeleeEnemy(args);
