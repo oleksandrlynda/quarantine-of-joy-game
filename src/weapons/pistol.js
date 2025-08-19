@@ -51,7 +51,12 @@ export class Pistol extends Weapon {
       if (res.enemyRoot.userData.hp <= 0) {
         effects?.enemyDeath?.(res.enemyRoot.position.clone());
         if (S && S.enemyDeath) S.enemyDeath(res.enemyRoot?.userData?.type || 'grunt');
-        pickups?.maybeDrop?.(res.enemyRoot.position.clone());
+        const eType = res.enemyRoot?.userData?.type;
+        if (eType === 'tank') { // tanks shower extra rewards
+          pickups?.dropMultiple?.('random', res.enemyRoot.position.clone(), 3 + (Math.random() * 2 | 0));
+        } else {
+          pickups?.maybeDrop?.(res.enemyRoot.position.clone());
+        }
         enemyManager.remove(res.enemyRoot);
         const base = (res.isHead || res.bodyPart==='head') ? 150 : 100;
         const finalScore = Math.round(base * (ctx.combo?.multiplier || 1));

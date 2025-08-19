@@ -45,7 +45,12 @@ export class DMR extends Weapon {
       if (res.enemyRoot.userData.hp <= 0) {
         effects?.enemyDeath?.(res.enemyRoot.position.clone());
         if (S && S.enemyDeath) S.enemyDeath(res.enemyRoot?.userData?.type || 'grunt');
-        pickups?.maybeDrop?.(res.enemyRoot.position.clone());
+        const eType = res.enemyRoot?.userData?.type;
+        if (eType === 'tank') { // tanks shower extra rewards
+          pickups?.dropMultiple?.('random', res.enemyRoot.position.clone(), 3 + (Math.random() * 2 | 0));
+        } else {
+          pickups?.maybeDrop?.(res.enemyRoot.position.clone());
+        }
         enemyManager.remove(res.enemyRoot);
         const base = isHead ? 150 : 100;
         const finalScore = Math.round(base * (ctx.combo?.multiplier || 1));
@@ -71,7 +76,12 @@ export class DMR extends Weapon {
         if (S && S.enemyPain) S.enemyPain(res2.enemyRoot?.userData?.type || 'grunt');
         if (res2.enemyRoot.userData.hp <= 0) {
           effects?.enemyDeath?.(res2.enemyRoot.position.clone());
-          pickups?.maybeDrop?.(res2.enemyRoot.position.clone());
+          const eType2 = res2.enemyRoot?.userData?.type;
+          if (eType2 === 'tank') { // tanks shower extra rewards
+            pickups?.dropMultiple?.('random', res2.enemyRoot.position.clone(), 3 + (Math.random() * 2 | 0));
+          } else {
+            pickups?.maybeDrop?.(res2.enemyRoot.position.clone());
+          }
           enemyManager.remove(res2.enemyRoot);
           const base2s = isHead2 ? 150 : 100;
           const finalScore2 = Math.round(base2s * (ctx.combo?.multiplier || 1));
