@@ -22,7 +22,7 @@ export class Rifle extends Weapon {
   }
 
   onFire(ctx) {
-    const { THREE, camera, raycaster, enemyManager, objects, effects, S, pickups, addScore, addComboAction, obstacleManager } = ctx;
+    const { THREE, camera, raycaster, enemyManager, objects, effects, S, pickups, addScore, addComboAction, obstacleManager, applyKnockback } = ctx;
     // Recoil: modest per-shot, vertical only
     const pitch = (1.4 + Math.random() * 0.4) * (Math.PI/180);
     ctx.applyRecoil?.({ pitchRad: pitch });
@@ -67,7 +67,7 @@ export class Rifle extends Weapon {
       res.enemyRoot.userData.hp -= dmg;
       // pushback
       const dir2 = new THREE.Vector3(); camera.getWorldDirection(dir2);
-      res.enemyRoot.position.add(dir2.clone().multiplyScalar(0.16));
+      applyKnockback?.(res.enemyRoot, dir2.clone().multiplyScalar(0.16));
       effects?.spawnBulletImpact?.(end, res.hitFace?.normal);
       if (S && S.impactFlesh) S.impactFlesh();
       if (S && S.enemyPain) S.enemyPain(res.enemyRoot?.userData?.type || 'grunt');

@@ -88,7 +88,8 @@ export class WeaponSystem {
       addComboAction: this.addComboAction,
       combo: this.combo,
       addTracer: this.addTracer,
-      applyRecoil: this.applyRecoil
+      applyRecoil: this.applyRecoil,
+      applyKnockback: (enemy, vec) => this.enemyManager?.applyKnockback?.(enemy, vec)
     };
   }
 

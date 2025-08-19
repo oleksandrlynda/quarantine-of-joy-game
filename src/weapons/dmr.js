@@ -15,7 +15,7 @@ export class DMR extends Weapon {
   }
 
   onFire(ctx) {
-    const { THREE, camera, raycaster, enemyManager, objects, effects, S, pickups, addScore, addComboAction, obstacleManager } = ctx;
+    const { THREE, camera, raycaster, enemyManager, objects, effects, S, pickups, addScore, addComboAction, obstacleManager, applyKnockback } = ctx;
     // Recoil: 2.0–3.0°, no FOV kick
     const pitch = (3.5 + Math.random() * 1.2) * (Math.PI/180);
     const yaw = ((Math.random()*2 - 1) * 0.8) * (Math.PI/180);
@@ -37,7 +37,7 @@ export class DMR extends Weapon {
       res.enemyRoot.userData.hp -= dmg;
       // stronger knockback and brief slow on hit (non-boss)
       const push = camDir.clone().multiplyScalar(0.35);
-      res.enemyRoot.position.add(push);
+      applyKnockback?.(res.enemyRoot, push);
       effects?.spawnBulletImpact?.(end, res.hitFace?.normal);
       if (S && S.impactFlesh) S.impactFlesh();
       if (S && S.enemyPain) S.enemyPain(res.enemyRoot?.userData?.type || 'grunt');
