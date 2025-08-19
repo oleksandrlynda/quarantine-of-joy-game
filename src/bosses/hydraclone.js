@@ -119,6 +119,10 @@ export class Hydraclone {
 
     // For small contact cooldown so DPS doesn’t explode at low FPS
     this._contactAcc = 0;
+
+    // Mirror dash clone ability
+    this._mirrorClones = [];
+    this._mirrorCooldown = 4 + Math.random() * 2;
   }
 
   // --- Manager/scene registration helper (used by global queue spawns) ---
@@ -130,6 +134,44 @@ export class Hydraclone {
     // Fallback if no manager helper available
     ctx?.scene?.add?.(inst.root);
     return inst;
+  }
+
+  // --- Temporary mirror clones that dash toward last known player position ---
+  _spawnMirrorClones(ctx) {
+    const count = 3;
+    const radius = 2.4;
+    for (let i = 0; i < count; i++) {
+      const a = (i / count) * Math.PI * 2 + Math.random() * 0.5;
+      const pos = this.root.position.clone()
+        .add(new this.THREE.Vector3(Math.cos(a) * radius, 0.8, Math.sin(a) * radius));
+      const built = createHydracloneAsset({
+        THREE: this.THREE,
+        mats: this.mats,
+        generation: Math.min(this.gen + 1, 3),
+        scale: 0.45,
+      });
+      const root = built.root;
+      // make translucent
+      root.traverse(obj => {
+        if (obj.material) {
+          obj.material = obj.material.clone();
+          obj.material.transparent = true;
+          obj.material.opacity = 0.35;
+        }
+      });
+      root.position.copy(pos);
+      ctx.scene.add(root);
+      try { window?._EFFECTS?.ring?.(pos.clone(), 0.7, 0x22e3ef); } catch (_) {}
+      this._mirrorClones.push({
+        root,
+        target: ctx.player.position.clone(),
+        state: 'telegraph',
+        t: 0,
+        dashDir: new this.THREE.Vector3(),
+        dashTime: 0,
+        didDamage: false,
+      });
+    }
   }
 
   // --- Runtime split after death ---
@@ -230,8 +272,45 @@ export class Hydraclone {
       }
       HydraGlobal.registerDeath(this.bossId);
       this._didRegisterDeath = true;
+      for (const c of this._mirrorClones) { ctx.scene.remove(c.root); }
+      this._mirrorClones.length = 0;
       // removal is handled by EnemyManager; nothing else to do here
       return;
+    }
+
+    // Ability: spawn & update mirror clones
+    if (this._mirrorCooldown > 0) this._mirrorCooldown -= dt;
+    if (this._mirrorCooldown <= 0) {
+      this._mirrorCooldown = 6 + Math.random() * 2;
+      this._spawnMirrorClones(ctx);
+    }
+    for (let i = this._mirrorClones.length - 1; i >= 0; i--) {
+      const c = this._mirrorClones[i];
+      if (c.state === 'telegraph') {
+        c.t += dt;
+        if (c.t >= 0.35) {
+          c.state = 'dash';
+          const dir = c.target.clone().sub(c.root.position).setY(0);
+          if (dir.lengthSq() === 0) dir.set(0, 0, 1);
+          c.dashDir.copy(dir.normalize());
+        }
+      } else {
+        c.dashTime += dt;
+        const step = c.dashDir.clone().multiplyScalar(14 * dt);
+        if (ctx.moveWithCollisions) ctx.moveWithCollisions(c.root, step); else c.root.position.add(step);
+        const p = ctx.player.position;
+        const dx = c.root.position.x - p.x;
+        const dz = c.root.position.z - p.z;
+        if (!c.didDamage && Math.hypot(dx, dz) < 1.0) {
+          ctx.onPlayerDamage?.(12, 'melee');
+          c.didDamage = true;
+        }
+        if (c.dashTime >= 0.6) {
+          ctx.scene.remove(c.root);
+          this._mirrorClones.splice(i, 1);
+          continue;
+        }
+      }
     }
 
     // Movement
