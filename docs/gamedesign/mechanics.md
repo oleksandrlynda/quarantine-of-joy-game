@@ -40,6 +40,7 @@
   - Medkit: restores 20–35 HP (8–10% drop chance, capped per wave)
 - Magnet radius: small auto‑pickup when within ~1.2 units
 - Drop beacon VFX for visibility
+- Tank enemies always drop 3–4 random pickups, ignoring caps
 
 ### Hype Meter (Combo)
 - Base scoring: +100 kill, +150 headshot kill
