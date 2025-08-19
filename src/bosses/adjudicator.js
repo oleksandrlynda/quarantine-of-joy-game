@@ -115,14 +115,14 @@ export class StrikeAdjudicator {
       }
     }
 
-    // Light add spawns (rushers) while in combat (never more than 3 alive from this boss)
+    // Light add spawns (bailiffs) while in combat (never more than 3 alive from this boss)
     if (this.enemyManager && (this._addCooldown || 0) <= 0) {
       const mine = Array.from(this.enemyManager.instances || []).filter(inst => inst?.summoner === this).length;
       if (mine < 3 && Math.random() < 0.18 * dt) {
         const p = ctx.player.position;
         const a = Math.random() * Math.PI * 2, r = 10 + Math.random() * 6;
         const pos = new this.THREE.Vector3(p.x + Math.cos(a)*r, 0.8, p.z + Math.sin(a)*r);
-        const root = this.enemyManager.spawnAt('rusher', pos, { countsTowardAlive: true });
+        const root = this.enemyManager.spawnAt('bailiff', pos, { countsTowardAlive: true });
         if (root) {
           const inst = this.enemyManager.instanceByRoot?.get(root);
           if (inst) inst.summoner = this;

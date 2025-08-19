@@ -120,7 +120,11 @@ export class Hydraclone {
     // For small contact cooldown so DPS doesn’t explode at low FPS
     this._contactAcc = 0;
 
-    // Mirror dash clone ability
+    // Record player path for mirror clones
+    this._playerPath = [];
+    this._pathRecordAcc = 0;
+
+    // Mirror path clone ability
     this._mirrorClones = [];
     this._mirrorCooldown = 4 + Math.random() * 2;
   }
@@ -136,22 +140,19 @@ export class Hydraclone {
     return inst;
   }
 
-  // --- Temporary mirror clones that dash toward last known player position ---
+  // --- Temporary mirror clones that retrace recent player path ---
   _spawnMirrorClones(ctx) {
-    const count = 3;
-    const radius = 2.4;
+    if (this._playerPath.length < 2) return;
+    const path = this._playerPath.map(p => p.clone().setY(0.8));
+    const count = 2;
     for (let i = 0; i < count; i++) {
-      const a = (i / count) * Math.PI * 2 + Math.random() * 0.5;
-      const pos = this.root.position.clone()
-        .add(new this.THREE.Vector3(Math.cos(a) * radius, 0.8, Math.sin(a) * radius));
       const built = createHydracloneAsset({
         THREE: this.THREE,
         mats: this.mats,
         generation: Math.min(this.gen + 1, 3),
-        scale: 0.45,
+        scale: 0.4,
       });
       const root = built.root;
-      // make translucent
       root.traverse(obj => {
         if (obj.material) {
           obj.material = obj.material.clone();
@@ -159,16 +160,15 @@ export class Hydraclone {
           obj.material.opacity = 0.35;
         }
       });
-      root.position.copy(pos);
+      root.position.copy(path[0]);
       ctx.scene.add(root);
-      try { window?._EFFECTS?.ring?.(pos.clone(), 0.7, 0x22e3ef); } catch (_) {}
+      try { window?._EFFECTS?.ring?.(path[0].clone(), 0.7, 0x22e3ef); } catch (_) {}
       this._mirrorClones.push({
         root,
-        target: ctx.player.position.clone(),
+        path,
+        idx: 0,
         state: 'telegraph',
         t: 0,
-        dashDir: new this.THREE.Vector3(),
-        dashTime: 0,
         didDamage: false,
       });
     }
@@ -264,6 +264,14 @@ export class Hydraclone {
       ctx.blackboard.hydraLineages[this.bossId] = { alive: L.alive, descendants: L.descendants };
     }
 
+    // Record player path
+    this._pathRecordAcc += dt;
+    if (this._pathRecordAcc >= 0.1) {
+      this._pathRecordAcc = 0;
+      this._playerPath.push(ctx.player.position.clone());
+      if (this._playerPath.length > 60) this._playerPath.shift();
+    }
+
     // Death/split check (engine usually decrements hp externally)
     if (this.root.userData.hp <= 0) {
       if (!this._didSplit) {
@@ -288,16 +296,24 @@ export class Hydraclone {
       const c = this._mirrorClones[i];
       if (c.state === 'telegraph') {
         c.t += dt;
-        if (c.t >= 0.35) {
-          c.state = 'dash';
-          const dir = c.target.clone().sub(c.root.position).setY(0);
-          if (dir.lengthSq() === 0) dir.set(0, 0, 1);
-          c.dashDir.copy(dir.normalize());
-        }
+        if (c.t >= 0.4) c.state = 'dash';
       } else {
-        c.dashTime += dt;
-        const step = c.dashDir.clone().multiplyScalar(14 * dt);
-        if (ctx.moveWithCollisions) ctx.moveWithCollisions(c.root, step); else c.root.position.add(step);
+        const speed = 20;
+        let remaining = speed * dt;
+        while (remaining > 0 && c.idx < c.path.length - 1) {
+          const curr = c.root.position;
+          const next = c.path[c.idx + 1];
+          const seg = next.clone().sub(curr);
+          const segLen = seg.length();
+          if (segLen <= remaining) {
+            c.root.position.copy(next);
+            c.idx++;
+            remaining -= segLen;
+          } else {
+            c.root.position.add(seg.normalize().multiplyScalar(remaining));
+            remaining = 0;
+          }
+        }
         const p = ctx.player.position;
         const dx = c.root.position.x - p.x;
         const dz = c.root.position.z - p.z;
@@ -305,7 +321,7 @@ export class Hydraclone {
           ctx.onPlayerDamage?.(12, 'melee');
           c.didDamage = true;
         }
-        if (c.dashTime >= 0.6) {
+        if (c.idx >= c.path.length - 1) {
           ctx.scene.remove(c.root);
           this._mirrorClones.splice(i, 1);
           continue;
@@ -362,6 +378,8 @@ export class Hydraclone {
 
   // Called by EnemyManager on remove
   onRemoved(scene) {
+    for (const c of this._mirrorClones) { scene.remove(c.root); }
+    this._mirrorClones.length = 0;
     // If death removal happened before update could split, do it here with a minimal ctx
     if (!this._didSplit && (this.root?.userData?.hp || 0) <= 0) {
       const ctx = {
