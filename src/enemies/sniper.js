@@ -35,7 +35,6 @@ export class SniperEnemy {
     this.windupReq = 1.2 + Math.random()*0.6;
     this.postShotRelocate = 0;
     this._raycaster = new THREE.Raycaster();
-    this._aimLine = null;
     // Smoothed facing vector
     this._faceDir = new this.THREE.Vector3(0, 0, 1);
 
@@ -86,17 +85,21 @@ export class SniperEnemy {
     // Use engageRange bounds for valid firing window
     if (hasLOS && dist >= this.engageRange.min && dist <= this.engageRange.max && this.cooldown<=0 && this.postShotRelocate<=0 && canFireWindow){
       this.windup += dt;
-      this._updateAimLine(playerPos, ctx.scene, 0xff3344);
       if (this.windup >= this.windupReq){
         // Fire
-        this._updateAimLine(null, ctx.scene);
         this.windup = 0;
         this.cooldown = 3.5 + Math.random()*1.0;
         this._fireProjectile(playerPos, ctx);
         this.postShotRelocate = 0.8 + Math.random()*0.4;
+      } else {
+        window._EFFECTS?.spawnBulletTracer?.(
+          this._muzzleWorld(),
+          playerPos,
+          {width:0.03, ttl:0.06, impact:false, color:0xff3344}
+        );
       }
     } else {
-      this.windup = 0; this._updateAimLine(null, ctx.scene);
+      this.windup = 0;
     }
   }
 
@@ -157,19 +160,7 @@ export class SniperEnemy {
     }
   }
 
-  _updateAimLine(targetPos, scene, color){
-    const THREE = this.THREE;
-    if (!targetPos){ if (this._aimLine){ scene.remove(this._aimLine); this._aimLine=null; } return; }
-    const from = this._muzzleWorld();
-    if (!this._aimLine){
-      const g = new THREE.BufferGeometry().setFromPoints([from, targetPos]);
-      const m = new THREE.LineBasicMaterial({ color: color||0xff3344, transparent:true, opacity:0.5 });
-      this._aimLine = new THREE.Line(g, m); scene.add(this._aimLine);
-    } else {
-      const pos = this._aimLine.geometry.getAttribute('position');
-      pos.setXYZ(0, from.x, from.y, from.z); pos.setXYZ(1, targetPos.x, targetPos.y, targetPos.z); pos.needsUpdate = true;
-    }
-  }
+  // No persistent aim line; uses transient tracer VFX during windup
 
   _hasLOS(_fromPos, toPos, objects){
     const THREE = this.THREE;
