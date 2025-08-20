@@ -351,6 +351,12 @@ export class EnemyManager {
     return new this.THREE.Vector3(v.x * c - v.z * s, 0, v.x * s + v.z * c).normalize();
   }
 
+  applyKnockback(enemy, vector) {
+    if (!enemy || !vector) return;
+    const step = vector.clone ? vector.clone() : new this.THREE.Vector3(vector.x || 0, vector.y || 0, vector.z || 0);
+    this._moveWithCollisions(enemy, step);
+  }
+
   _moveWithCollisions(enemy, step) {
     // Attempt axis-separated movement with AABB checks against static objects
     const THREE = this.THREE;
@@ -514,6 +520,7 @@ export class EnemyManager {
       separation: (...args) => this.separation(...args),
       avoidObstacles: (origin, desiredDir, maxDist) => this._avoidObstacles(origin, desiredDir, maxDist),
       moveWithCollisions: (enemy, step) => this._moveWithCollisions(enemy, step),
+      applyKnockback: (enemy, vec) => this.applyKnockback(enemy, vec),
       // Count allies within a radius around a position, excluding an optional self root
       alliesNearbyCount: (position, radius = 8.0, selfRoot = null) => {
         const r2 = Math.max(0, radius) * Math.max(0, radius);

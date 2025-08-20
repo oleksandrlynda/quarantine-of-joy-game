@@ -1,5 +1,6 @@
 // ShooterBot v2: compact biped with right-hand SMG
-// Faces +Z in object space. Gun fires along -Z.
+// Faces +Z in object space; gun also fires along +Z.
+// Earlier versions fired backward and needed a code-side π yaw flip.
 // Returns { root, head, refs: { gun, muzzle } }
 import { getBox } from './geocache.js';
 
@@ -68,10 +69,11 @@ export function createShooterBot({ THREE, mats, scale = 1.0, palette } = {}) {
   const hand = add(new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.14, 0.20), matAccent),
                    rFore, new THREE.Vector3(0.16, -0.36, -0.12));
 
-  // -------- gun (−Z forward)
+  // -------- gun (+Z forward)
   const gun = new THREE.Group();
   rFore.add(gun);
   gun.position.set(0.22, -0.32, -0.28);
+  gun.rotation.y = Math.PI; // align muzzle with +Z
 
   // receiver + grip
   add(new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.22, 0.60), matGun), gun, new THREE.Vector3(0, 0.04, -0.30));
