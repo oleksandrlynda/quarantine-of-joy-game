@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Music Player</title>
+  <link rel="stylesheet" href="styles/styles.css" />
+  <style>
+    body{ padding:20px; }
+    select, button{ margin:4px; }
+  </style>
+</head>
+<body>
+  <h1>Music Library Player</h1>
+  <div>
+    <label for="songSelect">Song:</label>
+    <select id="songSelect"></select>
+    <button id="playBtn">Play</button>
+    <button id="stopBtn">Stop</button>
+    <button id="muteBtn">Mute</button>
+  </div>
+  <script type="module">
+    import { Music } from './src/music.js';
+    import { SONGS } from './src/musicLibrary.js';
+
+    const songSelect = document.getElementById('songSelect');
+    SONGS.forEach(song => {
+      const opt = document.createElement('option');
+      opt.value = song.id;
+      opt.textContent = song.name;
+      songSelect.appendChild(opt);
+    });
+
+    const music = new Music({ volume: 0.5 });
+
+    document.getElementById('playBtn').onclick = () => {
+      const song = SONGS.find(s => s.id === songSelect.value);
+      music.stop();
+      music.loadSong(song);
+      music.start();
+    };
+
+    document.getElementById('stopBtn').onclick = () => music.stop();
+
+    document.getElementById('muteBtn').onclick = () => {
+      const muted = !music.isMuted;
+      music.setMuted(muted);
+      document.getElementById('muteBtn').textContent = muted ? 'Unmute' : 'Mute';
+    };
+  </script>
+</body>
+</html>

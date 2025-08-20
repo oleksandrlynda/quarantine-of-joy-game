@@ -2,6 +2,8 @@
 
 [Play Now](https://oleksandrlynda.github.io/quarantine-of-joy-game/)
 
+[Music Player](https://oleksandrlynda.github.io/quarantine-of-joy-game/music_player.html)
+
 Concepts:
 
 Game:
