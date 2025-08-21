@@ -341,9 +341,22 @@ export class StrikeAdjudicator {
     const ang = Math.atan2(toP.x, toP.z);
     const within = this._angleWithin(ang, m.start, m.end);
     if (within) {
-      ctx.onPlayerDamage(dmg);
-      const dir = toP.clone().normalize();
-      ctx.player.position.add(dir.multiplyScalar(knock));
+      const THREE = this.THREE;
+      const origin = new THREE.Vector3(from.x, from.y + 1.2, from.z);
+      const target = new THREE.Vector3(ctx.player.position.x, 1.5, ctx.player.position.z);
+      const dir = target.clone().sub(origin);
+      const distToPlayer = dir.length();
+      if (distToPlayer > 0) {
+        dir.normalize();
+        this._ray.set(origin, dir);
+        this._ray.far = distToPlayer - 0.1;
+        const hits = this._ray.intersectObjects(ctx.objects || [], false);
+        if (!(hits && hits.length > 0)) {
+          ctx.onPlayerDamage(dmg);
+          const knockDir = toP.clone().normalize();
+          ctx.player.position.add(knockDir.multiplyScalar(knock));
+        }
+      }
     }
     // pulse ring
     try { window?._EFFECTS?.ring?.(from.clone(), 6.5, 0x60a5fa); } catch(_){}
