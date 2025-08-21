@@ -6,7 +6,7 @@ export class SniperEnemy {
     this.THREE = THREE;
     this.cfg = cfg;
     this._enemyManager = enemyManager || null;
-
+  
     // Use dedicated SniperBot asset with long rifle
     if (!_sniperCache.model) _sniperCache.model = createSniperBot({ THREE, mats, scale: 0.70 });
     const src = _sniperCache.model;
@@ -21,27 +21,47 @@ export class SniperEnemy {
     };
     const body = clone; const head = clone.userData?.head || src.head; this._refs = remapRefs(src.root, clone, src.refs || {});
     body.position.copy(spawnPos);
-    // Make head material unique to avoid emissive bleed between enemies
     try { if (head && head.material) head.material = head.material.clone(); } catch(_) {}
     body.userData = { type: cfg.type, head, hp: cfg.hp, maxHp: cfg.hp };
     this.root = body;
-
+  
     this.speed = cfg.speedMin + Math.random() * (cfg.speedMax - cfg.speedMin);
     this.preferredRange = { min: 5, max: 90 };
     this.engageRange = { min: 48, max: 150 };
-
+  
     this.cooldown = 0;
     this.windup = 0;
     this.windupReq = 1.2 + Math.random()*0.6;
+  
+    // Post-shot displacement
     this.postShotRelocate = 0;
+    this.displaceTarget = null;
+    this.displaceTimeout = 1.4;
+  
     this._raycaster = new THREE.Raycaster();
-    // Smoothed facing vector
     this._faceDir = new this.THREE.Vector3(0, 0, 1);
-
-    // Small temp vectors to avoid GC in hot paths
+  
+    // --- NEW: cover-peek state ---
+    this.coverAnchor = null;          // a point on/near cover between sniper and player
+    this.peekOffset = null;           // lateral offset used to create LOS around cover edge
+    this.peekTimer = 0;               // time spent currently peeking
+    this.peekDuration = 1.6 + Math.random()*0.6; // how long he risks exposure per peek
+    this.peekCooldown = 0;            // cooldown before next peek attempt
+  
+    // --- NEW: counter-aim (tuck back if player looks at sniper) ---
+    this.tuckTimer = 0;               // time staying tucked (no LOS) after detecting player aim
+    this.tuckDuration = 0.9 + Math.random()*0.4;
+    this.tuckCooldown = 0;            // prevents spam
+    this._lastPlayerForward = new THREE.Vector3(0,0,1);
+  
+    // --- NEW: laser line during windup ---
+    this._aimLine = null;             // THREE.Line
+    this._aimHeat = 0;                // 0..1 grows to shot
+  
+    // temp vectors
     this._tmpV1 = new THREE.Vector3();
     this._tmpV2 = new THREE.Vector3();
-  }
+  }  
 
   update(dt, ctx){
     const THREE = this.THREE;
@@ -50,58 +70,226 @@ export class SniperEnemy {
     const toPlayer = playerPos.clone().sub(e.position);
     const dist = toPlayer.length();
     const hasLOS = this._hasLOS(e.position, playerPos, ctx.objects);
-
-    // --- Face player by yaw only (ensure -Z forward aims at player) ---
+  
+    // decay/advance timers
+    if (this.cooldown>0) this.cooldown = Math.max(0, this.cooldown - dt);
+    if (this.postShotRelocate>0) this.postShotRelocate = Math.max(0, this.postShotRelocate - dt);
+    if (this.peekCooldown>0) this.peekCooldown = Math.max(0, this.peekCooldown - dt);
+    if (this.tuckCooldown>0) this.tuckCooldown = Math.max(0, this.tuckCooldown - dt);
+    if (this.tuckTimer>0) this.tuckTimer = Math.max(0, this.tuckTimer - dt);
+  
+    // --- Face player by yaw only (elite stays calm) ---
     const inBandYaw = dist >= this.engageRange.min && dist <= this.engageRange.max;
-    const aiming = hasLOS && inBandYaw && (this.windup > 0 || this.cooldown <= 0);
-    const faceVec = aiming ? toPlayer.clone().setY(0) : toPlayer.clone().multiplyScalar(0.8).setY(0); // slight off-player bias when not aiming
+    const aiming = hasLOS && inBandYaw && (this.windup > 0 || this.cooldown <= 0) && this.tuckTimer<=0;
+    const faceVec = aiming ? toPlayer.clone().setY(0) : toPlayer.clone().multiplyScalar(0.6).setY(0);
     if (faceVec.lengthSq() > 0) {
       faceVec.normalize();
-      const lerpAmt = Math.min(1, 6 * dt); // slightly slower than shooter
+      const lerpAmt = Math.min(1, 5 * dt);
       this._faceDir.lerp(faceVec, lerpAmt);
       if (this._faceDir.lengthSq() > 0) this._faceDir.normalize();
     }
-    const lookTarget = this._tmpV1.copy(e.position).add(this._faceDir);
-    lookTarget.y = e.position.y; // keep yaw only
-    e.lookAt(lookTarget);
-    // Our asset faces +Z visually; Three.js lookAt aims -Z toward target. Flip 180° so face looks at player.
-    e.rotateY(Math.PI);
-
-    // Movement: maintain long sightlines, break aim if LOS lost, minor strafe
+    const lookTarget = this._tmpV1.copy(e.position).add(this._faceDir); lookTarget.y = e.position.y;
+    e.lookAt(lookTarget); e.rotateY(Math.PI); // asset faces +Z
+  
+    // --- Elite positioning/cover logic ---
+    // If we don't have LOS, register/refresh a cover anchor along the blocked ray.
+    if (!hasLOS || this.tuckTimer>0) {
+      // tuck: ensure we *stay* without LOS by biasing anchor behind the cover
+      const anchor = this._raycastToPlayer(e.position, playerPos, ctx.objects);
+      if (anchor) this.coverAnchor = anchor;
+    }
+  
+    // Decide desired movement
     const desired = new THREE.Vector3();
-    toPlayer.y=0; if (toPlayer.lengthSq()>0) toPlayer.normalize();
-    if (dist < this.preferredRange.min) desired.add(toPlayer.clone().multiplyScalar(-1));
-    else if (dist > this.preferredRange.max) desired.add(toPlayer);
-    const side = new THREE.Vector3(-toPlayer.z,0,toPlayer.x);
-    desired.add(side.multiplyScalar(0.6 * (Math.random()<0.5?1:-1)));
-    if (desired.lengthSq()>0){ desired.normalize(); ctx.moveWithCollisions(e, desired.multiplyScalar(this.speed*dt)); }
-
-    // Firing sequence + update projectiles
-    if (this.cooldown>0) this.cooldown = Math.max(0, this.cooldown - dt);
-    if (this.postShotRelocate>0) this.postShotRelocate = Math.max(0, this.postShotRelocate - dt);
+    const flatToPlayer = toPlayer.clone().setY(0); if (flatToPlayer.lengthSq()>0) flatToPlayer.normalize();
+    const side = new THREE.Vector3(-flatToPlayer.z, 0, flatToPlayer.x);
+  
+    // Post-shot displacement (fast lateral shuffle to new angle)
+    if (this.postShotRelocate>0) {
+      if (!this.displaceTarget) {
+        const dir = (Math.random()<0.5?1:-1);
+        const span = 7 + Math.random()*5;
+        this.displaceTarget = e.position.clone().add(side.clone().multiplyScalar(dir*span));
+      }
+      const toTgt = this.displaceTarget.clone().sub(e.position).setY(0);
+      if (toTgt.lengthSq()>0.0004) desired.add(toTgt.normalize());
+      if (toTgt.length()<0.8 || this.postShotRelocate<=0) {
+        this.displaceTarget = null;
+      }
+      // break any aim/laser while moving
+      this.windup = 0; this._setAimLine(null, ctx.scene); this._aimHeat = 0;
+    }
+    else if (this.tuckTimer>0) {
+      // stay behind cover (tiny jitter to avoid predictability)
+      desired.add(side.clone().multiplyScalar((Math.random()<0.5?1:-1)*0.2));
+      // no aiming while tucked
+      this.windup = 0; this._setAimLine(null, ctx.scene); this._aimHeat = 0;
+    }
+    else if (!hasLOS) {
+      // Move to cover anchor if we have one (hug cover)
+      if (!this.coverAnchor) this.coverAnchor = this._raycastToPlayer(e.position, playerPos, ctx.objects);
+      if (this.coverAnchor) {
+        const toAnchor = this.coverAnchor.clone().sub(e.position).setY(0);
+        if (toAnchor.lengthSq()>0.0004) desired.add(toAnchor.normalize());
+        // try to pick a peek offset when close to anchor
+        if (toAnchor.length()<1.4 && (!this.peekOffset || this.peekCooldown<=0)) {
+          this.peekOffset = this._computePeekDesiredFromCover(this.coverAnchor, playerPos, ctx.objects);
+          this.peekTimer = 0;
+        }
+      } else {
+        // fall back: drift to long range
+        desired.add(flatToPlayer.clone().multiplyScalar(-1));
+      }
+    }
+    else {
+      // We have LOS. If we have a peek offset, try to hold that edge (minimal exposure)
+      if (this.peekOffset) {
+        const edgePos = this.coverAnchor ? this.coverAnchor.clone().add(this.peekOffset) : e.position.clone();
+        const toEdge = edgePos.sub(e.position).setY(0);
+        if (toEdge.length()>0.2) desired.add(toEdge.normalize());
+        // track peek exposure time
+        this.peekTimer += dt;
+        if (this.peekTimer >= this.peekDuration) {
+          // leave edge and re-hide (reset LOS)
+          this.peekOffset = null; this.peekCooldown = 0.8 + Math.random()*0.6;
+          this.tuckTimer = 0.5 + Math.random()*0.3;
+        }
+      } else {
+        // soft orbit at long range while keeping LOS
+        desired.add(side.multiplyScalar(0.4*(Math.random()<0.5?1:-1)));
+        if (dist < this.preferredRange.min) desired.add(flatToPlayer.clone().multiplyScalar(-1));
+        else if (dist > this.preferredRange.max) desired.add(flatToPlayer);
+      }
+    }
+  
+    // Obstacle avoidance & move
+    const avoid = desired.lengthSq()>0 ? (ctx.avoidObstacles ? ctx.avoidObstacles(e.position, desired, 1.8) : desired) : desired;
+    const step = desired.clone().add(avoid.multiplyScalar(1.0));
+    if (step.lengthSq()>0) {
+      step.normalize().multiplyScalar(this.speed*dt);
+      ctx.moveWithCollisions ? ctx.moveWithCollisions(e, step) : e.position.add(step);
+    }
+  
+    // --- Counter-aim: if player is looking at sniper, tuck back into cover ---
+    const pf = (ctx.blackboard && ctx.blackboard.playerForward) ? ctx.blackboard.playerForward.clone() : this._lastPlayerForward.clone();
+    if (pf.lengthSq()>0) pf.normalize();
+    this._lastPlayerForward.copy(pf);
+    // Vector from player to sniper
+    const pts = e.position.clone().sub(playerPos).setY(0); const d2 = pts.lengthSq();
+    if (d2>1e-3) {
+      pts.normalize();
+      const dot = pf.dot(pts); // ~1 means player looks toward sniper
+      if (dot > 0.92 && this.tuckCooldown<=0 && hasLOS) {
+        this.tuckTimer = this.tuckDuration;
+        this.tuckCooldown = 1.2 + Math.random()*0.6;
+        this.windup = 0; this._setAimLine(null, ctx.scene); this._aimHeat = 0;
+      }
+    }
+  
+    // --- Fire control ---
     if (this._projectiles && this._projectiles.length){ this._updateProjectiles(dt, ctx); }
-
+  
     const canFireWindow = (ctx.blackboard && (ctx.blackboard.time - (ctx.blackboard.sniperLastFireAt||-Infinity)) >= 1.0);
-    // Use engageRange bounds for valid firing window
-    if (hasLOS && dist >= this.engageRange.min && dist <= this.engageRange.max && this.cooldown<=0 && this.postShotRelocate<=0 && canFireWindow){
+    const inBandRange = dist >= this.engageRange.min && dist <= this.engageRange.max;
+    const playerSpeed = (ctx.blackboard && (ctx.blackboard.playerSpeed || 0)) || 0;
+    const steadyShot = playerSpeed < 3.0 || this.peekOffset; // prefers shooting when target is steadier or we are peeking edge
+  
+    if (hasLOS && inBandRange && this.cooldown<=0 && this.postShotRelocate<=0 && this.tuckTimer<=0 && canFireWindow && steadyShot){
+      // Windup with laser (intensifies toward shot)
       this.windup += dt;
+      this._aimHeat = Math.min(1, this.windup / Math.max(0.001, this.windupReq));
+      const color = 0xff3344;
+      const from = this._muzzleWorld();
+      const to = playerPos.clone();
+      // faint jitter while heating up (harder to strafe predict)
+      to.x += (Math.random()-0.5) * (0.06 * (1 - this._aimHeat));
+      to.z += (Math.random()-0.5) * (0.06 * (1 - this._aimHeat));
+      this._setAimLine({from, to, color, alpha: 0.25 + 0.55*this._aimHeat}, ctx.scene);
+  
       if (this.windup >= this.windupReq){
         // Fire
-        this.windup = 0;
-        this.cooldown = 3.5 + Math.random()*1.0;
+        this.windup = 0; this._aimHeat = 0;
+        this._setAimLine(null, ctx.scene);
+        this.cooldown = 3.3 + Math.random()*0.9;
         this._fireProjectile(playerPos, ctx);
-        this.postShotRelocate = 0.8 + Math.random()*0.4;
-      } else {
-        window._EFFECTS?.spawnBulletTracer?.(
-          this._muzzleWorld(),
-          playerPos,
-          {width:0.03, ttl:0.06, impact:false, color:0xff3344}
-        );
+        // quick displacement to new angle
+        this.postShotRelocate = 0.9 + Math.random()*0.5;
+        this.displaceTarget = null;
+        // after firing, prefer to re-anchor cover at next evaluation
+        this.peekOffset = null; this.peekTimer = 0; this.peekCooldown = 0.6 + Math.random()*0.5;
       }
     } else {
-      this.windup = 0;
+      // Not in a good window — hide/reset windup
+      if (this.windup > 0) { this.windup = 0; this._aimHeat = 0; }
+      this._setAimLine(null, ctx.scene);
     }
+  }  
+
+  _raycastToPlayer(fromPos, playerPos, objects){
+    const origin = this._muzzleWorld();
+    const target = new this.THREE.Vector3(playerPos.x, 1.6, playerPos.z);
+    const dir = target.clone().sub(origin); const dist = dir.length(); if (dist<=0.0001) return null;
+    dir.normalize(); this._raycaster.set(origin, dir); this._raycaster.far = dist - 0.05;
+    const hits = this._raycaster.intersectObjects(objects, false);
+    if (hits && hits.length>0) {
+      // anchor slightly toward us so we don't clip into geometry
+      const hit = hits[0];
+      const back = dir.clone().multiplyScalar(0.25);
+      return hit.point.clone().sub(back);
+    }
+    return null;
   }
+  
+  _computePeekDesiredFromCover(coverAnchor, playerPos, objects){
+    // sample lateral offsets around cover normal to find first-LOS with minimal offset
+    const toPlayer = playerPos.clone().sub(coverAnchor).setY(0); if (toPlayer.lengthSq()===0) return null;
+    toPlayer.normalize();
+    const left = new this.THREE.Vector3(-toPlayer.z, 0, toPlayer.x);
+    const right = left.clone().multiplyScalar(-1);
+    const step = 0.6; const maxSamples = 10; // up to 6m each side
+    let best = null, bestScore = Infinity;
+  
+    const testSide = (axis) => {
+      for (let i=1;i<=maxSamples;i++){
+        const off = axis.clone().multiplyScalar(step*i);
+        const probe = coverAnchor.clone().add(off);
+        // require LOS from probe
+        if (this._hasLOS(probe, playerPos, objects)) {
+          // score: smaller offset is better; slight bias toward right-left alternation
+          const score = i + Math.random()*0.15;
+          if (score < bestScore) { bestScore = score; best = off; }
+          break; // first LOS on this side is optimal for minimal exposure
+        }
+      }
+    };
+    // try both sides
+    if (Math.random()<0.5){ testSide(left); testSide(right); } else { testSide(right); testSide(left); }
+    return best ? best : null;
+  }
+  
+  _setAimLine(data, scene){
+    const THREE = this.THREE;
+    if (!data){
+      if (this._aimLine){ scene.remove(this._aimLine); this._aimLine = null; }
+      return;
+    }
+    const { from, to, color=0xff3344, alpha=0.4 } = data;
+    if (!this._aimLine){
+      const g = new THREE.BufferGeometry().setFromPoints([from, to]);
+      const m = new THREE.LineBasicMaterial({ color, transparent: true, opacity: alpha });
+      this._aimLine = new THREE.Line(g, m);
+      scene.add(this._aimLine);
+    } else {
+      const pos = this._aimLine.geometry.getAttribute('position');
+      pos.setXYZ(0, from.x, from.y, from.z);
+      pos.setXYZ(1, to.x, to.y, to.z);
+      pos.needsUpdate = true;
+      if (this._aimLine.material) {
+        this._aimLine.material.opacity = alpha;
+        this._aimLine.material.color?.setHex(color);
+      }
+    }
+  }  
 
   _muzzleWorld() {
     const THREE = this.THREE;
@@ -114,14 +302,23 @@ export class SniperEnemy {
   _fireProjectile(targetPos, ctx){
     const THREE = this.THREE;
     const origin = this._muzzleWorld();
-    const dir = targetPos.clone().sub(origin).normalize();
+    let dir = targetPos.clone().sub(origin); const d = dir.length(); if (d<=0.0001) dir.set(0,0,1); else dir.normalize();
+  
+    // Slight inaccuracy if we were not on a controlled peek (elite is most deadly on peeks)
+    if (!this.peekOffset) {
+      const right = new THREE.Vector3().crossVectors(new THREE.Vector3(0,1,0), dir).normalize();
+      const upOrtho = new THREE.Vector3().crossVectors(dir, right).normalize();
+      const ang = this.THREE.MathUtils.degToRad(0.5 + Math.random()*0.6);
+      const yaw = 2*Math.PI*Math.random();
+      const offset = right.multiplyScalar(Math.cos(yaw)*Math.tan(ang)).add(upOrtho.multiplyScalar(Math.sin(yaw)*Math.tan(ang)));
+      dir = dir.add(offset).normalize();
+    }
+  
     const speed = 60;
-    // Use global instanced bullet pool via manager
     try {
       const vel = dir.clone().multiplyScalar(speed);
       const ok = this._enemyManager?._spawnBullet('sniper', origin, vel, 1.2, 60);
       if (!ok) {
-        // fallback
         const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 10), new THREE.MeshBasicMaterial({ color: 0xff3344 }));
         mesh.position.copy(origin);
         mesh.material.transparent = true; mesh.material.opacity = 1;
@@ -130,10 +327,9 @@ export class SniperEnemy {
         if (!this._projectiles) this._projectiles = [];
         this._projectiles.push(proj);
       }
-    } catch(_) {}
-    // mark last fire time for director staggering
+    } catch(_){}
     if (ctx.sniperFired) ctx.sniperFired();
-  }
+  }  
 
   _updateProjectiles(dt, ctx){
     for (let i=this._projectiles.length-1; i>=0; i--){
@@ -170,6 +366,14 @@ export class SniperEnemy {
     this._raycaster.set(origin, dir); this._raycaster.far = dist - 0.1;
     const hits = this._raycaster.intersectObjects(objects, false); return !(hits && hits.length>0);
   }
+
+  onRemoved(scene){
+    if (this._aimLine){ scene.remove(this._aimLine); this._aimLine = null; }
+    if (this._projectiles){
+      for (const p of this._projectiles) scene.remove(p.mesh);
+      this._projectiles.length = 0;
+    }
+  }  
 }
 
 
