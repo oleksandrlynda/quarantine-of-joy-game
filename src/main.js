@@ -178,6 +178,7 @@ effects.muzzleEnabled = true;
 // First-person simple weapon view (barrel meshes)
 const weaponView = new WeaponView(THREE, camera);
 const pickups = new Pickups(THREE, scene);
+enemyManager.pickups = pickups;
 
 // Wire obstacle manager hooks now that managers exist
 obstacleManager.enemyManager = enemyManager;
