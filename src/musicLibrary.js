@@ -1,5 +1,7 @@
 // Preset chiptune/8-bit drive songs for the playlist
-// Each song config customizes rhythm, harmony, tempo, and feel
+// Each song customizes rhythm, harmony, tempo, and feel
+// Drive A and Boss Standoff act as anchors while the other tracks
+// reference a shared motif for a cohesive album vibe
 
 export const SONGS = [
   {
@@ -15,79 +17,13 @@ export const SONGS = [
     leadArp: [0, 12, 7, 12],
     delayTime: 0.23,
   },
-  // Drive A variations (consistent vibe, different feel)
-  {
-    id: 'drive-a-boost',
-    name: 'Drive A — Boost',
-    bpm: 136,
-    swing: 0.11,
-    baseFreq: 164.81, // E3
-    progression: [0, 8, 5, 10, 0, 8, 10, 0],
-    kickPattern: [1,0,0,0, 1,0,1,0, 1,0,0,0, 1,0,1,0],
-    snarePattern: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
-    hatPattern:   [1,1,1,0, 1,0,1,1, 1,1,1,0, 1,0,1,1],
-    leadArp: [0, 12, 7, 14],
-    delayTime: 0.21,
-  },
-  {
-    id: 'drive-a-chill',
-    name: 'Drive A — Chill',
-    bpm: 124,
-    swing: 0.16,
-    baseFreq: 164.81, // E3
-    progression: [0, 8, 3, 10, 0, 8, 10, 0],
-    kickPattern: [1,0,0,0, 0,0,1,0, 1,0,0,0, 0,0,1,0],
-    snarePattern: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
-    hatPattern:   [1,0,0,1, 1,0,1,0, 1,0,0,1, 1,0,1,0],
-    leadArp: [0, 12, 5, 12],
-    delayTime: 0.27,
-  },
-  {
-    id: 'drive-a-f-minor',
-    name: 'Drive A — F minor',
-    bpm: 132,
-    swing: 0.12,
-    baseFreq: 174.61, // F3
-    progression: [0, 8, 3, 10, 0, 8, 10, 0],
-    kickPattern: [1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0],
-    snarePattern: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
-    hatPattern:   [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
-    leadArp: [0, 12, 7, 12],
-    delayTime: 0.23,
-  },
-  {
-    id: 'drive-a-sync',
-    name: 'Drive A — Syncopated',
-    bpm: 134,
-    swing: 0.1,
-    baseFreq: 164.81, // E3
-    progression: [0, 8, 3, 10, 0, 8, 10, 0],
-    kickPattern: [1,0,0,0, 1,0,0,1, 1,0,0,0, 1,0,0,1],
-    snarePattern: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
-    hatPattern:   [1,0,1,1, 1,0,1,0, 1,0,1,1, 1,0,1,0],
-    leadArp: [0, 12, 7, 19],
-    delayTime: 0.2,
-  },
-  {
-    id: 'drive-a-dirt',
-    name: 'Drive A — Dirt',
-    bpm: 138,
-    swing: 0.09,
-    baseFreq: 164.81, // E3
-    progression: [0, 8, 5, 10, 0, 8, 10, 0],
-    kickPattern: [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
-    snarePattern: [0,0,0,0, 1,0,0,1, 0,0,0,0, 1,0,0,1],
-    hatPattern:   [1,1,1,1, 1,0,1,1, 1,1,1,1, 1,0,1,1],
-    leadArp: [0, 12, 7, 15],
-    delayTime: 0.18,
-  },
   {
     id: 'drive-b',
     name: 'Drive B',
     bpm: 136,
     swing: 0.1,
     baseFreq: 174.61, // F3
-    progression: [0, 7, 5, 3, 0, 10, 7, 5], // Fm C Bb Ab | Fm Eb C Bb
+    progression: [0, 8, 3, 10, 0, 7, 10, 0], // Fm Db Ab Eb | Fm C Eb Fm
     kickPattern: [1,0,0,0, 1,0,0,0, 1,0,0,1, 0,0,0,0], // small variation
     snarePattern: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hatPattern:   [1,0,1,1, 1,0,1,0, 1,0,1,1, 1,0,1,0], // busier
@@ -100,7 +36,7 @@ export const SONGS = [
     bpm: 124,
     swing: 0.16,
     baseFreq: 155.56, // D#3/Eb3
-    progression: [0, 10, 3, 8, 0, 10, 8, 0], // Ebm Db Gbm B | Ebm Db B Ebm
+    progression: [0, 8, 3, 10, 0, 10, 8, 0], // Ebm Cb Ab Db | Ebm Db Cb Ebm
     kickPattern: [1,0,0,0, 0,0,1,0, 1,0,0,0, 0,0,1,0],
     snarePattern: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hatPattern:   [1,0,0,1, 1,0,0,1, 1,0,0,1, 1,0,0,1], // syncopated
@@ -113,7 +49,7 @@ export const SONGS = [
     bpm: 140,
     swing: 0.08,
     baseFreq: 146.83, // D3
-    progression: [0, 7, 10, 5, 0, 7, 3, 0], // Dm A C G | Dm A F Dm
+    progression: [0, 8, 3, 10, 0, 7, 3, 0], // Dm C G Bb | Dm C F Dm
     kickPattern: [1,0,0,0, 1,0,1,0, 1,0,0,0, 1,0,1,0],
     snarePattern: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hatPattern:   [1,1,1,0, 1,0,1,1, 1,1,1,0, 1,0,1,1],
@@ -141,7 +77,7 @@ export const SONGS = [
     bpm: 134,
     swing: 0.1,
     baseFreq: 164.81, // E3
-    progression: [0, 5, 3, 10, 0, 5, 7, 3], // Em Am G D | Em Am Bm G
+    progression: [0, 8, 3, 10, 0, 5, 7, 3], // Em C G D | Em A B G
     kickPattern: [1,0,0,0, 1,0,1,0, 1,0,0,1, 0,0,0,0],
     snarePattern: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hatPattern:   [1,0,1,0, 1,1,1,0, 1,0,1,0, 1,1,1,0],
@@ -154,7 +90,7 @@ export const SONGS = [
     bpm: 126,
     swing: 0.14,
     baseFreq: 174.61, // F3
-    progression: [0, 10, 5, 3, 0, 7, 5, 3], // Fm Eb Bb Ab | Fm C Bb Ab
+    progression: [0, 8, 3, 10, 0, 7, 5, 3], // Fm Db Ab Eb | Fm C Bb Ab
     kickPattern: [1,0,1,0, 1,0,0,0, 1,0,1,0, 1,0,0,0],
     snarePattern: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hatPattern:   [1,0,0,1, 1,0,1,0, 1,0,0,1, 1,0,1,0],
@@ -167,7 +103,7 @@ export const SONGS = [
     bpm: 142,
     swing: 0.08,
     baseFreq: 155.56, // Eb3
-    progression: [0, 7, 10, 5, 0, 10, 7, 0], // Ebm Bb Db Ab | Ebm Db Bb Ebm
+    progression: [0, 8, 3, 10, 0, 10, 7, 0], // Ebm Cb Ab Db | Ebm Db Bb Ebm
     kickPattern: [1,0,0,0, 1,0,1,0, 1,0,0,0, 1,0,1,0],
     snarePattern: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hatPattern:   [1,1,1,0, 1,0,1,1, 1,1,1,0, 1,0,1,1],
@@ -180,7 +116,7 @@ export const SONGS = [
     bpm: 120,
     swing: 0.18,
     baseFreq: 146.83, // D3
-    progression: [0, 10, 3, 7, 0, 10, 7, 0], // Dm C F A | Dm C A Dm
+    progression: [0, 8, 3, 10, 0, 10, 5, 0], // Dm C G Bb | Dm C F Dm
     kickPattern: [1,0,0,0, 0,0,1,0, 1,0,0,0, 0,0,1,0],
     snarePattern: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hatPattern:   [1,0,1,0, 1,0,0,1, 1,0,1,0, 1,0,0,1],
@@ -193,7 +129,7 @@ export const SONGS = [
     bpm: 130,
     swing: 0.12,
     baseFreq: 130.81, // C3
-    progression: [0, 7, 3, 10, 0, 5, 7, 0], // Cm G Eb Bb | Cm F G Cm
+    progression: [0, 8, 3, 10, 0, 5, 7, 0], // Cm Ab Eb Bb | Cm F G Cm
     kickPattern: [1,0,0,0, 1,0,0,1, 1,0,0,0, 1,0,0,1],
     snarePattern: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
     hatPattern:   [1,0,1,0, 1,1,1,0, 1,0,1,0, 1,1,1,0],
@@ -212,6 +148,19 @@ export const SONGS = [
     hatPattern:   [1,1,0,1, 1,0,1,1, 1,1,0,1, 1,0,1,1],
     leadArp: [0, 12, 16, 12],
     delayTime: 0.21,
+  },
+  {
+    id: 'twilight-echo',
+    name: 'Twilight Echo',
+    bpm: 128,
+    swing: 0.1,
+    baseFreq: 164.81, // E3
+    progression: [0, 8, 3, 10, 0, 5, 10, 0], // Em C G D | Em A D Em
+    kickPattern: [1,0,0,0, 1,0,1,0, 1,0,0,0, 1,0,1,0],
+    snarePattern: [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+    hatPattern:   [1,0,1,0, 1,0,0,1, 1,0,1,0, 1,0,0,1],
+    leadArp: [0, 12, 7, 14],
+    delayTime: 0.22,
   },
 ];
 
