@@ -26,16 +26,19 @@ export class SniperEnemy {
   
     this.speed = cfg.speedMin + Math.random() * (cfg.speedMax - cfg.speedMin);
     this.preferredRange = { min: 5, max: 90 };
-    this.engageRange = { min: 48, max: 150 };
+    this.engageRange   = { min: 48, max: 150 };
+  
+    // --- NEW: keep distance; orbit a ring instead of approaching player ---
+    this.standoff = { min: 40, max: 120, ideal: 80 }; // tweak per arena
   
     this.cooldown = 0;
     this.windup = 0;
-    this.windupReq = 1.2 + Math.random()*0.6;
+    this.windupReq = 0.5 + Math.random()*0.6;
   
     // Post-shot displacement
     this.postShotRelocate = 0;
     this.displaceTarget = null;
-    this.displaceTimeout = 1.4;
+    this.displaceTimeout = 1.2;
   
     this._raycaster = new THREE.Raycaster();
     this._faceDir = new this.THREE.Vector3(0, 0, 1);
@@ -44,34 +47,33 @@ export class SniperEnemy {
     this.coverAnchor = null;
     this.peekOffset = null;
     this.peekTimer = 0;
-    this.peekDuration = 1.6 + Math.random()*0.6;
+    this.peekDuration = 1.2 + Math.random()*0.6;
     this.peekCooldown = 0;
   
     // Counter-aim / tuck
     this.tuckTimer = 0;
     this.tuckDuration = 0.9 + Math.random()*0.4;
     this.tuckCooldown = 0;
-    this._lastPlayerForward = new THREE.Vector3(0,0,1);
+    this._lastPlayerForward = new this.THREE.Vector3(0,0,1);
   
     // Laser
-    this._aimLine = null;
-    this._aimHeat = 0;
+    this._aimLine = null; this._aimHeat = 0;
   
-    // --- NEW: persistent strafe & burst movement to avoid jitter ---
-    this._strafeDir = Math.random() < 0.5 ? 1 : -1;   // persists; flips with cooldown
-    this._strafeSwapCD = 0;                            // seconds until allowed to flip
-    this._moveBurstTimer = 0;                          // current “commit” window
-    this._moveBurstDur = 0;                            // planned duration
-    this._moveBurstDir = this._strafeDir;              // cached dir for the burst
+    // Persistent strafe & bursts
+    this._strafeDir = Math.random() < 0.5 ? 1 : -1;
+    this._strafeSwapCD = 0;
+    this._moveBurstTimer = 0;
+    this._moveBurstDur = 0;
+    this._moveBurstDir = this._strafeDir;
   
-    // --- NEW: idle relocation when in open space (no cover) ---
-    this._idleRelocateCD = 0;                          // cooldown before picking a new vantage
+    // Idle relocate in open space
+    this._idleRelocateCD = 0;
   
     // temps
-    this._tmpV1 = new THREE.Vector3();
-    this._tmpV2 = new THREE.Vector3();
+    this._tmpV1 = new this.THREE.Vector3();
+    this._tmpV2 = new this.THREE.Vector3();
   }
-  
+    
   update(dt, ctx){
     const THREE = this.THREE;
     const e = this.root;
@@ -103,7 +105,7 @@ export class SniperEnemy {
     const lookTarget = this._tmpV1.copy(e.position).add(this._faceDir); lookTarget.y = e.position.y;
     e.lookAt(lookTarget); e.rotateY(Math.PI);
   
-    // cover anchoring when LOS blocked or tucked
+    // anchor cover when LOS blocked or tucked
     if (!hasLOS || this.tuckTimer>0) {
       const anchor = this._raycastToPlayer(e.position, playerPos, ctx.objects);
       if (anchor) this.coverAnchor = anchor;
@@ -114,27 +116,39 @@ export class SniperEnemy {
     const flatToPlayer = toPlayer.clone().setY(0); if (flatToPlayer.lengthSq()>0) flatToPlayer.normalize();
     const side = new THREE.Vector3(-flatToPlayer.z, 0, flatToPlayer.x);
   
+    // radial control on a standoff ring
+    const ring = this.standoff;
+    const tooClose = dist < ring.min;
+    const tooFar  = dist > ring.max;
+  
     // post-shot relocation: strong lateral commit
     if (this.postShotRelocate>0) {
       if (!this.displaceTarget) {
-        const span = 7 + Math.random()*5;
+        // pick lateral target on same radius (ring)
         const dir = (Math.random()<0.5?1:-1);
-        this.displaceTarget = e.position.clone().add(side.clone().multiplyScalar(dir*span));
+        const arc = (7 + Math.random()*5) * dir;
+        const angle = Math.atan2(e.position.z - playerPos.z, e.position.x - playerPos.x) + (arc / Math.max(1, dist));
+        const target = new THREE.Vector3(
+          playerPos.x + Math.cos(angle) * Math.max(ring.min, Math.min(ring.max, dist)),
+          e.position.y,
+          playerPos.z + Math.sin(angle) * Math.max(ring.min, Math.min(ring.max, dist))
+        );
+        this.displaceTarget = target;
       }
       const toTgt = this.displaceTarget.clone().sub(e.position).setY(0);
       if (toTgt.lengthSq()>0.0004) desired.add(toTgt.normalize());
       if (toTgt.length()<0.8 || this.postShotRelocate<=0) this.displaceTarget = null;
   
-      // break aim/laser while moving
       this.windup = 0; this._setAimLine(null, ctx.scene); this._aimHeat = 0;
     }
     else if (this.tuckTimer>0) {
-      // stay behind cover gently (no jitter; tiny side bias)
       desired.add(side.clone().multiplyScalar(0.25 * this._strafeDir));
+      // ensure we don't drift inside the ring while tucked
+      if (tooClose) desired.add(flatToPlayer.clone().multiplyScalar(-1.2));
       this.windup = 0; this._setAimLine(null, ctx.scene); this._aimHeat = 0;
     }
     else if (!hasLOS) {
-      // move to cover anchor; if none (open arena), plan an idle relocation (wide lateral)
+      // move to cover anchor keeping ring radius; else lateral ring relocate in open field
       if (!this.coverAnchor) this.coverAnchor = this._raycastToPlayer(e.position, playerPos, ctx.objects);
       if (this.coverAnchor) {
         const toAnchor = this.coverAnchor.clone().sub(e.position).setY(0);
@@ -143,28 +157,40 @@ export class SniperEnemy {
           this.peekOffset = this._computePeekDesiredFromCover(this.coverAnchor, playerPos, ctx.objects);
           this.peekTimer = 0;
         }
+        // radial correction toward ring while moving to anchor (small)
+        if (tooClose) desired.add(flatToPlayer.clone().multiplyScalar(-0.8));
+        else if (tooFar) desired.add(flatToPlayer.clone().multiplyScalar(0.6)); // outward is -flatToPlayer, but we already move to anchor; keep gentle
       } else if (this._idleRelocateCD<=0) {
-        // open space: commit to a lateral run 10–16m to vary angle
-        const span = 10 + Math.random()*6;
-        this.displaceTarget = e.position.clone().add(side.clone().multiplyScalar(span * this._strafeDir));
-        this.postShotRelocate = 1.1 + Math.random()*0.4; // reuse relocation mechanic
+        // open arena: choose a new point on the ring and go there (lateral)
+        const curAngle = Math.atan2(e.position.z - playerPos.z, e.position.x - playerPos.x);
+        const delta = (Math.random() < 0.5 ? -1 : 1) * (Math.PI/6 + Math.random()*Math.PI/6); // 30–60°
+        const r = ring.ideal;
+        this.displaceTarget = new THREE.Vector3(
+          playerPos.x + Math.cos(curAngle + delta) * r,
+          e.position.y,
+          playerPos.z + Math.sin(curAngle + delta) * r
+        );
+        this.postShotRelocate = 1.1 + Math.random()*0.4; // reuse relocation pathing
         this._idleRelocateCD = 2.4 + Math.random()*1.2;
       }
     }
     else {
       // LOS present
+      // radial correction: NEVER move toward the player; only back out or hold
+      if (tooClose) desired.add(flatToPlayer.clone().multiplyScalar(-1.2));
+      else if (tooFar) desired.add(flatToPlayer.clone().multiplyScalar(0.5)); // outward = away from player
+  
       if (this.peekOffset) {
-        // hold edge with small commitment
         const edgePos = this.coverAnchor ? this.coverAnchor.clone().add(this.peekOffset) : e.position.clone();
         const toEdge = edgePos.sub(e.position).setY(0);
         if (toEdge.length()>0.2) desired.add(toEdge.normalize());
         this.peekTimer += dt;
         if (this.peekTimer >= this.peekDuration) {
-          this.peekOffset = null; this.peekCooldown = 0.8 + Math.random()*0.6;
+          this.peekOffset = null; this.peekCooldown = 0.4 + Math.random()*0.6;
           this.tuckTimer = 0.5 + Math.random()*0.3;
         }
       } else {
-        // --- sustained orbit burst instead of per-frame random ---
+        // sustained orbit burst (lateral only)
         if (this._moveBurstTimer<=0) {
           this._moveBurstDir = this._strafeDir;
           this._moveBurstDur = 0.9 + Math.random()*0.7;
@@ -172,13 +198,10 @@ export class SniperEnemy {
           if (this._strafeSwapCD<=0 && Math.random()<0.25) { this._strafeDir *= -1; this._strafeSwapCD = 1.2; }
         }
         desired.add(side.clone().multiplyScalar(0.65 * this._moveBurstDir));
-        // keep preferred range
-        if (dist < this.preferredRange.min) desired.add(flatToPlayer.clone().multiplyScalar(-0.8));
-        else if (dist > this.preferredRange.max) desired.add(flatToPlayer.clone().multiplyScalar(0.8));
       }
     }
   
-    // avoidance & move (ensure non-tiny step to avoid “tremble”)
+    // avoidance & move
     const baseStep = desired.lengthSq()>0 ? desired.clone().normalize() : desired;
     const avoid = baseStep.lengthSq()>0 ? (ctx.avoidObstacles ? ctx.avoidObstacles(e.position, baseStep, 1.8) : baseStep) : baseStep;
     const step = baseStep.clone().add(avoid.multiplyScalar(1.0));
@@ -187,7 +210,7 @@ export class SniperEnemy {
       ctx.moveWithCollisions ? ctx.moveWithCollisions(e, step) : e.position.add(step);
     }
   
-    // counter-aim (tuck if player stares at us)
+    // counter-aim tuck
     const pf = (ctx.blackboard && ctx.blackboard.playerForward) ? ctx.blackboard.playerForward.clone() : this._lastPlayerForward.clone();
     if (pf.lengthSq()>0) pf.normalize();
     this._lastPlayerForward.copy(pf);
@@ -204,12 +227,13 @@ export class SniperEnemy {
   
     // fire control
     if (this._projectiles && this._projectiles.length){ this._updateProjectiles(dt, ctx); }
-    const canFireWindow = (ctx.blackboard && (ctx.blackboard.time - (ctx.blackboard.sniperLastFireAt||-Infinity)) >= 1.0);
+  
+    // --- IMPORTANT: remove global fire gate; use only own cooldown/windup ---
     const inBandRange = dist >= this.engageRange.min && dist <= this.engageRange.max;
     const playerSpeed = (ctx.blackboard && (ctx.blackboard.playerSpeed || 0)) || 0;
     const steadyShot = playerSpeed < 3.0 || this.peekOffset;
   
-    if (hasLOS && inBandRange && this.cooldown<=0 && this.postShotRelocate<=0 && this.tuckTimer<=0 && canFireWindow && steadyShot){
+    if (hasLOS && inBandRange && this.cooldown<=0 && this.postShotRelocate<=0 && this.tuckTimer<=0 && steadyShot){
       this.windup += dt;
       this._aimHeat = Math.min(1, this.windup / Math.max(0.001, this.windupReq));
       const from = this._muzzleWorld();
@@ -221,10 +245,9 @@ export class SniperEnemy {
       if (this.windup >= this.windupReq){
         this.windup = 0; this._aimHeat = 0;
         this._setAimLine(null, ctx.scene);
-        this.cooldown = 3.3 + Math.random()*0.9;
+        this.cooldown = 3.0 + Math.random()*1.0;           // slightly faster so squads still feel lethal
         this._fireProjectile(playerPos, ctx);
-        // immediate lateral shuffle
-        this.postShotRelocate = 0.9 + Math.random()*0.5;
+        this.postShotRelocate = 0.9 + Math.random()*0.5;    // shuffle angle after shot
         this.displaceTarget = null;
         this.peekOffset = null; this.peekTimer = 0; this.peekCooldown = 0.6 + Math.random()*0.5;
       }
@@ -232,8 +255,8 @@ export class SniperEnemy {
       if (this.windup > 0) { this.windup = 0; this._aimHeat = 0; }
       this._setAimLine(null, ctx.scene);
     }
-  }    
-
+  }
+  
   _raycastToPlayer(fromPos, playerPos, objects){
     const origin = this._muzzleWorld();
     const target = new this.THREE.Vector3(playerPos.x, 1.6, playerPos.z);
