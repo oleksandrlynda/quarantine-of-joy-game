@@ -284,6 +284,17 @@ export class Music {
     this.fadeIn(duration);
   }
 
+  createRecorder() {
+    this.ensureContext();
+    const dest = this.ctx.createMediaStreamDestination();
+    this.masterGain.connect(dest);
+    const recorder = new MediaRecorder(dest.stream);
+    recorder.addEventListener('stop', () => {
+      try { this.masterGain.disconnect(dest); } catch (_) {}
+    });
+    return recorder;
+  }
+
   // Recompute internal timing when BPM changes
   recomputeTempo() {
     const secondsPerBeat = 60 / this.bpm;
