@@ -57,6 +57,7 @@ export class WeaponView {
       // geometry materials
       this._matMetal = new THREE.MeshStandardMaterial({ color: 0x4c5560, roughness: 0.35, metalness: 0.65, emissive: 0x000000 });
       this._matBody  = new THREE.MeshStandardMaterial({ color: 0x23272b, roughness: 0.7,  metalness: 0.2,  emissive: 0x060606 });
+      this._matBlade = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x60a5fa, emissiveIntensity: 4.0, roughness: 0.2, metalness: 0.0 });
   
       this.setWeapon('rifle');
     }
@@ -148,7 +149,15 @@ export class WeaponView {
       const THREE = this.THREE;
       const meshes = [];
       const body = this._matBody, metal = this._matMetal;
-  
+
+      // adjust muzzle based on weapon type
+      if ((name||'').toLowerCase() === 'beamsaber') {
+        this._muzzleLocal.set(0, -0.02, -0.75);
+      } else {
+        this._muzzleLocal.set(0, -0.005, -0.25);
+      }
+      this.sockets.muzzle.position.copy(this._muzzleLocal);
+
       const addBox = (sx, sy, sz, px, py, pz, mat) => {
         const g = new THREE.BoxGeometry(sx, sy, sz);
         const m = new THREE.Mesh(g, mat || body);
@@ -164,8 +173,16 @@ export class WeaponView {
       const addRail = (z0, z1, step, y=-0.005) => {
         for (let z=z0; z<=z1; z+=step) addBox(0.002, 0.004, 0.008, 0, y+0.02, z, metal);
       };
-  
-      const muzzleZ = this._muzzleLocal.z; // -0.25
+      const addCyl = (r, l, px, py, pz, mat) => {
+        const g = new THREE.CylinderGeometry(r, r, l, 8);
+        const m = new THREE.Mesh(g, mat || body);
+        m.position.set(px, py, pz);
+        m.rotation.x = Math.PI / 2;
+        this._model.add(m); meshes.push(m);
+        return m;
+      };
+
+      const muzzleZ = this._muzzleLocal.z;
   
       const makePistol = ()=>{
         const L = 0.16, W = 0.045, H = 0.045;
@@ -218,8 +235,14 @@ export class WeaponView {
       };
 
       const makeBeamSaber = ()=>{
-        const L = 0.18, D = 0.04;
-        addBox(D, D, L, 0.0, -0.02, muzzleZ + L*0.5, metal);
+        const bladeL = 0.5, bladeR = 0.006;
+        const hiltL  = 0.14, hiltR = 0.02;
+        const baseZ = muzzleZ + bladeL;
+
+        addCyl(bladeR, bladeL, 0, -0.02, muzzleZ + bladeL*0.5, this._matBlade); // glowing blade
+        addCyl(hiltR,  hiltL,  0, -0.02, baseZ + hiltL*0.5, body);               // main grip
+        addBox(hiltR*4, hiltR*0.6, 0.02, 0, -0.02, baseZ, metal);                // emitter guard
+        addCyl(hiltR*1.1, 0.03, 0, -0.02, baseZ + hiltL + 0.015, metal);         // pommel
       };
 
       switch ((name||'').toLowerCase()){
