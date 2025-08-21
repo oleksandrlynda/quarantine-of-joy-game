@@ -24,6 +24,7 @@ export class BeamSaber extends Weapon {
     const hits = candidates.length ? raycaster.intersectObjects(candidates, true) : [];
     const handled = new Set();
 
+    ctx.weaponView?.startSlash?.();
     if (S?.saberSwing) S.saberSwing();
     effects?.spawnSaberSlash?.(origin, end);
 
