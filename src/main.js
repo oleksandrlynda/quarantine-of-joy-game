@@ -17,6 +17,16 @@ import { startEditor } from './editor.js';
 import { Progression } from './progression.js';
 import { StoryManager } from './story.js';
 
+// --- Music selection ---
+const musicSelect = document.getElementById('musicSelect');
+let musicChoice = musicSelect ? musicSelect.value : 'library';
+let sunoAudio = null; // HTMLAudioElement for Suno playback
+if (musicSelect) {
+  musicSelect.addEventListener('change', e => {
+    musicChoice = e.target.value;
+  });
+}
+
 // ------ Seeded RNG + URL persistence ------
 const url = new URL(window.location.href);
 const params = url.searchParams;
@@ -138,7 +148,7 @@ obstacleManager.getPlayer = () => controls.getObject();
 obstacleManager.onScore = (points) => { addScore(points); };
 obstacleManager.onPlayerDamage = (amount) => {
   if (paused || gameOver) return;
-  hp -= amount; if (hp <= 0) { hp = 0; gameOver = true; document.getElementById('retry').style.display=''; document.getElementById('center').style.display='grid'; }
+  hp -= amount; if (hp <= 0) { hp = 0; gameOver = true; document.getElementById('retry').style.display=''; document.getElementById('center').style.display='grid'; stopSuno(); }
   // Apply universal hit VFX on any damage source
   if (effects && typeof effects.onPlayerHit === 'function') effects.onPlayerHit(amount);
   updateHUD();
@@ -331,7 +341,40 @@ function loadCurrentSong(){
   lastSongRotateBar = music.barCounter;
 }
 loadCurrentSong();
-document.getElementById('mute').onclick=()=>{ const muted = !(S.isMuted); S.setMuted(muted); document.getElementById('mute').textContent=muted?'🔇':'🔊'; music.setMuted(muted); };
+
+const SUNO_TRACKS = [
+  'assets/music/suno-remix-1-non-commercial-use-only.mp3',
+  'assets/music/suno-remix-2-non-commercial-use-only.mp3',
+  'assets/music/suno-remix-3-non-commercial-use-only.mp3',
+  'assets/music/suno-remix-4-non-commercial-use-only.mp3',
+  'assets/music/suno-remix-5-non-commercial-use-only.mp3',
+];
+
+function stopSuno(){
+  if (sunoAudio) {
+    try { sunoAudio.pause(); sunoAudio.currentTime = 0; } catch(_){}
+    sunoAudio = null;
+  }
+}
+
+function playSuno(){
+  stopSuno();
+  const track = SUNO_TRACKS[Math.floor(Math.random()*SUNO_TRACKS.length)];
+  sunoAudio = new Audio(track);
+  sunoAudio.loop = true;
+  sunoAudio.volume = 0.35;
+  sunoAudio.muted = S.isMuted;
+  try { sunoAudio.play(); } catch(_){}
+  try { music.stop?.(); } catch(_){}
+}
+
+document.getElementById('mute').onclick=()=>{
+  const muted = !(S.isMuted);
+  S.setMuted(muted);
+  document.getElementById('mute').textContent = muted?'🔇':'🔊';
+  music.setMuted(muted);
+  if (sunoAudio) sunoAudio.muted = muted;
+};
 
 // Tracer + sparks
 const tracers = [];
@@ -657,6 +700,7 @@ const playBtn = document.getElementById('play');
 const retryBtn = document.getElementById('retry');
 
 function reset(){ // clear enemies
+  stopSuno();
   enemyManager.reset();
   pickups.resetAll(); pickups.onWave(enemyManager.wave);
   hp=100; score=0; paused=false; gameOver=false; resetCombo(); if (weaponSystem) weaponSystem.reset(); updateHUD();
@@ -672,8 +716,8 @@ function reset(){ // clear enemies
   try { story?.reset(); story?.startRun(); } catch(_) {}
 }
 
-playBtn.onclick = ()=>{ panel.parentElement.style.display='none'; controls.lock(); reset(); music.start(); };
-retryBtn.onclick = ()=>{ panel.parentElement.style.display='none'; controls.lock(); reset(); music.start(); };
+playBtn.onclick = ()=>{ panel.parentElement.style.display='none'; controls.lock(); reset(); if (musicChoice === 'suno') { playSuno(); } else { music.start(); } };
+retryBtn.onclick = ()=>{ panel.parentElement.style.display='none'; controls.lock(); reset(); if (musicChoice === 'suno') { playSuno(); } else { music.start(); } };
 
 // Quality preset buttons: update URL params and reload
 const qLow = document.getElementById('qLow');
