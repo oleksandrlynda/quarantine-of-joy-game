@@ -13,7 +13,7 @@ export class ShardAvatar {
     // Visuals: use asset pack model for the Shard Avatar
     const { root, head, refs } = createShardAvatarAsset({ THREE, mats, scale: 1.2 });
     root.position.copy(spawnPos);
-    root.userData = { type: 'boss_shard', head, hp: 15000 };
+    root.userData = { type: 'boss_shard', head, hp: 10000 };
     this.root = root;
     this._assetRefs = refs; // halo, beamAnchors, mirageAnchors, timeRingAnchor, plateOrbiters, plates, orbitBeads, emissives
 

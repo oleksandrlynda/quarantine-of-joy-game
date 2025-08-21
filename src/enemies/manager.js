@@ -50,10 +50,10 @@ export class EnemyManager {
       rusher: { type: 'rusher', hp:  60, speedMin: 6.4, speedMax: 7.9, color: 0xf97316, kind: 'melee' },
       bailiff:{ type: 'bailiff',hp:  80, speedMin: 3.8, speedMax: 4.4, color: 0x60a5fa, kind: 'melee' },
       tank:   { type: 'tank',   hp: 450, speedMin: 1.6, speedMax: 2.4, color: 0x2563eb, kind: 'melee' },
-      shooter:{ type: 'shooter',hp:   80, speedMin: 2.2, speedMax: 2.8, color: 0x10b981, kind: 'shooter' },
+      shooter:{ type: 'shooter',hp:   80, speedMin: 2.6, speedMax: 3.8, color: 0x10b981, kind: 'shooter' },
       flyer:  { type: 'flyer',  hp:  40, speedMin: 12.4, speedMax: 16.7, color: 0xa855f7, kind: 'flyer' },
       healer: { type: 'healer', hp:   90, speedMin: 2.2, speedMax: 2.6, color: 0x84cc16, kind: 'healer' },
-      sniper: { type: 'sniper', hp:   90, speedMin: 2.0, speedMax: 2.4, color: 0x444444, kind: 'sniper' },
+      sniper: { type: 'sniper', hp:   135, speedMin: 2.0, speedMax: 2.4, color: 0x444444, kind: 'sniper' },
       warden: { type: 'warden', hp: 420, speedMin: 1.9, speedMax: 2.3, color: 0x22d3ee, kind: 'warden' },
       // Boss adds
       gruntling: { type: 'gruntling', hp: 20, speedMin: 3.2, speedMax: 4.0, color: 0x3d355d, kind: 'melee' }
@@ -572,7 +572,7 @@ export class EnemyManager {
     for (const e of this.enemies) this.scene.remove(e);
     this.enemies.clear();
     this.instances.clear();
-    this.wave = 4; this.alive = 0;
+    this.wave = 19; this.alive = 0;
     if (this.bossManager) this.bossManager.reset();
     if (!this.suspendWaves) this.startWave();
   }
