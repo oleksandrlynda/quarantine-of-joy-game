@@ -438,6 +438,18 @@ export class ShooterEnemy {
       const step = p.velocity.clone().multiplyScalar(dt);
       const next = prev.clone().add(step);
 
+      // Raycast against world objects along the step
+      const dir = step.clone().normalize();
+      const dist = step.length();
+      this._raycaster.set(prev, dir);
+      this._raycaster.far = dist;
+      const hits = this._raycaster.intersectObjects(ctx.objects, false);
+      if (hits && hits.length > 0) {
+        ctx.scene.remove(p.mesh);
+        this.projectiles.splice(i, 1);
+        continue;
+      }
+
       // Check hit with player (capsule-like band at chest height)
       const playerPos = ctx.player.position;
       const y = next.y;
@@ -451,18 +463,6 @@ export class ShooterEnemy {
           this.projectiles.splice(i, 1);
           continue;
         }
-      }
-
-      // Raycast against world objects along the step
-      const dir = step.clone().normalize();
-      const dist = step.length();
-      this._raycaster.set(prev, dir);
-      this._raycaster.far = dist;
-      const hits = this._raycaster.intersectObjects(ctx.objects, false);
-      if (hits && hits.length > 0) {
-        ctx.scene.remove(p.mesh);
-        this.projectiles.splice(i, 1);
-        continue;
       }
 
       // Advance and fade slightly
