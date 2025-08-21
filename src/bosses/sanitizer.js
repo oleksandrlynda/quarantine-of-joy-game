@@ -279,12 +279,28 @@ export class Sanitizer {
 
   _applyBeamDamage(dt, ctx, dps) {
     const origin = this.refs?.tip?.getWorldPosition(new this.THREE.Vector3()) || this.root.position.clone();
-    const toPlayer = ctx.player.position.clone().sub(origin);
-    const dist = toPlayer.length(); if (dist > this._beamLen) return;
-    toPlayer.y = 0; if (toPlayer.lengthSq() === 0) return; toPlayer.normalize();
-    const cos = this._beamDir.dot(toPlayer);
+    const playerPos = ctx.player.position.clone();
+    const toPlayer = playerPos.sub(origin);
+    const dist = toPlayer.length();
+    if (dist > this._beamLen) return;
+
+    // Horizontal angle check
+    const flat = toPlayer.clone();
+    flat.y = 0;
+    if (flat.lengthSq() === 0) return;
+    flat.normalize();
+    const cos = this._beamDir.dot(flat);
     const cosHalf = Math.cos(this._beamHalfAngle);
-    if (cos >= cosHalf) ctx.onPlayerDamage(dps * dt, 'beam');
+    if (cos < cosHalf) return;
+
+    // Raycast to ensure unobstructed line to player
+    const dir = toPlayer.clone().normalize();
+    this._raycaster.set(origin, dir);
+    this._raycaster.far = dist - 0.1;
+    const hits = ctx.objects ? this._raycaster.intersectObjects(ctx.objects, false) : [];
+    if (hits && hits.length > 0) return;
+
+    ctx.onPlayerDamage(dps * dt, 'beam');
   }
 
   _endBeam(ctx) {
