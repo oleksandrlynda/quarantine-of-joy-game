@@ -65,6 +65,11 @@ export class Music {
     // 8-bar chord progression (relative to root) default
     this.progression = [0, 8, 3, 10, 0, 8, 10, 0];
     this.leadArp = [0, 12, 7, 12];
+
+    // Pattern variation
+    this.variation = { kick: 0, snare: 0, hat: 0, clap: 0, ride: 0, stab: 0 };
+    this.variationEnabled = true;
+    this._varPatterns = {};
   }
 
   ensureContext() {
@@ -244,6 +249,39 @@ export class Music {
   setFxVolume(v) { this.setBusVolume('fx', v); }
   getFxVolume() { return this.getBusVolume('fx'); }
 
+  setVariationEnabled(enabled) {
+    this.variationEnabled = !!enabled;
+  }
+
+  randomizePattern(pattern, probability) {
+    if (!probability) return pattern.slice();
+    const out = pattern.slice();
+    for (let i = 0; i < out.length; i++) {
+      if (!out[i] && Math.random() < probability) out[i] = 1;
+    }
+    return out;
+  }
+
+  applyVariation() {
+    if (!this.variationEnabled) {
+      this._varPatterns = {
+        kick: this.kickPattern,
+        snare: this.snarePattern,
+        hat: this.hatPattern,
+        clap: this.clapPattern,
+        ride: this.ridePattern,
+        stab: this.stabPattern,
+      };
+      return;
+    }
+    this._varPatterns.kick = this.randomizePattern(this.kickPattern, this.variation.kick);
+    this._varPatterns.snare = this.randomizePattern(this.snarePattern, this.variation.snare);
+    this._varPatterns.hat = this.randomizePattern(this.hatPattern, this.variation.hat);
+    this._varPatterns.clap = this.randomizePattern(this.clapPattern, this.variation.clap);
+    this._varPatterns.ride = this.randomizePattern(this.ridePattern, this.variation.ride);
+    this._varPatterns.stab = this.randomizePattern(this.stabPattern, this.variation.stab);
+  }
+
   fadeOut(duration = 0.5) {
     return new Promise(resolve => {
       this.ensureContext();
@@ -332,6 +370,7 @@ export class Music {
     if (song.stabPattern) this.stabPattern = song.stabPattern.slice();
     if (song.leadArp) this.leadArp = song.leadArp.slice();
     if (song.delayTime && this.delay) this.delay.delayTime.setTargetAtTime(song.delayTime, this.ctx?.currentTime || 0, 0.05);
+    if (song.variations) this.variation = { ...this.variation, ...song.variations };
     // Reset position to bar start on song load
     this.currentStep = 0;
     this.barCounter = 0;
@@ -436,25 +475,34 @@ export class Music {
     // Swing offsets for micro-groove on certain parts
     const swingOffset = (stepIndex % 2 === 1) ? this.secondsPerStep * this.swing : 0;
 
+    if (stepIndex === 0) this.applyVariation();
+
+    const kickPat = this._varPatterns.kick || this.kickPattern;
+    const snarePat = this._varPatterns.snare || this.snarePattern;
+    const hatPat = this._varPatterns.hat || this.hatPattern;
+    const clapPat = this._varPatterns.clap || this.clapPattern;
+    const ridePat = this._varPatterns.ride || this.ridePattern;
+    const stabPat = this._varPatterns.stab || this.stabPattern;
+
     // Drums with occasional fills
-    if (this.kickPattern[stepIndex]) this.playKick(time);
-    if (this.snarePattern[stepIndex]) this.playSnare(time);
+    if (kickPat[stepIndex]) this.playKick(time);
+    if (snarePat[stepIndex]) this.playSnare(time);
     // Light extra ghost kick on step 12 when energy high
     if (this.energy >= 2 && stepIndex === 12) this.playKick(time + 0.001);
 
     // Hats density scales with energy and boss profile
     const extraHat = (this.mode === 'boss' && Math.random() < this.bossProfile.hatExtraDensity && (stepIndex % 2 === 0));
-    const hatOn = this.hatPattern[stepIndex] || (this.energy >= 2 && stepIndex % 4 === 2) || extraHat;
+    const hatOn = hatPat[stepIndex] || (this.energy >= 2 && stepIndex % 4 === 2) || extraHat;
     if (hatOn) this.playHat(time + swingOffset * 0.8);
-    if (this.ridePattern && this.ridePattern[stepIndex]) {
+    if (ridePat && ridePat[stepIndex]) {
       this.playRide(time + swingOffset * 0.8);
     }
-    if (this.clapPattern && this.clapPattern[stepIndex]) {
+    if (clapPat && clapPat[stepIndex]) {
       this.playClap(time + swingOffset * 0.8);
     }
 
     // Short chord stabs for rhythmic accents
-    if (this.stabPattern && this.stabPattern[stepIndex]) {
+    if (stabPat && stabPat[stepIndex]) {
       const chord = this.makeMinorChord(rootSemi);
       this.playStab(time + swingOffset * 0.5, chord);
     }

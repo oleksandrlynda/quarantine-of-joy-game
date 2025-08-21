@@ -22,6 +22,8 @@
     <input type="number" id="fadeDuration" min="0" max="5" step="0.1" value="0.5" />
     <label for="reverbAmount">Reverb:</label>
     <input type="range" id="reverbAmount" min="0" max="1" step="0.01" value="0.25" />
+    <label for="variationToggle">Variation:</label>
+    <input type="checkbox" id="variationToggle" checked />
     <label for="recordDuration">Record (s):</label>
     <input type="number" id="recordDuration" min="1" max="600" step="1" value="30" />
     <button id="recordBtn">Record</button>
@@ -129,6 +131,10 @@
     const reverbSlider = document.getElementById('reverbAmount');
     music.setReverb(parseFloat(reverbSlider.value));
     reverbSlider.oninput = () => music.setReverb(parseFloat(reverbSlider.value));
+
+    const variationToggle = document.getElementById('variationToggle');
+    music.setVariationEnabled(variationToggle.checked);
+    variationToggle.onchange = () => music.setVariationEnabled(variationToggle.checked);
 
     const drumsSlider = document.getElementById('drumsVol');
     const bassSlider = document.getElementById('bassVol');
