@@ -4,6 +4,7 @@ import { Shotgun } from './shotgun.js';
 import { DMR } from './dmr.js';
 import { Pistol } from './pistol.js';
 import { GrenadePistol } from './grenadepistol.js';
+import { Minigun } from './minigun.js';
 
 // WeaponSystem orchestrates current weapon, input mapping, and HUD sync
 export class WeaponSystem {
@@ -48,6 +49,7 @@ export class WeaponSystem {
     if (name === 'Pistol') return { baseScale: 0.85, minAlpha: 0.75, k: 0.5, thickPx: 2, gapPx: 5, lenPx: 5 };
     if (name === 'Rifle') return { baseScale: 0.9, minAlpha: 0.65, k: 0.7, thickPx: 2, gapPx: 6, lenPx: 6 };
     if (name === 'SMG') return { baseScale: 0.95, minAlpha: 0.6, k: 0.9, thickPx: 2, gapPx: 7, lenPx: 7 };
+    if (name === 'Minigun') return { baseScale: 1.0, minAlpha: 0.55, k: 1.0, thickPx: 2, gapPx: 8, lenPx: 8 };
     if (name === 'DMR') return { baseScale: 0.8, minAlpha: 0.78, k: 0.45, thickPx: 2, gapPx: 4, lenPx: 4 };
     if (name === 'Shotgun') return { baseScale: 1.2, minAlpha: 0.65, k: 1.2, thickPx: 2, gapPx: 20, lenPx: 8 };
     return def;
@@ -158,6 +160,7 @@ export class WeaponSystem {
     if (unlocks?.smg) list.push({ name:'SMG', make: ()=> new SMG() });
     if (unlocks?.shotgun) list.push({ name:'Shotgun', make: ()=> new Shotgun() });
     if (unlocks?.dmr) list.push({ name:'DMR', make: ()=> new DMR() });
+    if (unlocks?.minigun) list.push({ name:'Minigun', make: ()=> new Minigun() });
     return list;
   }
 
@@ -187,6 +190,7 @@ export class WeaponSystem {
         case 'DMR': return 0.4;
         case 'Pistol': return 0.45;
         case 'Rifle': return 0.85;
+        case 'Minigun': return 0.25;
         default: return 1.0;
       }
     };
