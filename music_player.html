@@ -19,17 +19,37 @@
     <button id="stopBtn">Stop</button>
     <button id="muteBtn">Mute</button>
   </div>
+
+  <h2>Song Editor</h2>
+  <textarea id="songData" rows="12" cols="80"></textarea><br />
+  <button id="saveSong">Save Changes</button>
+  <button id="addSong">Add As New</button>
+  <button id="deleteSong">Delete Song</button>
+
   <script type="module">
     import { Music } from './src/music.js';
     import { SONGS } from './src/musicLibrary.js';
 
     const songSelect = document.getElementById('songSelect');
-    SONGS.forEach(song => {
-      const opt = document.createElement('option');
-      opt.value = song.id;
-      opt.textContent = song.name;
-      songSelect.appendChild(opt);
-    });
+    const songData = document.getElementById('songData');
+
+    function refreshSelect() {
+      songSelect.innerHTML = '';
+      SONGS.forEach(song => {
+        const opt = document.createElement('option');
+        opt.value = song.id;
+        opt.textContent = song.name || song.id;
+        songSelect.appendChild(opt);
+      });
+    }
+
+    function loadEditor() {
+      const song = SONGS.find(s => s.id === songSelect.value);
+      songData.value = song ? JSON.stringify(song, null, 2) : '';
+    }
+
+    refreshSelect();
+    loadEditor();
 
     const music = new Music({ volume: 0.5 });
 
@@ -46,6 +66,50 @@
       const muted = !music.isMuted;
       music.setMuted(muted);
       document.getElementById('muteBtn').textContent = muted ? 'Unmute' : 'Mute';
+    };
+
+    songSelect.onchange = loadEditor;
+
+    document.getElementById('saveSong').onclick = () => {
+      try {
+        const updated = JSON.parse(songData.value);
+        const index = SONGS.findIndex(s => s.id === songSelect.value);
+        if (index >= 0) {
+          SONGS[index] = updated;
+          refreshSelect();
+          songSelect.value = updated.id;
+          loadEditor();
+          alert('Song updated');
+        }
+      } catch (err) {
+        alert('Invalid JSON');
+      }
+    };
+
+    document.getElementById('addSong').onclick = () => {
+      try {
+        const song = JSON.parse(songData.value);
+        if (!song.id) {
+          alert('Song must have an id');
+          return;
+        }
+        SONGS.push(song);
+        refreshSelect();
+        songSelect.value = song.id;
+        loadEditor();
+        alert('Song added');
+      } catch (err) {
+        alert('Invalid JSON');
+      }
+    };
+
+    document.getElementById('deleteSong').onclick = () => {
+      const index = SONGS.findIndex(s => s.id === songSelect.value);
+      if (index >= 0 && confirm('Delete this song?')) {
+        SONGS.splice(index, 1);
+        refreshSelect();
+        loadEditor();
+      }
     };
   </script>
 </body>
