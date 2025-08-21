@@ -7,6 +7,7 @@ import { RusherEnemy } from './rusher.js';
 import { BailiffEnemy } from './bailiff.js';
 import { SwarmWarden } from './warden.js';
 import { BossManager } from '../bosses/manager.js';
+import { Hydraclone } from '../bosses/hydraclone.js';
 
 export class EnemyManager {
   constructor(THREE, scene, mats, objects = [], getPlayer = null) {
@@ -905,14 +906,14 @@ export class EnemyManager {
   
     const bossActive = !!(this.bossManager && this.bossManager.active && this.bossManager.boss);
     if (!this.suspendWaves) {
-      if (this.alive <= 0 && !bossActive && !this._advancingWave) {
+      if (this.alive <= 0 && !bossActive && !Hydraclone.hasPending() && !this._advancingWave) {
         this._advancingWave = true;
         this.wave++;
         this.startWave();
         this._advancingWave = false;
       }
     }
-  }  
+  }
 
   // --- Boss integration helpers ---
 
