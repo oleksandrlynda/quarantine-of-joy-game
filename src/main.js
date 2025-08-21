@@ -650,6 +650,11 @@ function step(){
       const len = (prof.lenPx + bloom * (prof.lenPx * 0.6)).toFixed(2);
       crosshairEl.style.setProperty('--xh-gap', `${gap}px`);
       crosshairEl.style.setProperty('--xh-len', `${len}px`);
+      if (typeof prof.rotDeg === 'number') {
+        crosshairEl.style.setProperty('--xh-rot', `${prof.rotDeg}deg`);
+      } else {
+        crosshairEl.style.setProperty('--xh-rot', '0deg');
+      }
       // Optional tint on perfect accuracy
       if (bloom < 0.05) {
         crosshairEl.style.setProperty('--xh', '#16a34a');

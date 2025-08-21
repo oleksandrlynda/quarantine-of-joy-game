@@ -44,7 +44,7 @@ export class WeaponSystem {
   // Crosshair profile for current weapon
   getCrosshairProfile(){
     const w = this.current;
-    const def = { baseScale: 0.9, minAlpha: 0.65, k: 0.7, thickPx: 2, gapPx: 5, lenPx: 6 };
+    const def = { baseScale: 0.9, minAlpha: 0.65, k: 0.7, thickPx: 2, gapPx: 5, lenPx: 6, rotDeg: 0 };
     const name = w?.name || '';
     if (name === 'Pistol') return { baseScale: 0.85, minAlpha: 0.75, k: 0.5, thickPx: 2, gapPx: 5, lenPx: 5 };
     if (name === 'Rifle') return { baseScale: 0.9, minAlpha: 0.65, k: 0.7, thickPx: 2, gapPx: 6, lenPx: 6 };
@@ -52,7 +52,7 @@ export class WeaponSystem {
     if (name === 'Minigun') return { baseScale: 1.0, minAlpha: 0.55, k: 1.0, thickPx: 2, gapPx: 8, lenPx: 8 };
     if (name === 'DMR') return { baseScale: 0.8, minAlpha: 0.78, k: 0.45, thickPx: 2, gapPx: 4, lenPx: 4 };
     if (name === 'Shotgun') return { baseScale: 1.2, minAlpha: 0.65, k: 1.2, thickPx: 2, gapPx: 20, lenPx: 8 };
-    if (name === 'BeamSaber') return { baseScale: 0.7, minAlpha: 0.8, k: 0.4, thickPx: 2, gapPx: 3, lenPx: 3 };
+    if (name === 'BeamSaber') return { baseScale: 0.7, minAlpha: 0.8, k: 0.4, thickPx: 2, gapPx: 3, lenPx: 3, rotDeg: 45 };
     return def;
   }
 
