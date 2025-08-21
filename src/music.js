@@ -6,11 +6,15 @@ export class Music {
     this.getAudioContext = options.audioContextProvider || (() => new (window.AudioContext || window.webkitAudioContext)());
     this.ctx = null;
     this.masterGain = null;
+    this.reverb = null;
+    this.reverbGain = null;
+    this.reverbBus = null;
     this.busses = { drums: null, bass: null, lead: null, pad: null, fx: null };
     this.isPlaying = false;
     this.isMuted = false;
     this.volume = options.volume != null ? options.volume : 0.4; // overall music volume
     this.originalVolume = this.volume;
+    this.reverbAmount = options.reverb != null ? options.reverb : 0.25; // wet level
 
     // Tempo and scheduling
     this.bpm = options.bpm || 132; // up-tempo "drive"
@@ -74,6 +78,14 @@ export class Music {
       this.busses.pad = this.ctx.createGain();
       this.busses.fx = this.ctx.createGain();
 
+      // Simple reverb bus
+      this.reverbBus = this.ctx.createGain();
+      this.reverb = this.ctx.createConvolver();
+      this.reverb.buffer = this.makeImpulseBuffer();
+      this.reverbGain = this.ctx.createGain();
+      this.reverbGain.gain.value = this.reverbAmount;
+      this.reverbBus.connect(this.reverb).connect(this.reverbGain).connect(this.masterGain);
+
       // Subtle stereo motion for lead
       this.leadPanner = this.ctx.createStereoPanner();
       const panLfo = this.ctx.createOscillator();
@@ -102,12 +114,29 @@ export class Music {
       this.busses.bass.connect(this.masterGain);
       this.busses.lead.connect(this.leadPanner).connect(this.masterGain);
       this.busses.lead.connect(this.delay);
+      this.busses.lead.connect(this.reverbBus);
       this.busses.pad.connect(this.masterGain);
       this.busses.pad.connect(this.delay);
+      this.busses.pad.connect(this.reverbBus);
       this.busses.fx.connect(this.delay);
+      this.busses.fx.connect(this.reverbBus);
 
       this.masterGain.connect(this.ctx.destination);
     }
+  }
+
+  makeImpulseBuffer(duration = 1.2) {
+    const rate = this.ctx.sampleRate;
+    const length = rate * duration;
+    const impulse = this.ctx.createBuffer(2, length, rate);
+    for (let ch = 0; ch < impulse.numberOfChannels; ch++) {
+      const buf = impulse.getChannelData(ch);
+      for (let i = 0; i < length; i++) {
+        const decay = Math.pow(1 - i / length, 2);
+        buf[i] = (Math.random() * 2 - 1) * decay;
+      }
+    }
+    return impulse;
   }
 
   // Expose underlying AudioContext for sharing with SFX
@@ -173,6 +202,53 @@ export class Music {
     if (!this.isMuted && this.masterGain) {
       this.masterGain.gain.setTargetAtTime(this.volume, this.ctx.currentTime, 0.01);
     }
+  }
+
+  setReverb(amount) {
+    this.reverbAmount = Math.max(0, Math.min(1, amount));
+    if (this.reverbGain) {
+      this.reverbGain.gain.setTargetAtTime(this.reverbAmount, this.ctx.currentTime, 0.01);
+    }
+  }
+
+  fadeOut(duration = 0.5) {
+    return new Promise(resolve => {
+      this.ensureContext();
+      if (!this.masterGain) {
+        this.stop();
+        resolve();
+        return;
+      }
+      const ctx = this.ctx;
+      const gain = this.masterGain.gain;
+      const now = ctx.currentTime;
+      gain.cancelScheduledValues(now);
+      gain.setValueAtTime(gain.value, now);
+      gain.linearRampToValueAtTime(0.0001, now + duration);
+      setTimeout(() => {
+        this.stop();
+        resolve();
+      }, duration * 1000);
+    });
+  }
+
+  fadeIn(duration = 0.5) {
+    this.ensureContext();
+    if (!this.masterGain) return;
+    const ctx = this.ctx;
+    const gain = this.masterGain.gain;
+    const now = ctx.currentTime;
+    const target = this.isMuted ? 0.0001 : this.volume;
+    gain.cancelScheduledValues(now);
+    gain.setValueAtTime(0.0001, now);
+    gain.linearRampToValueAtTime(target, now + duration);
+  }
+
+  async crossfadeTo(song, duration = 0.5) {
+    await this.fadeOut(duration);
+    this.loadSong(song);
+    this.start();
+    this.fadeIn(duration);
   }
 
   // Recompute internal timing when BPM changes

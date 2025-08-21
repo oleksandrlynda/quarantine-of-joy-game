@@ -20,6 +20,8 @@
     <button id="muteBtn">Mute</button>
     <label for="fadeDuration">Fade (s):</label>
     <input type="number" id="fadeDuration" min="0" max="5" step="0.1" value="0.5" />
+    <label for="reverbAmount">Reverb:</label>
+    <input type="range" id="reverbAmount" min="0" max="1" step="0.01" value="0.25" />
   </div>
   <progress id="songProgress" value="0" max="1" style="width:300px;"></progress>
   <h2>Song Editor</h2>
@@ -84,6 +86,9 @@
     loadEditor();
 
     const music = new Music({ volume: 0.5 });
+    const reverbSlider = document.getElementById('reverbAmount');
+    music.setReverb(parseFloat(reverbSlider.value));
+    reverbSlider.oninput = () => music.setReverb(parseFloat(reverbSlider.value));
     music.onStep = (step, stepsPerBar) => {
       songProgress.value = (step + 1) / stepsPerBar;
     };
@@ -96,50 +101,15 @@
       return parseFloat(document.getElementById('fadeDuration').value) || 0;
     }
 
-    function fadeOut(duration) {
-      return new Promise(resolve => {
-        if (!music.masterGain || !music.ctx) {
-          music.stop();
-          resolve();
-          return;
-        }
-        const ctx = music.ctx;
-        const gain = music.masterGain.gain;
-        const now = ctx.currentTime;
-        gain.cancelScheduledValues(now);
-        gain.setValueAtTime(gain.value, now);
-        gain.linearRampToValueAtTime(0.0001, now + duration);
-        setTimeout(() => {
-          music.stop();
-          resolve();
-        }, duration * 1000);
-      });
-    }
-
-    function fadeIn(duration) {
-      if (!music.masterGain || !music.ctx) return;
-      const ctx = music.ctx;
-      const gain = music.masterGain.gain;
-      const now = ctx.currentTime;
-      const target = music.isMuted ? 0.0001 : music.volume;
-      gain.cancelScheduledValues(now);
-      gain.setValueAtTime(0.0001, now);
-      gain.linearRampToValueAtTime(target, now + duration);
-    }
-
-    document.getElementById('playBtn').onclick = async () => {
+    document.getElementById('playBtn').onclick = () => {
       const song = SONGS.find(s => s.id === songSelect.value);
       const fade = getFadeDuration();
-      await fadeOut(fade);
-      resetProgress();
-      music.loadSong(song);
-      music.start();
-      fadeIn(fade);
+      music.crossfadeTo(song, fade).then(resetProgress);
     };
 
     document.getElementById('stopBtn').onclick = () => {
       const fade = getFadeDuration();
-      fadeOut(fade).then(resetProgress);
+      music.fadeOut(fade).then(resetProgress);
     };
 
     document.getElementById('muteBtn').onclick = () => {
