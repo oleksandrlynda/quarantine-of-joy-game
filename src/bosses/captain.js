@@ -45,6 +45,11 @@ export class Captain {
     this._zoneMarkers = []; // visuals using createAdZoneMarkerAsset
     this.zoneCooldown = 5.5 + Math.random() * 1.5; // cadence for marking
 
+    // Billboard walls
+    this._walls = []; // moving cover hazards
+    this._p1WallSpawned = false;
+    this._p2WallSpawned = false;
+
     // Phase/Shield
     this.invuln = false; // becomes true during zeppelin pods alive
     this._zeppelin = null;
@@ -227,6 +232,65 @@ export class Captain {
     }
   }
 
+  // --- Billboard walls ---
+  _spawnBillboardWall(ctx){
+    const THREE = this.THREE;
+    const built = createBillboardWallAsset({ THREE });
+    const root = built.root;
+    root.userData = { type: 'boss_captain_billboard' };
+
+    const horizontal = Math.random() < 0.5;
+    const start = new THREE.Vector3();
+    const end = new THREE.Vector3();
+    if (horizontal){
+      const z = ctx.player.position.z + (Math.random()*20 - 10);
+      start.set(-46, 1.1, z);
+      end.set(46, 1.1, z);
+      root.rotation.y = 0;
+    } else {
+      const x = ctx.player.position.x + (Math.random()*20 - 10);
+      start.set(x, 1.1, -46);
+      end.set(x, 1.1, 46);
+      root.rotation.y = Math.PI/2;
+    }
+
+    const geo = new THREE.BufferGeometry().setFromPoints([start, end]);
+    const mat = new THREE.LineDashedMaterial({ color: 0xff2ea6, transparent: true, opacity: 0.8, dashSize: 0.8, gapSize: 0.5 });
+    const line = new THREE.Line(geo, mat);
+    line.computeLineDistances?.();
+    ctx.scene.add(line);
+
+    this._walls.push({ root, start, end, line, tele: 0.8, active: false, progress: 0, speed: 8, length: start.distanceTo(end) });
+  }
+
+  _updateWalls(dt, ctx){
+    const objs = this.enemyManager.objects;
+    for (let i = this._walls.length - 1; i >= 0; i--){
+      const w = this._walls[i];
+      if (!w.active){
+        w.tele -= dt;
+        if (w.tele <= 0){
+          if (w.line){ ctx.scene.remove(w.line); w.line = null; }
+          w.root.position.copy(w.start);
+          ctx.scene.add(w.root);
+          if (objs.indexOf(w.root) === -1) objs.push(w.root);
+          this.enemyManager.refreshColliders(objs);
+          w.active = true;
+        }
+        continue;
+      }
+
+      w.progress += (w.speed * dt) / w.length;
+      w.root.position.lerpVectors(w.start, w.end, w.progress);
+      if (w.progress >= 1){
+        ctx.scene.remove(w.root);
+        const idx = objs.indexOf(w.root); if (idx !== -1) objs.splice(idx,1);
+        this.enemyManager.refreshColliders(objs);
+        this._walls.splice(i,1);
+      }
+    }
+  }
+
   // --- Zeppelin phase ---
   _maybeSummonZeppelin(ctx){
     const hp = this.root.userData.hp;
@@ -234,6 +298,7 @@ export class Captain {
     const maxHp = 1400;
     if (hp <= maxHp * 0.6){
       this.invuln = true;
+      if (!this._p2WallSpawned){ this._spawnBillboardWall(ctx); this._p2WallSpawned = true; }
       // Spawn zeppelin which drops pods; lift shield when pods cleared
       this._zeppelin = new ZeppelinSupport({ THREE: this.THREE, mats: this.mats, enemyManager: this.enemyManager, scene: ctx.scene, onPodsCleared: () => { this.invuln = false; } });
     }
@@ -241,6 +306,7 @@ export class Captain {
 
   // --- Lifecycle ---
   update(dt, ctx){
+    if (!this._p1WallSpawned){ this._spawnBillboardWall(ctx); this._p1WallSpawned = true; }
     // Shield behavior: restore HP back up if reduced while invuln (coarse armor)
     if (this.invuln){ this.root.userData.hp = Math.max(this.root.userData.hp, 1); }
 
@@ -251,6 +317,7 @@ export class Captain {
     this._tickVolley(dt, ctx);
     this._maybeMarkZones(dt, ctx);
     this._updateZones(dt, ctx);
+    this._updateWalls(dt, ctx);
 
     // Phase transition
     this._maybeSummonZeppelin(ctx);
@@ -261,6 +328,13 @@ export class Captain {
       if (this._aimLine){ ctx.scene.remove(this._aimLine); this._aimLine = null; }
       for (const z of this.zones){ ctx.scene.remove(z.mesh); }
       this.zones.length = 0;
+      for (const w of this._walls){
+        if (w.line) ctx.scene.remove(w.line);
+        if (w.root) ctx.scene.remove(w.root);
+        const idx = this.enemyManager.objects.indexOf(w.root); if (idx !== -1) this.enemyManager.objects.splice(idx,1);
+      }
+      this._walls.length = 0;
+      this.enemyManager.refreshColliders(this.enemyManager.objects);
       if (this._zeppelin){ this._zeppelin.cleanup(); this._zeppelin = null; }
     }
   }
@@ -269,6 +343,13 @@ export class Captain {
     if (this._aimLine){ scene.remove(this._aimLine); this._aimLine = null; }
     for (const z of this.zones){ scene.remove(z.mesh); }
     this.zones.length = 0;
+    for (const w of this._walls){
+      if (w.line) scene.remove(w.line);
+      if (w.root) scene.remove(w.root);
+      const idx = this.enemyManager.objects.indexOf(w.root); if (idx !== -1) this.enemyManager.objects.splice(idx,1);
+    }
+    this._walls.length = 0;
+    this.enemyManager.refreshColliders(this.enemyManager.objects);
     if (this._zeppelin){ this._zeppelin.cleanup(); this._zeppelin = null; }
   }
 }

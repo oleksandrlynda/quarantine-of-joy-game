@@ -55,7 +55,7 @@ export class StrikeAdjudicator {
     this._weakpointTimer = 0;
 
     // Purge Nodes / Bailiffs
-    this._nodes = [];                 // { root, hp, bailiff, dead }
+    this._nodes = [];                 // { root, bailiff, dead }
     this._nodeHp = 60;
     this._nodePerCitation = 2;
 
@@ -69,7 +69,11 @@ export class StrikeAdjudicator {
   // ---------- Lifecycle ----------
   onRemoved(scene) {
     this._clearTele(scene);
-    for (const n of this._nodes) { if (n.root && scene) scene.remove(n.root); }
+    for (const n of this._nodes) {
+      if (!n.root) continue;
+      if (n.bailiff && this.enemyManager) this.enemyManager.remove(n.root);
+      else if (scene) scene.remove(n.root);
+    }
     this._nodes.length = 0;
     // Clear player debuffs
     this._applyPlayerDebuffs(0, null);
@@ -115,14 +119,14 @@ export class StrikeAdjudicator {
       }
     }
 
-    // Light add spawns (rushers) while in combat (never more than 3 alive from this boss)
+    // Light add spawns (bailiffs) while in combat (never more than 3 alive from this boss)
     if (this.enemyManager && (this._addCooldown || 0) <= 0) {
       const mine = Array.from(this.enemyManager.instances || []).filter(inst => inst?.summoner === this).length;
       if (mine < 3 && Math.random() < 0.18 * dt) {
         const p = ctx.player.position;
         const a = Math.random() * Math.PI * 2, r = 10 + Math.random() * 6;
         const pos = new this.THREE.Vector3(p.x + Math.cos(a)*r, 0.8, p.z + Math.sin(a)*r);
-        const root = this.enemyManager.spawnAt('rusher', pos, { countsTowardAlive: true });
+        const root = this.enemyManager.spawnAt('bailiff', pos, { countsTowardAlive: true });
         if (root) {
           const inst = this.enemyManager.instanceByRoot?.get(root);
           if (inst) inst.summoner = this;
@@ -207,57 +211,82 @@ export class StrikeAdjudicator {
   // ---------- Purge Nodes / Bailiffs ----------
   _spawnNode(ctx, pos) {
     const THREE = this.THREE;
-    const mat = this.mats.enemy.clone(); mat.color = new THREE.Color(0xf43f5e);
+    const mat = this.mats.enemy.clone();
+    mat.color = new THREE.Color(0xf43f5e);
     const root = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.45, 0.6, 8), mat);
     root.position.copy(pos);
     root.userData = { type: 'purge_node', hp: this._nodeHp };
-    ctx.scene.add(root);
-    const node = { root, hp: this._nodeHp, bailiff: false, dead: false, t: 0 };
+
+    // Subtle ground ring to telegraph that nodes are destructible
+    try {
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(0.55, 0.85, 20),
+        new THREE.MeshBasicMaterial({ color: 0x60a5fa, transparent: true, opacity: 0.6, side: THREE.DoubleSide })
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = -0.31;
+      root.add(ring);
+    } catch (_) {}
+
+    // Register with EnemyManager so generic damage applies
+    if (this.enemyManager && typeof this.enemyManager.registerExternalEnemy === 'function') {
+      this.enemyManager.registerExternalEnemy({ root, update() {} }, { countsTowardAlive: true });
+    } else {
+      ctx.scene.add(root);
+    }
+
+    const node = { root, bailiff: false, dead: false };
     this._nodes.push(node);
     return node;
   }
 
   _tickNodes(dt, ctx) {
-    // Watch for kills (hp driven by your generic damage system)
+    const em = this.enemyManager;
+    if (!em) return;
+
     for (let i = this._nodes.length - 1; i >= 0; i--) {
       const n = this._nodes[i];
-      if (!n || !n.root) { this._nodes.splice(i,1); continue; }
-      // bailiffs body-block in Phase 2
-      if (n.bailiff && !n.dead) {
-        n.t += dt;
-        const to = ctx.player.position.clone().sub(n.root.position); to.y = 0;
-        const d = to.length();
-        if (d > 0.0001) to.normalize();
-        const want = to.multiplyScalar(1.25 * dt);
-        // jiggle to re-position as wall
-        const side = new this.THREE.Vector3(-to.z, 0, to.x).multiplyScalar(Math.sin(n.t*2.5)*0.3*dt);
-        want.add(side);
-        ctx.moveWithCollisions(n.root, want);
+      if (!n || !n.root) { this._nodes.splice(i, 1); continue; }
+
+      const alive = em.enemies.has(n.root);
+
+      // If HP depleted but still registered, remove via manager
+      if (alive && n.root.userData?.hp <= 0) {
+        em.remove(n.root);
       }
-      // killed?
-      const hp = n.root.userData?.hp ?? n.hp;
-      if (hp <= 0 && !n.dead) {
+
+      // Node destroyed -> remove strike and cleanup
+      if (!em.enemies.has(n.root) && !n.dead) {
         n.dead = true;
-        // Remove a Strike
         if (this.strikes > 0) {
           this.strikes -= 1;
           this._updateStrikeUI();
           this._applyPlayerDebuffs(this.strikes, ctx);
         }
-        // pop VFX
-        try { window?._EFFECTS?.ring?.(n.root.position.clone(), 0.9, 0x60a5fa); } catch(_) {}
-        ctx.scene.remove(n.root);
+        try { window?._EFFECTS?.ring?.(n.root.position.clone(), 0.9, 0x60a5fa); } catch (_) {}
         this._nodes.splice(i, 1);
       }
     }
   }
 
   _enterPhase2(ctx) {
-    // Convert existing nodes into Bailiffs
+    // Convert existing nodes into Bailiff enemies
     for (const n of this._nodes) {
-      n.bailiff = true;
-      // visual tweak
-      if (n.root?.material?.emissive) n.root.material.emissive.setHex(0x60a5fa);
+      const pos = n.root?.position?.clone();
+      if (this.enemyManager && pos) {
+        this.enemyManager.remove(n.root);
+        const bRoot = this.enemyManager.spawnAt('bailiff', pos, { countsTowardAlive: true });
+        if (bRoot) {
+          const inst = this.enemyManager.instanceByRoot?.get(bRoot);
+          if (inst) inst.summoner = this;
+          n.root = bRoot;
+          n.bailiff = true;
+          n.dead = false;
+        }
+      } else if (n.root && ctx.scene) {
+        // Fallback: just recolor
+        if (n.root.material?.emissive) n.root.material.emissive.setHex(0x60a5fa);
+      }
     }
   }
 

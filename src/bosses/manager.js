@@ -59,10 +59,11 @@ export class BossManager {
     // - Wave 15: Captain
     // - Wave 20: Shard Avatar
     // - Wave 25: Broodmaker (heavy version)
+    // - Wave 30: Hydraclone
     // - Wave 35: Strike Adjudicator
     let boss;
     if (wave === 5) {
-      boss = new StrikeAdjudicator({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager });
+      boss = new Broodmaker({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager });
     } else if (wave == 10) {
       boss = new Sanitizer({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager });
     } else if (wave == 15) {
@@ -102,7 +103,12 @@ export class BossManager {
 
     // Skip generic add spawns for bosses that manage their own cadence
     const bossType = this.boss?.root?.userData?.type || '';
-    const selfManaged = bossType.startsWith('boss_sanitizer') || bossType.startsWith('boss_captain') || bossType.startsWith('boss_shard') || bossType.startsWith('boss_broodmaker_heavy');
+    const selfManaged =
+      bossType.startsWith('boss_sanitizer') ||
+      bossType.startsWith('boss_captain') ||
+      bossType.startsWith('boss_shard') ||
+      bossType.startsWith('boss_broodmaker_heavy') ||
+      bossType.startsWith('boss_hydraclone');
     if (selfManaged) {
       // Only update boss; no telegraphs or adds here
       this.boss.update(dt, ctx);
