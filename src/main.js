@@ -1,7 +1,7 @@
 import * as THREE from 'https://unpkg.com/three@0.159.0/build/three.module.js';
 import { PointerLockControls } from 'https://unpkg.com/three@0.159.0/examples/jsm/controls/PointerLockControls.js?module';
 import { WeatherSystem } from './weather.js';
-import { createWorld } from './world.js';
+import { createWorld } from './world.js?v=1';
 import { makeSeededRng, makeNamespacedRng, generateSeedString } from './util/rng.js';
 import { EnemyManager } from './enemies.js';
 import { PlayerController } from './player.js';
@@ -32,6 +32,16 @@ if (musicSelect) {
 // ------ Seeded RNG + URL persistence ------
 const url = new URL(window.location.href);
 const params = url.searchParams;
+const shapeSelect = document.getElementById('arenaShape');
+let arenaShape = params.get('shape') || (shapeSelect ? shapeSelect.value : 'box');
+if (shapeSelect) {
+  shapeSelect.value = arenaShape;
+  shapeSelect.addEventListener('change', e => {
+    const u = new URL(window.location.href);
+    u.searchParams.set('shape', e.target.value);
+    window.location.href = `${u.pathname}?${u.searchParams.toString()}`;
+  });
+}
 let seed = params.get('seed');
 if (!seed) {
   seed = generateSeedString(6);
@@ -64,7 +74,7 @@ if (newSeedBtn) {
 }
 
 // ------ World (renderer, scene, camera, lights, sky, materials, arena) ------
-const { renderer, scene, camera, skyMat, hemi, dir, mats, objects } = createWorld(THREE, rng);
+const { renderer, scene, camera, skyMat, hemi, dir, mats, objects } = createWorld(THREE, rng, arenaShape);
 const wantEditor = (new URL(window.location.href)).searchParams.get('editor') === '1';
 const storyParam = (new URL(window.location.href)).searchParams.get('story');
 const storyDisabled = storyParam === '0' || storyParam === 'false';
