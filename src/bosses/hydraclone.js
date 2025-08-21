@@ -140,6 +140,10 @@ export class Hydraclone {
     return inst;
   }
 
+  static hasPending() {
+    return HydraGlobal.active + HydraGlobal.queue.length > 0;
+  }
+
   // --- Temporary mirror clones that retrace recent player path ---
   _spawnMirrorClones(ctx) {
     if (this._playerPath.length < 2) return;
