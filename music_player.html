@@ -35,8 +35,6 @@
     const songSelect = document.getElementById('songSelect');
     const songData = document.getElementById('songData');
     const songProgress = document.getElementById('songProgress');
-
-
     const STORAGE_KEY = 'musicLibrary';
 
     function saveLibrary() {
@@ -73,6 +71,11 @@
 
     function loadEditor() {
       const song = SONGS.find(s => s.id === songSelect.value);
+      if (song) {
+        if (!song.clapPattern) song.clapPattern = Array(16).fill(0);
+        if (!song.ridePattern) song.ridePattern = Array(16).fill(0);
+      }
+
       songData.value = song ? JSON.stringify(song, null, 2) : '';
     }
 
