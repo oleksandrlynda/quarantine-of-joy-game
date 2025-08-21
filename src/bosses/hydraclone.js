@@ -132,7 +132,12 @@ export class Hydraclone {
   // --- Manager/scene registration helper (used by global queue spawns) ---
   static registerInstance(inst, ctx) {
     if (inst.enemyManager && typeof inst.enemyManager.registerExternalEnemy === 'function') {
+      // Ensure waveStartingAlive is a number before tracking additional spawns
+      if (typeof inst.enemyManager.waveStartingAlive !== 'number') {
+        inst.enemyManager.waveStartingAlive = inst.enemyManager.alive || 0;
+      }
       inst.enemyManager.registerExternalEnemy(inst, { countsTowardAlive: true });
+      inst.enemyManager.waveStartingAlive++;
       return inst;
     }
     // Fallback if no manager helper available
