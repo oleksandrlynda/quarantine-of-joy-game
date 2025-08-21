@@ -287,9 +287,10 @@ let story;        // lightweight narrative beats
 let offerActive = false; // suppress panel on pointer unlock during offers
 
 function updateHUD(){
-  const ammoVal = weaponSystem ? weaponSystem.getAmmo() : 30;
-  const reserveVal = weaponSystem ? weaponSystem.getReserve() : 60;
   const w = weaponSystem ? weaponSystem.current : null;
+  const isBeamSaber = w?.name === 'BeamSaber';
+  const ammoVal = weaponSystem ? (isBeamSaber ? '∞' : weaponSystem.getAmmo()) : 30;
+  const reserveVal = weaponSystem ? (isBeamSaber ? '∞' : weaponSystem.getReserve()) : 60;
   if (weaponNameEl) weaponNameEl.textContent = w ? w.name : 'Rifle';
   if (weaponIconEl) {
     const iconMap = { Rifle:'assets/icons/weapon-rifle.svg', SMG:'assets/icons/weapon-smg.svg', Shotgun:'assets/icons/weapon-shotgun.svg', DMR:'assets/icons/weapon-dmr.svg', Pistol:'assets/icons/weapon-pistol.svg', BeamSaber:'assets/icons/weapon-beamsaber.svg' };
