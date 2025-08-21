@@ -291,6 +291,15 @@ export class Hydraclone {
       this._didRegisterDeath = true;
       for (const c of this._mirrorClones) { ctx.scene.remove(c.root); }
       this._mirrorClones.length = 0;
+      const pos = this.root.position.clone();
+      if (ctx.pickups) {
+        if (this.gen === 0) {
+          ctx.pickups.dropMultiple('med', pos, 1);
+          ctx.pickups.dropMultiple('ammo', pos, 4);
+        } else {
+          ctx.pickups.dropMultiple('random', pos, 1);
+        }
+      }
       // removal is handled by EnemyManager; nothing else to do here
       return;
     }
