@@ -23,6 +23,7 @@ export class Music {
     this._timerId = null;
     this.barCounter = 0;
     this.secondsPerStep = 0;
+    this.onStep = null; // optional callback for playback progress
     this.swing = 0.12; // 0..0.5 of step; 0.12 = gentle swing
     this.energy = 0; // 0..3 from gameplay
     this.mode = 'normal'; // 'normal' | 'boss'
@@ -52,6 +53,9 @@ export class Music {
     this.kickPattern = [1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0]; // 4-on-the-floor
     this.snarePattern = [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0]; // 2 and 4
     this.hatPattern =   [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0]; // offbeat 8ths
+    this.clapPattern =  [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0]; // no claps by default
+    this.ridePattern =  [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0]; // no rides by default
+    this.stabPattern =  [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0]; // simple chord stabs on 1 and 3
 
     // 8-bar chord progression (relative to root) default
     this.progression = [0, 8, 3, 10, 0, 8, 10, 0];
@@ -136,11 +140,14 @@ export class Music {
     const scheduler = () => {
       if (!this.isPlaying) return;
       while (this.nextNoteTime < this.ctx.currentTime + this.scheduleAheadTime) {
-        this.scheduleStep(this.currentStep, this.nextNoteTime);
+        const stepForCallback = this.currentStep;
+        this.scheduleStep(stepForCallback, this.nextNoteTime);
         this.nextNoteTime += secondsPerStep;
-        const prev = this.currentStep;
         this.currentStep = (this.currentStep + 1) % this.stepsPerBar;
-        if (prev === this.stepsPerBar - 1) this.barCounter++;
+        if (typeof this.onStep === 'function') {
+          this.onStep(stepForCallback, this.stepsPerBar);
+        }
+        if (stepForCallback === this.stepsPerBar - 1) this.barCounter++;
       }
     };
 
@@ -200,6 +207,9 @@ export class Music {
     if (song.kickPattern) this.kickPattern = song.kickPattern.slice();
     if (song.snarePattern) this.snarePattern = song.snarePattern.slice();
     if (song.hatPattern) this.hatPattern = song.hatPattern.slice();
+    if (song.clapPattern) this.clapPattern = song.clapPattern.slice();
+    if (song.ridePattern) this.ridePattern = song.ridePattern.slice();
+    if (song.stabPattern) this.stabPattern = song.stabPattern.slice();
     if (song.leadArp) this.leadArp = song.leadArp.slice();
     if (song.delayTime && this.delay) this.delay.delayTime.setTargetAtTime(song.delayTime, this.ctx?.currentTime || 0, 0.05);
     // Reset position to bar start on song load
@@ -316,6 +326,18 @@ export class Music {
     const extraHat = (this.mode === 'boss' && Math.random() < this.bossProfile.hatExtraDensity && (stepIndex % 2 === 0));
     const hatOn = this.hatPattern[stepIndex] || (this.energy >= 2 && stepIndex % 4 === 2) || extraHat;
     if (hatOn) this.playHat(time + swingOffset * 0.8);
+    if (this.ridePattern && this.ridePattern[stepIndex]) {
+      this.playRide(time + swingOffset * 0.8);
+    }
+    if (this.clapPattern && this.clapPattern[stepIndex]) {
+      this.playClap(time + swingOffset * 0.8);
+    }
+
+    // Short chord stabs for rhythmic accents
+    if (this.stabPattern && this.stabPattern[stepIndex]) {
+      const chord = this.makeMinorChord(rootSemi);
+      this.playStab(time + swingOffset * 0.5, chord);
+    }
 
     // Drum fill every 4th bar (last beat 12..15)
     if ((this.barCounter % 4) === 3 && stepIndex >= 12) {
@@ -407,6 +429,28 @@ export class Music {
     noise.stop(time + 0.1);
   }
 
+  playClap(time) {
+    const a = this.ctx;
+    const bufferSize = 0.06 * a.sampleRate | 0;
+    const buffer = a.createBuffer(1, bufferSize, a.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize);
+    }
+    const noise = a.createBufferSource();
+    noise.buffer = buffer;
+    const bp = a.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 1200;
+    const g = a.createGain();
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.exponentialRampToValueAtTime(0.5, time + 0.003);
+    g.gain.exponentialRampToValueAtTime(0.0001, time + 0.12);
+    noise.connect(bp).connect(g).connect(this.masterGain);
+    noise.start(time);
+    noise.stop(time + 0.13);
+  }
+
   playHat(time) {
     const a = this.ctx;
     const bufferSize = 0.03 * a.sampleRate | 0;
@@ -425,6 +469,26 @@ export class Music {
     noise.connect(hp).connect(g).connect(this.masterGain);
     noise.start(time);
     noise.stop(time + 0.06);
+  }
+
+  playRide(time) {
+    const a = this.ctx;
+    const bufferSize = 0.2 * a.sampleRate | 0;
+    const buffer = a.createBuffer(1, bufferSize, a.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) { data[i] = Math.random() * 2 - 1; }
+    const noise = a.createBufferSource();
+    noise.buffer = buffer;
+    const hp = a.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 4000;
+    const g = a.createGain();
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.exponentialRampToValueAtTime(0.25, time + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.0001, time + 0.3);
+    noise.connect(hp).connect(g).connect(this.masterGain);
+    noise.start(time);
+    noise.stop(time + 0.31);
   }
 
   playBass(time, freq, length = 0.2) {
@@ -470,6 +534,23 @@ export class Music {
 
   makeMinorChord(rootSemi) {
     return [rootSemi, rootSemi + 3, rootSemi + 7];
+  }
+
+  playStab(time, semis, length = 0.25) {
+    const a = this.ctx;
+    for (const s of semis) {
+      const freq = this.noteToFreq(this.baseFreq, s);
+      const osc = a.createOscillator();
+      const g = a.createGain();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(freq, time);
+      g.gain.setValueAtTime(0.0001, time);
+      g.gain.exponentialRampToValueAtTime(0.3, time + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, time + length);
+      osc.connect(g).connect(this.busses.pad);
+      osc.start(time);
+      osc.stop(time + length + 0.02);
+    }
   }
 
   playPadChord(time, semis, length = 1.2) {

@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Music Player</title>
+  <link rel="stylesheet" href="styles/styles.css" />
+  <style>
+    body{ padding:20px; }
+    select, button{ margin:4px; }
+  </style>
+</head>
+<body>
+  <h1>Music Library Player</h1>
+  <div>
+    <label for="songSelect">Song:</label>
+    <select id="songSelect"></select>
+    <button id="playBtn">Play</button>
+    <button id="stopBtn">Stop</button>
+    <button id="muteBtn">Mute</button>
+    <label for="fadeDuration">Fade (s):</label>
+    <input type="number" id="fadeDuration" min="0" max="5" step="0.1" value="0.5" />
+  </div>
+  <progress id="songProgress" value="0" max="1" style="width:300px;"></progress>
+
+  <h2>Song Editor</h2>
+  <textarea id="songData" rows="12" cols="80"></textarea><br />
+  <button id="saveSong">Save Changes</button>
+  <button id="addSong">Add As New</button>
+  <button id="deleteSong">Delete Song</button>
+
+  <script type="module">
+    import { Music } from './src/music.js';
+    import { SONGS } from './src/musicLibrary.js';
+
+    const songSelect = document.getElementById('songSelect');
+    const songData = document.getElementById('songData');
+    const songProgress = document.getElementById('songProgress');
+
+    const STORAGE_KEY = 'musicLibrary';
+
+    function saveLibrary() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(SONGS));
+      } catch (err) {
+        console.warn('Failed to save library', err);
+      }
+    }
+
+    function loadLibrary() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const saved = JSON.parse(raw);
+          if (Array.isArray(saved)) {
+            SONGS.splice(0, SONGS.length, ...saved);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load library', err);
+      }
+    }
+
+    function refreshSelect() {
+      songSelect.innerHTML = '';
+      SONGS.forEach(song => {
+        const opt = document.createElement('option');
+        opt.value = song.id;
+        opt.textContent = song.name || song.id;
+        songSelect.appendChild(opt);
+      });
+    }
+
+    function loadEditor() {
+      const song = SONGS.find(s => s.id === songSelect.value);
+      if (song) {
+        if (!song.clapPattern) song.clapPattern = Array(16).fill(0);
+        if (!song.ridePattern) song.ridePattern = Array(16).fill(0);
+      }
+      songData.value = song ? JSON.stringify(song, null, 2) : '';
+    }
+
+    loadLibrary();
+    refreshSelect();
+    loadEditor();
+
+    const music = new Music({ volume: 0.5 });
+    music.onStep = (step, stepsPerBar) => {
+      songProgress.value = (step + 1) / stepsPerBar;
+    };
+
+    function resetProgress() {
+      songProgress.value = 0;
+    }
+
+    function getFadeDuration() {
+      return parseFloat(document.getElementById('fadeDuration').value) || 0;
+    }
+
+    function fadeOut(duration) {
+      return new Promise(resolve => {
+        if (!music.masterGain || !music.ctx) {
+          music.stop();
+          resolve();
+          return;
+        }
+        const ctx = music.ctx;
+        const gain = music.masterGain.gain;
+        const now = ctx.currentTime;
+        gain.cancelScheduledValues(now);
+        gain.setValueAtTime(gain.value, now);
+        gain.linearRampToValueAtTime(0.0001, now + duration);
+        setTimeout(() => {
+          music.stop();
+          resolve();
+        }, duration * 1000);
+      });
+    }
+
+    function fadeIn(duration) {
+      if (!music.masterGain || !music.ctx) return;
+      const ctx = music.ctx;
+      const gain = music.masterGain.gain;
+      const now = ctx.currentTime;
+      const target = music.isMuted ? 0.0001 : music.volume;
+      gain.cancelScheduledValues(now);
+      gain.setValueAtTime(0.0001, now);
+      gain.linearRampToValueAtTime(target, now + duration);
+    }
+
+    document.getElementById('playBtn').onclick = async () => {
+      const song = SONGS.find(s => s.id === songSelect.value);
+      const fade = getFadeDuration();
+      await fadeOut(fade);
+      resetProgress();
+      music.loadSong(song);
+      music.start();
+      fadeIn(fade);
+    };
+
+    document.getElementById('stopBtn').onclick = () => {
+      const fade = getFadeDuration();
+      fadeOut(fade).then(resetProgress);
+    };
+
+    document.getElementById('muteBtn').onclick = () => {
+      const muted = !music.isMuted;
+      music.setMuted(muted);
+      document.getElementById('muteBtn').textContent = muted ? 'Unmute' : 'Mute';
+    };
+
+    songSelect.onchange = () => { loadEditor(); resetProgress(); };
+
+    document.getElementById('saveSong').onclick = () => {
+      try {
+        const updated = JSON.parse(songData.value);
+        const index = SONGS.findIndex(s => s.id === songSelect.value);
+        if (index >= 0) {
+          SONGS[index] = updated;
+          saveLibrary();
+          refreshSelect();
+          songSelect.value = updated.id;
+          loadEditor();
+          alert('Song updated');
+        }
+      } catch (err) {
+        alert('Invalid JSON');
+      }
+    };
+
+    document.getElementById('addSong').onclick = () => {
+      try {
+        const song = JSON.parse(songData.value);
+        if (!song.id) {
+          alert('Song must have an id');
+          return;
+        }
+        SONGS.push(song);
+        saveLibrary();
+        refreshSelect();
+        songSelect.value = song.id;
+        loadEditor();
+        alert('Song added');
+      } catch (err) {
+        alert('Invalid JSON');
+      }
+    };
+
+    document.getElementById('deleteSong').onclick = () => {
+      const index = SONGS.findIndex(s => s.id === songSelect.value);
+      if (index >= 0 && confirm('Delete this song?')) {
+        SONGS.splice(index, 1);
+        saveLibrary();
+        refreshSelect();
+        loadEditor();
+      }
+    };
+  </script>
+</body>
+</html>
