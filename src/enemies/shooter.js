@@ -3,20 +3,20 @@ export class ShooterEnemy {
   constructor({ THREE, mats, cfg, spawnPos }) {
     this.THREE = THREE;
     this.cfg = cfg;
-
+  
     // Use ShooterBot asset with right-hand gun; shots originate from muzzle, not head
     const built = createShooterBot({ THREE, mats, scale: 0.62 });
     const body = built.root; const head = built.head; this._refs = built.refs || {};
     body.position.copy(spawnPos);
     // Ensure head has a unique material so emissive glow doesn't affect other shooters
     try { if (head && head.material) head.material = head.material.clone(); } catch(_) {}
-
+  
     body.userData = { type: cfg.type, head, hp: cfg.hp };
     this.root = body;
     this.speed = cfg.speedMin + Math.random() * (cfg.speedMax - cfg.speedMin);
     this.preferredRange = { min: 5, max: 50 };
     this.engageRange = { min: 48, max: 90 };
-
+  
     // Firing cadence and telegraph
     this.cooldown = 0;                               // general cooldown timer
     this.baseCadence = 0.6 + Math.random() * 0.4;   // intra-burst spacing
@@ -26,11 +26,11 @@ export class ShooterEnemy {
     this.windupRequired = 0.5 + Math.random() * 0.2; // 0.5–0.7s telegraph
     this.strafeDir = Math.random() < 0.5 ? 1 : -1;
     this.switchCooldown = 0;                         // control strafe dir switching
-
+  
     this.projectiles = [];
     this._raycaster = new THREE.Raycaster();
     this._aimLine = null;                            // telegraph line during windup
-
+  
     // Peek/relocate behavior state
     this.shotsThisBurst = 0;
     this.maxBurst = 3 + ((Math.random() * 2) | 0);   // 3–4 shots per burst
@@ -39,18 +39,35 @@ export class ShooterEnemy {
     this.relocateTimer = 0;
     this.relocateTimeout = 2.2 + Math.random() * 0.8; // seconds to give up and resume
     this.relocateDistance = 8 + Math.random() * 4;     // 8–12 units lateral move
+  
     // On-hit micro-juke
     this._hitJukeTime = 0;
     this._hitJukeDir = new this.THREE.Vector3();
     this._lastFwd = new this.THREE.Vector3(0,0,1);
+  
     // Facing and small gun recoil/flash state
     this._yaw = 0; this._flashTimer = 0; this._recoil = 0;
     // Smoothed facing to avoid jitter
     this._faceDir = new this.THREE.Vector3(0, 0, 1);
-  }
+  
+    // --- NEW: spray/bloom settings ---
+    const rad = (d)=> this.THREE.MathUtils.degToRad(d);
+    this.spreadBase = rad(1.4);           // base cone angle
+    this.spreadBloomPerShot = rad(0.6);   // each shot adds bloom
+    this.spreadMax = rad(6.0);            // hard cap
+    this.spreadDecay = rad(4.0);          // per second decay
+    this.currentSpread = 0;               // dynamic part, decays over time
+  
+    // --- NEW: kiting/evasive behavior ---
+    this.kiteRange = { min: 7, max: 12 }; // tries to keep player outside this if rushing in
+    this.evasiveTimer = 0;                 // time left in panic dash
+    this.evasiveCooldown = 0;              // prevent constant re-trigger
+    this._stutterTimer = 0;                // micro stutter strafing during windup
+  }  
 
   update(dt, ctx) {
     const THREE = this.THREE;
+  
     // 0) Update small per-shot visuals
     if (this._flashTimer > 0) {
       this._flashTimer = Math.max(0, this._flashTimer - dt);
@@ -64,20 +81,50 @@ export class ShooterEnemy {
     } else {
       try { if (this._refs && this._refs.gun) this._refs.gun.position.z *= Math.max(0, 1 - dt * 10); } catch(_) {}
     }
-
+  
+    // NEW: decay spread bloom
+    this.currentSpread = Math.max(0, this.currentSpread - this.spreadDecay * dt);
+  
     // 1) Update projectiles
     this._updateProjectiles(dt, ctx);
-
+  
     const e = this.root;
     const playerPos = ctx.player.position.clone();
     const toPlayer = playerPos.clone().sub(e.position);
     const dist = toPlayer.length();
     const hasLOS = this._hasLineOfSight(e, playerPos, ctx.objects);
-    const playerStationary = (ctx.blackboard && (ctx.blackboard.playerSpeed || 0) < 0.8);
-
+    const playerSpeed = (ctx.blackboard && (ctx.blackboard.playerSpeed || 0)) || 0;
+    const playerStationary = playerSpeed < 0.8;
+  
+    // --- NEW: trigger evasive kite if player is too close or rushing in ---
+    if (this.evasiveCooldown > 0) this.evasiveCooldown = Math.max(0, this.evasiveCooldown - dt);
+    if (this.evasiveTimer > 0) this.evasiveTimer = Math.max(0, this.evasiveTimer - dt);
+    const tooClose = dist < this.kiteRange.min;
+    const rushing = playerSpeed > 4.0 && dist < this.kiteRange.max && hasLOS;
+    if ((tooClose || rushing) && this.evasiveTimer <= 0 && this.evasiveCooldown <= 0) {
+      this.evasiveTimer = 0.7 + Math.random() * 0.4;     // 0.7–1.1s dash
+      this.evasiveCooldown = 1.2 + Math.random() * 0.6;  // cool down before next dash
+      // break telegraph/burst immediately
+      this.inBurst = false;
+      this.windupTime = 0;
+      this._setHeadGlow(false);
+      this._updateAimLine(null, ctx.scene);
+      // also consider relocation next
+      if (!this.relocating) { this.relocating = true; this.relocateTarget = null; this.relocateTimer = 0; }
+    }
+  
     // 2) Movement: maintain standoff, peek when LOS blocked, relocate after bursts
     const desired = new THREE.Vector3();
-    if (this.relocating) {
+  
+    // NEW: evasive overrides with backpedal + serpentine sidestep
+    if (this.evasiveTimer > 0) {
+      const away = toPlayer.clone().setY(0);
+      if (away.lengthSq() > 0) {
+        away.normalize().multiplyScalar(-1);
+        const side = new THREE.Vector3(-away.z, 0, away.x).multiplyScalar(this.strafeDir);
+        desired.add(away.multiplyScalar(1.8)).add(side.multiplyScalar(0.9));
+      }
+    } else if (this.relocating) {
       // Relocation overrides normal behavior
       this.relocateTimer += dt;
       if (!this.relocateTarget) {
@@ -115,7 +162,15 @@ export class ShooterEnemy {
       // strafe around player; if regrouping, widen standoff toward 22–28 and orbit until allies catch up
       toPlayer.y = 0; if (toPlayer.lengthSq() > 0) {
         const fwd = toPlayer.normalize();
-        const side = new THREE.Vector3(-fwd.z, 0, fwd.x).multiplyScalar(this.strafeDir);
+        let side = new THREE.Vector3(-fwd.z, 0, fwd.x).multiplyScalar(this.strafeDir);
+  
+        // NEW: during windup, add subtle stutter-strafe so telegraphing isn't static
+        if (this.windupTime > 0 && hasLOS) {
+          this._stutterTimer += dt;
+          if (this._stutterTimer > 0.22) { this._stutterTimer = 0; this.strafeDir *= -1; }
+          side = side.multiplyScalar(1.2); // a bit more lateral pressure when aiming
+        }
+  
         const regroup = ctx.blackboard && ctx.blackboard.regroup;
         if (regroup) {
           // push toward 22–28m ring
@@ -127,11 +182,12 @@ export class ShooterEnemy {
         } else {
           desired.add(side);
         }
-        // occasionally switch strafe dir
-        if (this.switchCooldown > 0) this.switchCooldown -= dt; else if (Math.random() < 0.01) { this.strafeDir *= -1; this.switchCooldown = 1.2; }
+        // occasionally switch strafe dir (less often if aiming)
+        if (this.switchCooldown > 0) this.switchCooldown -= dt;
+        else if (Math.random() < (this.windupTime > 0 ? 0.006 : 0.01)) { this.strafeDir *= -1; this.switchCooldown = 1.2; }
       }
     }
-
+  
     // Obstacle avoidance + separation
     const avoid = desired.lengthSq() > 0 ? ctx.avoidObstacles(e.position, desired, 1.6) : desired;
     const sep = ctx.separation(e.position, 1.2, e);
@@ -140,24 +196,30 @@ export class ShooterEnemy {
       const fwdCache = toPlayer.clone().setY(0);
       if (fwdCache.lengthSq()>0) this._lastFwd.copy(fwdCache.normalize());
     }
-
-    const steer = desired.clone().add(avoid.multiplyScalar(1.2)).add(sep.multiplyScalar(0.8));
+  
+    // NEW: stronger steering while evasive
+    const steer = desired.clone()
+      .add(avoid.multiplyScalar(this.evasiveTimer > 0 ? 1.8 : 1.2))
+      .add(sep.multiplyScalar(this.evasiveTimer > 0 ? 1.2 : 0.8));
+  
     // Apply on-hit micro-juke impulse
     if (this._hitJukeTime > 0 && this._hitJukeDir.lengthSq() > 0) {
       this._hitJukeTime = Math.max(0, this._hitJukeTime - dt);
       steer.add(this._hitJukeDir.clone().multiplyScalar(1.1));
     }
-
+  
     let movedVec = null;
     if (steer.lengthSq() > 0) {
       steer.y = 0; steer.normalize();
-      const step = steer.multiplyScalar(this.speed * dt);
+      // NEW: speed boost while evasive
+      const speedMul = this.evasiveTimer > 0 ? 1.6 : 1.0;
+      const step = steer.multiplyScalar(this.speed * speedMul * dt);
       const before = e.position.clone();
       ctx.moveWithCollisions(e, step);
       movedVec = e.position.clone().sub(before);
       movedVec.y = 0;
     }
-
+  
     // Face the player smoothly (yaw only) so gun points generally toward target
     const inBandYaw = dist >= this.preferredRange.min && dist <= this.preferredRange.max;
     const aiming = this.inBurst || (hasLOS && inBandYaw && (this.windupTime > 0 || this.cooldown <= 0));
@@ -175,18 +237,28 @@ export class ShooterEnemy {
     const turnRate = 5.0; // slightly reduced to smooth out jitter
     this._yaw = wrap(this._yaw + Math.max(-turnRate*dt, Math.min(turnRate*dt, dy)));
     e.rotation.set(0, this._yaw, 0);
-
+  
     // 3) Shooting logic
     if (this.cooldown > 0) this.cooldown -= dt;
-
+  
     const inBand = dist >= this.preferredRange.min && dist <= this.preferredRange.max;
-
+  
+    // NEW: no firing while evasive
+    if (this.evasiveTimer > 0) {
+      if (this.windupTime > 0) {
+        this.windupTime = 0;
+        this._setHeadGlow(false);
+        this._updateAimLine(null, ctx.scene);
+      }
+      return; // skip shooting when dashing away
+    }
+  
     // Active burst: fire without additional telegraph while LOS/inBand hold
     if (this.inBurst) {
       // Ensure telegraph visuals are off during burst
       if (this._aimLine) this._updateAimLine(null, ctx.scene);
       this._setHeadGlow(false);
-
+  
       // Cancel burst early if conditions break
       if (!(inBand && hasLOS)) {
         this.inBurst = false;
@@ -197,7 +269,7 @@ export class ShooterEnemy {
         this._fireProjectile(playerPos, ctx.scene);
         // Mark suppression immediately after firing if target was stationary and exposed
         if (ctx.blackboard && playerStationary) ctx.blackboard.suppression = true;
-
+  
         if (this.shotsThisBurst >= this.maxBurst) {
           // End burst: long inter-burst delay and relocation to vary angle
           this.inBurst = false;
@@ -260,7 +332,7 @@ export class ShooterEnemy {
         this._updateAimLine(null, ctx.scene);
       }
     }
-  }
+  }  
 
   _hasLineOfSight(_fromRoot, targetPos, objects) {
     const THREE = this.THREE;
@@ -296,15 +368,47 @@ export class ShooterEnemy {
     } else {
       origin = new THREE.Vector3(this.root.position.x, this.root.position.y + 1.2, this.root.position.z);
     }
-    const dir = targetPos.clone().sub(origin).normalize();
+  
+    // Base direction
+    let dir = targetPos.clone().sub(origin);
+    const dist = dir.length();
+    if (dist <= 0.0001) dir.set(0,0,1); else dir.normalize();
+  
+    // --- Spread model: base + current bloom, random within cone ---
+    const base = this.spreadBase;
+    const bloom = this.currentSpread;
+    const cone = Math.min(this.spreadMax, base + bloom);
+  
+    if (cone > 0) {
+      // Sample a random direction within a cone around dir
+      // Method: choose random small rotation axis perpendicular to dir and rotate by angle
+      const up = Math.abs(dir.y) < 0.99 ? new THREE.Vector3(0,1,0) : new THREE.Vector3(1,0,0);
+      const right = new THREE.Vector3().crossVectors(up, dir).normalize();
+      const upOrtho = new THREE.Vector3().crossVectors(dir, right).normalize();
+      // Use a squarer distribution (closer to center) rather than uniform edge
+      const u = Math.random(), v = Math.random();
+      const angle = cone * (Math.sqrt(u)); // central bias
+      const yaw = 2 * Math.PI * v;
+      // small offset vector in the tangent plane
+      const offset = right.multiplyScalar(Math.cos(yaw) * Math.tan(angle))
+        .add(upOrtho.multiplyScalar(Math.sin(yaw) * Math.tan(angle)));
+      dir = dir.clone().add(offset).normalize();
+    }
+  
+    // Update bloom for next shots and cap it
+    this.currentSpread = Math.min(this.spreadMax, this.currentSpread + this.spreadBloomPerShot);
+  
     const speed = 25; // units/s
-
-    const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 10), new THREE.MeshBasicMaterial({ color: 0x10b981 }));
+  
+    const mesh = new THREE.Mesh(
+      new THREE.SphereGeometry(0.12, 10, 10),
+      new THREE.MeshBasicMaterial({ color: 0x10b981 })
+    );
     mesh.position.copy(origin);
     mesh.material.transparent = true;
     mesh.material.opacity = 1;
     scene.add(mesh);
-
+  
     this.projectiles.push({
       mesh,
       velocity: dir.multiplyScalar(speed),
@@ -313,7 +417,7 @@ export class ShooterEnemy {
       damage: 22
     });
     this.shotsThisBurst += 1;
-  }
+  }  
 
   onHit(damage, isHead) {
     // Short lateral juke on hit (0.12–0.2s)

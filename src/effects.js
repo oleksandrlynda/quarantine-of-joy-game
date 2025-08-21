@@ -109,6 +109,37 @@ export class Effects {
     // Shared geometries for pools
     this._geoPlane1x1 = new THREE.PlaneGeometry(1,1);
 
+    // Explosion shared resources
+    this._ringSharedGeo = new THREE.RingGeometry(1, 1.2, 80, 1);
+    this._ringSharedMatProto = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      uniforms: {
+        uElapsed: { value: 0 },
+        uLife: { value: 0.5 },
+        uStart: { value: 1.0 },
+        uEnd: { value: 1.4 },
+        uColor: { value: new THREE.Color(0xfff1a1) }
+      },
+      vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+      fragmentShader: `precision mediump float; varying vec2 vUv; uniform float uElapsed; uniform float uLife; uniform float uStart; uniform float uEnd; uniform vec3 uColor; void main(){ float t=clamp(uElapsed/uLife,0.0,1.0); float r=mix(uStart,uEnd,t); float d=abs(length(vUv-0.5)*2.0 - r); float a=smoothstep(0.08,0.0,d)*(1.0-t); if(a<0.01) discard; gl_FragColor=vec4(uColor, a); }`
+    });
+
+    this._explCoreGeo = new THREE.PlaneGeometry(1, 1);
+    this._explCoreMatProto = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      uniforms: {
+        uAlpha: { value: 0.95 },
+        uTint: { value: new THREE.Color(0xffb347) },
+        uTime: { value: 0 }
+      },
+      vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+      fragmentShader: `precision mediump float; varying vec2 vUv; uniform float uAlpha; uniform vec3 uTint; uniform float uTime; void main(){ vec2 p=vUv-0.5; float r=length(p)*2.0; float core=smoothstep(1.0,0.0,r); float flicker=0.9+0.1*sin(uTime*30.0); float a=uAlpha*core*flicker; if(a<0.02) discard; gl_FragColor=vec4(uTint,a); }`
+    });
+
     // convenience hook for enemy VFX
     window._EFFECTS = window._EFFECTS || {};
     window._EFFECTS.ring = (center, radius=5, color=0x9bd1ff)=>{
