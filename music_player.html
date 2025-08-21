@@ -33,6 +33,30 @@
     const songSelect = document.getElementById('songSelect');
     const songData = document.getElementById('songData');
 
+    const STORAGE_KEY = 'musicLibrary';
+
+    function saveLibrary() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(SONGS));
+      } catch (err) {
+        console.warn('Failed to save library', err);
+      }
+    }
+
+    function loadLibrary() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const saved = JSON.parse(raw);
+          if (Array.isArray(saved)) {
+            SONGS.splice(0, SONGS.length, ...saved);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load library', err);
+      }
+    }
+
     function refreshSelect() {
       songSelect.innerHTML = '';
       SONGS.forEach(song => {
@@ -48,6 +72,7 @@
       songData.value = song ? JSON.stringify(song, null, 2) : '';
     }
 
+    loadLibrary();
     refreshSelect();
     loadEditor();
 
@@ -76,6 +101,7 @@
         const index = SONGS.findIndex(s => s.id === songSelect.value);
         if (index >= 0) {
           SONGS[index] = updated;
+          saveLibrary();
           refreshSelect();
           songSelect.value = updated.id;
           loadEditor();
@@ -94,6 +120,7 @@
           return;
         }
         SONGS.push(song);
+        saveLibrary();
         refreshSelect();
         songSelect.value = song.id;
         loadEditor();
@@ -107,6 +134,7 @@
       const index = SONGS.findIndex(s => s.id === songSelect.value);
       if (index >= 0 && confirm('Delete this song?')) {
         SONGS.splice(index, 1);
+        saveLibrary();
         refreshSelect();
         loadEditor();
       }

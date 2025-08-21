@@ -2,7 +2,7 @@
 
 [Play Now](https://oleksandrlynda.github.io/quarantine-of-joy-game/)
 
-[Music Player & Editor](https://oleksandrlynda.github.io/quarantine-of-joy-game/music_player.html) – preview tracks and tweak song data
+[Music Player & Editor](https://oleksandrlynda.github.io/quarantine-of-joy-game/music_player.html) – preview tracks, tweak song data, and persist edits via browser localStorage
 
 Concepts:
 
