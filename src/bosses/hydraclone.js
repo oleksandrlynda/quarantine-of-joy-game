@@ -21,12 +21,12 @@ class HydraGlobal {
   static queueStep = 0.25;
 
   // lineage data keyed by bossId
-  // { alive: number, descendants: number, started: true }
+  // { alive: number, descendants: number, started: true, nextSlot: number }
   static lineages = new Map();
 
   static ensureLineage(bossId) {
     if (!HydraGlobal.lineages.has(bossId)) {
-      HydraGlobal.lineages.set(bossId, { alive: 0, descendants: 0, started: true });
+      HydraGlobal.lineages.set(bossId, { alive: 0, descendants: 0, started: true, nextSlot: 0 });
     }
     return HydraGlobal.lineages.get(bossId);
   }
@@ -34,8 +34,10 @@ class HydraGlobal {
   static registerSpawn(bossId) {
     HydraGlobal.active++;
     const L = HydraGlobal.ensureLineage(bossId);
+    const slot = L.nextSlot++;
     L.alive++;
     L.descendants = Math.max(0, L.alive - 1); // show "Descendants: xN" (exclude the original)
+    return slot;
   }
   static registerDeath(bossId) {
     HydraGlobal.active = Math.max(0, HydraGlobal.active - 1);
@@ -79,7 +81,7 @@ export class Hydraclone {
 
     // Establish lineage id (the very first/gen0 becomes its own bossId)
     this.bossId = bossId || `hydra_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`;
-    HydraGlobal.registerSpawn(this.bossId);
+    this._slot = HydraGlobal.registerSpawn(this.bossId);
 
     // Build asset
     const built = createHydracloneAsset({
@@ -245,10 +247,19 @@ export class Hydraclone {
     const pfwd = (ctx.blackboard?.playerForward || toPlayer.clone().multiplyScalar(-1)).setY(0).normalize();
     const right = new this.THREE.Vector3(-pfwd.z, 0, pfwd.x);
 
-    this._arcAngle += (0.9 + this.gen * 0.12) * this._arcSign * dt; // slow drift
-    const dir = pfwd.clone().multiplyScalar(Math.cos(this._arcAngle))
-      .add(right.clone().multiplyScalar(Math.sin(this._arcAngle))).normalize();
-    const anchor = player.clone().add(dir.multiplyScalar(this._preferRadius));
+    const L = HydraGlobal.ensureLineage(this.bossId);
+    let anchor;
+    if (L.alive > 3) {
+      const angle = (Math.PI * 2 / L.alive) * (this._slot % L.alive);
+      const dir = pfwd.clone().multiplyScalar(Math.cos(angle))
+        .add(right.clone().multiplyScalar(Math.sin(angle))).normalize();
+      anchor = player.clone().add(dir.multiplyScalar(this._preferRadius));
+    } else {
+      this._arcAngle += (0.9 + this.gen * 0.12) * this._arcSign * dt; // slow drift
+      const dir = pfwd.clone().multiplyScalar(Math.cos(this._arcAngle))
+        .add(right.clone().multiplyScalar(Math.sin(this._arcAngle))).normalize();
+      anchor = player.clone().add(dir.multiplyScalar(this._preferRadius));
+    }
 
     // vector toward anchor with a pinch of direct pursuit if far
     const toAnchor = anchor.sub(e.position); toAnchor.y = 0;
@@ -305,7 +316,10 @@ export class Hydraclone {
     }
 
     // Ability: spawn & update mirror clones
-    if (this._mirrorCooldown > 0) this._mirrorCooldown -= dt;
+    if (this._mirrorCooldown > 0) {
+      this._mirrorCooldown -= dt;
+      if (L.alive > 3) this._mirrorCooldown -= dt; // faster when many are alive
+    }
     if (this._mirrorCooldown <= 0) {
       this._mirrorCooldown = 6 + Math.random() * 2;
       this._spawnMirrorClones(ctx);
