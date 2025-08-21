@@ -24,7 +24,7 @@ export class BeamSaber extends Weapon {
     const hits = candidates.length ? raycaster.intersectObjects(candidates, true) : [];
     const handled = new Set();
 
-    if (S && S.shot) S.shot('saber');
+    if (S?.saberSwing) S.saberSwing();
     effects?.spawnSaberSlash?.(origin, end);
 
     for (const hit of hits) {
@@ -37,6 +37,7 @@ export class BeamSaber extends Weapon {
       try { window._HUD && window._HUD.showHitmarker && window._HUD.showHitmarker(); } catch(_) {}
       obj.userData.hp -= 40;
       applyKnockback?.(obj, dir.clone().multiplyScalar(0.25));
+      if (S?.saberHit) S.saberHit();
       if (S && S.impactFlesh) S.impactFlesh();
       if (S && S.enemyPain) S.enemyPain(obj?.userData?.type || 'grunt');
 
@@ -62,6 +63,7 @@ export class BeamSaber extends Weapon {
       const worldHits = raycaster.intersectObjects(objects, true);
       if (worldHits.length) {
         const h = worldHits[0];
+        if (S?.saberHit) S.saberHit();
         // optional: minimal spark could be triggered here if available
       }
     }
