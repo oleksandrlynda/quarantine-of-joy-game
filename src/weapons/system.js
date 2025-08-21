@@ -32,8 +32,7 @@ export class WeaponSystem {
     this.currentIndex = 0; // primary slot index
 
     // Start wave 1 with only a Pistol
-    // this.inventory.push(new Pistol());
-    this.inventory.push(new DMR(), new Rifle());  // Sidearm-only start; primary is acquired later
+    this.inventory.push(new Pistol());  // Sidearm-only start; primary is acquired later
   }
 
   get current() { return this.inventory[this.currentIndex]; }
@@ -186,14 +185,15 @@ export class WeaponSystem {
     //  - Shotgun ~25% (0.3x of 15–30)
     //  - DMR ~25% (0.4x of 15–30)
     //  - Pistol ~20% (0.45x of 15–30)
+    //  - Minigun ~20% (1.8x of 15–30)
     const weaponPickupMultiplier = (w)=>{
       switch (w) {
         case 'SMG': return 1.6;
         case 'Shotgun': return 0.3;
-        case 'DMR': return 0.4;
+        case 'DMR': return 0.3;
         case 'Pistol': return 0.45;
         case 'Rifle': return 0.85;
-        case 'Minigun': return 0.25;
+        case 'Minigun': return 1.8;
         default: return 1.0;
       }
     };
