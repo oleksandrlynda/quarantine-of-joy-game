@@ -10,6 +10,7 @@ export class Music {
     this.reverbGain = null;
     this.reverbBus = null;
     this.busses = { drums: null, bass: null, lead: null, pad: null, fx: null };
+    this.busVolumes = { drums: 1, bass: 1, lead: 1, pad: 1, fx: 1 };
     this.isPlaying = false;
     this.isMuted = false;
     this.volume = options.volume != null ? options.volume : 0.4; // overall music volume
@@ -77,6 +78,11 @@ export class Music {
       this.busses.lead = this.ctx.createGain();
       this.busses.pad = this.ctx.createGain();
       this.busses.fx = this.ctx.createGain();
+      this.busses.drums.gain.value = this.busVolumes.drums;
+      this.busses.bass.gain.value = this.busVolumes.bass;
+      this.busses.lead.gain.value = this.busVolumes.lead;
+      this.busses.pad.gain.value = this.busVolumes.pad;
+      this.busses.fx.gain.value = this.busVolumes.fx;
 
       // Simple reverb bus
       this.reverbBus = this.ctx.createGain();
@@ -211,6 +217,33 @@ export class Music {
     }
   }
 
+  setBusVolume(bus, volume) {
+    const v = Math.max(0, Math.min(1, volume));
+    this.busVolumes[bus] = v;
+    if (this.busses[bus]) {
+      this.busses[bus].gain.setTargetAtTime(v, this.ctx?.currentTime || 0, 0.01);
+    }
+  }
+
+  getBusVolume(bus) {
+    return this.busVolumes[bus];
+  }
+
+  setDrumsVolume(v) { this.setBusVolume('drums', v); }
+  getDrumsVolume() { return this.getBusVolume('drums'); }
+
+  setBassVolume(v) { this.setBusVolume('bass', v); }
+  getBassVolume() { return this.getBusVolume('bass'); }
+
+  setLeadVolume(v) { this.setBusVolume('lead', v); }
+  getLeadVolume() { return this.getBusVolume('lead'); }
+
+  setPadVolume(v) { this.setBusVolume('pad', v); }
+  getPadVolume() { return this.getBusVolume('pad'); }
+
+  setFxVolume(v) { this.setBusVolume('fx', v); }
+  getFxVolume() { return this.getBusVolume('fx'); }
+
   fadeOut(duration = 0.5) {
     return new Promise(resolve => {
       this.ensureContext();
@@ -263,9 +296,9 @@ export class Music {
     this.originalVolume = this.volume;
     // Lower base slightly to make room for boss cue, push rhythm up
     if (this.masterGain) this.masterGain.gain.setTargetAtTime(Math.max(0.12, this.originalVolume * 0.65), this.ctx.currentTime, 0.15);
-    if (this.busses && this.busses.drums) this.busses.drums.gain.setTargetAtTime(1.0, this.ctx.currentTime, 0.15);
-    if (this.busses && this.busses.bass) this.busses.bass.gain.setTargetAtTime(0.95, this.ctx.currentTime, 0.15);
-    if (this.busses && this.busses.lead) this.busses.lead.gain.setTargetAtTime(0.9, this.ctx.currentTime, 0.15);
+    if (this.busses && this.busses.drums) this.busses.drums.gain.setTargetAtTime(1.0 * this.busVolumes.drums, this.ctx.currentTime, 0.15);
+    if (this.busses && this.busses.bass) this.busses.bass.gain.setTargetAtTime(0.95 * this.busVolumes.bass, this.ctx.currentTime, 0.15);
+    if (this.busses && this.busses.lead) this.busses.lead.gain.setTargetAtTime(0.9 * this.busVolumes.lead, this.ctx.currentTime, 0.15);
   }
 
   exitBossMode() {
@@ -372,17 +405,17 @@ export class Music {
     const bass = 0.7 + this.energy * 0.1;
     const lead = 0.6 + this.energy * 0.13;
     const pad = 0.45 + this.energy * 0.08 + (this.mode === 'boss' ? this.bossIntensity * 0.15 : 0);
-    this.busses.drums.gain.setTargetAtTime(drum, this.ctx.currentTime, 0.05);
-    this.busses.bass.gain.setTargetAtTime(bass, this.ctx.currentTime, 0.05);
-    this.busses.lead.gain.setTargetAtTime(lead, this.ctx.currentTime, 0.05);
-    this.busses.pad.gain.setTargetAtTime(pad, this.ctx.currentTime, 0.08);
+    this.busses.drums.gain.setTargetAtTime(drum * this.busVolumes.drums, this.ctx.currentTime, 0.05);
+    this.busses.bass.gain.setTargetAtTime(bass * this.busVolumes.bass, this.ctx.currentTime, 0.05);
+    this.busses.lead.gain.setTargetAtTime(lead * this.busVolumes.lead, this.ctx.currentTime, 0.05);
+    this.busses.pad.gain.setTargetAtTime(pad * this.busVolumes.pad, this.ctx.currentTime, 0.08);
     this.delayGain.gain.setTargetAtTime(0.12 + this.energy * 0.05, this.ctx.currentTime, 0.2);
   }
 
   setBossIntensity(value) {
     this.bossIntensity = Math.max(0, Math.min(1, value));
     if (this.delayGain) this.delayGain.gain.setTargetAtTime(0.16 + this.bossIntensity * 0.12, this.ctx.currentTime, 0.25);
-    if (this.busses?.drums) this.busses.drums.gain.setTargetAtTime(0.85 + this.bossIntensity * 0.2, this.ctx.currentTime, 0.1);
+    if (this.busses?.drums) this.busses.drums.gain.setTargetAtTime((0.85 + this.bossIntensity * 0.2) * this.busVolumes.drums, this.ctx.currentTime, 0.1);
   }
 
   scheduleStep(stepIndex, time) {

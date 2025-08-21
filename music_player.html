@@ -23,6 +23,18 @@
     <label for="reverbAmount">Reverb:</label>
     <input type="range" id="reverbAmount" min="0" max="1" step="0.01" value="0.25" />
   </div>
+  <div id="mixControls">
+    <label for="drumsVol">Drums:</label>
+    <input type="range" id="drumsVol" min="0" max="1" step="0.01" value="1" />
+    <label for="bassVol">Bass:</label>
+    <input type="range" id="bassVol" min="0" max="1" step="0.01" value="1" />
+    <label for="leadVol">Lead:</label>
+    <input type="range" id="leadVol" min="0" max="1" step="0.01" value="1" />
+    <label for="padVol">Pad:</label>
+    <input type="range" id="padVol" min="0" max="1" step="0.01" value="1" />
+    <label for="fxVol">FX:</label>
+    <input type="range" id="fxVol" min="0" max="1" step="0.01" value="1" />
+  </div>
   <progress id="songProgress" value="0" max="1" style="width:300px;"></progress>
   <h2>Song Editor</h2>
   <textarea id="songData" rows="12" cols="80"></textarea><br />
@@ -38,12 +50,36 @@
     const songData = document.getElementById('songData');
     const songProgress = document.getElementById('songProgress');
     const STORAGE_KEY = 'musicLibrary';
+    const MIX_KEY = 'musicMix';
+    let mixLevels = { drums: 1, bass: 1, lead: 1, pad: 1, fx: 1 };
 
     function saveLibrary() {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(SONGS));
       } catch (err) {
         console.warn('Failed to save library', err);
+      }
+    }
+
+    function saveMix() {
+      try {
+        localStorage.setItem(MIX_KEY, JSON.stringify(mixLevels));
+      } catch (err) {
+        console.warn('Failed to save mix', err);
+      }
+    }
+
+    function loadMix() {
+      try {
+        const raw = localStorage.getItem(MIX_KEY);
+        if (raw) {
+          const saved = JSON.parse(raw);
+          if (saved && typeof saved === 'object') {
+            mixLevels = { ...mixLevels, ...saved };
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load mix', err);
       }
     }
 
@@ -82,6 +118,7 @@
     }
 
     loadLibrary();
+    loadMix();
     refreshSelect();
     loadEditor();
 
@@ -89,6 +126,33 @@
     const reverbSlider = document.getElementById('reverbAmount');
     music.setReverb(parseFloat(reverbSlider.value));
     reverbSlider.oninput = () => music.setReverb(parseFloat(reverbSlider.value));
+
+    const drumsSlider = document.getElementById('drumsVol');
+    const bassSlider = document.getElementById('bassVol');
+    const leadSlider = document.getElementById('leadVol');
+    const padSlider = document.getElementById('padVol');
+    const fxSlider = document.getElementById('fxVol');
+
+    function applyMix() {
+      drumsSlider.value = mixLevels.drums;
+      bassSlider.value = mixLevels.bass;
+      leadSlider.value = mixLevels.lead;
+      padSlider.value = mixLevels.pad;
+      fxSlider.value = mixLevels.fx;
+      music.setDrumsVolume(parseFloat(mixLevels.drums));
+      music.setBassVolume(parseFloat(mixLevels.bass));
+      music.setLeadVolume(parseFloat(mixLevels.lead));
+      music.setPadVolume(parseFloat(mixLevels.pad));
+      music.setFxVolume(parseFloat(mixLevels.fx));
+    }
+
+    applyMix();
+
+    drumsSlider.oninput = () => { mixLevels.drums = parseFloat(drumsSlider.value); music.setDrumsVolume(mixLevels.drums); saveMix(); };
+    bassSlider.oninput = () => { mixLevels.bass = parseFloat(bassSlider.value); music.setBassVolume(mixLevels.bass); saveMix(); };
+    leadSlider.oninput = () => { mixLevels.lead = parseFloat(leadSlider.value); music.setLeadVolume(mixLevels.lead); saveMix(); };
+    padSlider.oninput = () => { mixLevels.pad = parseFloat(padSlider.value); music.setPadVolume(mixLevels.pad); saveMix(); };
+    fxSlider.oninput = () => { mixLevels.fx = parseFloat(fxSlider.value); music.setFxVolume(mixLevels.fx); saveMix(); };
     music.onStep = (step, stepsPerBar) => {
       songProgress.value = (step + 1) / stepsPerBar;
     };
