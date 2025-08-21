@@ -23,6 +23,7 @@ export class Music {
     this._timerId = null;
     this.barCounter = 0;
     this.secondsPerStep = 0;
+    this.onStep = null; // optional callback for playback progress
     this.swing = 0.12; // 0..0.5 of step; 0.12 = gentle swing
     this.energy = 0; // 0..3 from gameplay
     this.mode = 'normal'; // 'normal' | 'boss'
@@ -136,11 +137,14 @@ export class Music {
     const scheduler = () => {
       if (!this.isPlaying) return;
       while (this.nextNoteTime < this.ctx.currentTime + this.scheduleAheadTime) {
-        this.scheduleStep(this.currentStep, this.nextNoteTime);
+        const stepForCallback = this.currentStep;
+        this.scheduleStep(stepForCallback, this.nextNoteTime);
         this.nextNoteTime += secondsPerStep;
-        const prev = this.currentStep;
         this.currentStep = (this.currentStep + 1) % this.stepsPerBar;
-        if (prev === this.stepsPerBar - 1) this.barCounter++;
+        if (typeof this.onStep === 'function') {
+          this.onStep(stepForCallback, this.stepsPerBar);
+        }
+        if (stepForCallback === this.stepsPerBar - 1) this.barCounter++;
       }
     };
 
