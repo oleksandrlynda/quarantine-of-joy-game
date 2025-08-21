@@ -22,7 +22,6 @@
     <input type="number" id="fadeDuration" min="0" max="5" step="0.1" value="0.5" />
   </div>
   <progress id="songProgress" value="0" max="1" style="width:300px;"></progress>
-
   <h2>Song Editor</h2>
   <textarea id="songData" rows="12" cols="80"></textarea><br />
   <button id="saveSong">Save Changes</button>
@@ -36,6 +35,7 @@
     const songSelect = document.getElementById('songSelect');
     const songData = document.getElementById('songData');
     const songProgress = document.getElementById('songProgress');
+
 
     const STORAGE_KEY = 'musicLibrary';
 
