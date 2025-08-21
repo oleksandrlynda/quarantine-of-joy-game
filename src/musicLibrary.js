@@ -19,6 +19,7 @@ export const SONGS = [
     stabPattern:  [1,0,0,0, 0,0,1,0, 1,0,0,0, 0,0,1,0], // stabs on 1,2&,3,4&
     leadArp: [0, 12, 7, 12],
     delayTime: 0.23,
+    variations: { hat: 0.1, kick: 0.05 },
   },
   {
     id: 'drive-b',
@@ -35,6 +36,7 @@ export const SONGS = [
     stabPattern:  [0,0,1,0, 0,0,0,1, 0,0,1,0, 1,0,0,0], // stabs on 1&,2a,3&,4
     leadArp: [0, 7, 12, 9],
     delayTime: 0.21,
+    variations: { hat: 0.15, clap: 0.05 },
   },
   {
     id: 'night-glide',

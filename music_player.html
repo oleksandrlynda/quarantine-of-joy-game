@@ -8,6 +8,10 @@
   <style>
     body{ padding:20px; }
     select, button{ margin:4px; }
+    #patternGrid table{ border-collapse:collapse; }
+    #patternGrid td{ width:20px; height:20px; border:1px solid #999; text-align:center; cursor:pointer; }
+    #patternGrid td.on{ background:#6cf; }
+    #patternGrid td.label{ border:none; cursor:default; font-weight:bold; }
   </style>
 </head>
 <body>
@@ -20,9 +24,29 @@
     <button id="muteBtn">Mute</button>
     <label for="fadeDuration">Fade (s):</label>
     <input type="number" id="fadeDuration" min="0" max="5" step="0.1" value="0.5" />
+    <label for="reverbAmount">Reverb:</label>
+    <input type="range" id="reverbAmount" min="0" max="1" step="0.01" value="0.25" />
+    <label for="variationToggle">Variation:</label>
+    <input type="checkbox" id="variationToggle" checked />
+    <label for="recordDuration">Record (s):</label>
+    <input type="number" id="recordDuration" min="1" max="600" step="1" value="30" />
+    <button id="recordBtn">Record</button>
+  </div>
+  <div id="mixControls">
+    <label for="drumsVol">Drums:</label>
+    <input type="range" id="drumsVol" min="0" max="1" step="0.01" value="1" />
+    <label for="bassVol">Bass:</label>
+    <input type="range" id="bassVol" min="0" max="1" step="0.01" value="1" />
+    <label for="leadVol">Lead:</label>
+    <input type="range" id="leadVol" min="0" max="1" step="0.01" value="1" />
+    <label for="padVol">Pad:</label>
+    <input type="range" id="padVol" min="0" max="1" step="0.01" value="1" />
+    <label for="fxVol">FX:</label>
+    <input type="range" id="fxVol" min="0" max="1" step="0.01" value="1" />
   </div>
   <progress id="songProgress" value="0" max="1" style="width:300px;"></progress>
   <h2>Song Editor</h2>
+  <div id="patternGrid"></div>
   <textarea id="songData" rows="12" cols="80"></textarea><br />
   <button id="saveSong">Save Changes</button>
   <button id="addSong">Add As New</button>
@@ -35,13 +59,46 @@
     const songSelect = document.getElementById('songSelect');
     const songData = document.getElementById('songData');
     const songProgress = document.getElementById('songProgress');
+    const patternGrid = document.getElementById('patternGrid');
     const STORAGE_KEY = 'musicLibrary';
+    const MIX_KEY = 'musicMix';
+    let mixLevels = { drums: 1, bass: 1, lead: 1, pad: 1, fx: 1 };
+    const PATTERN_ROWS = [
+      { key: 'kickPattern', label: 'Kick' },
+      { key: 'snarePattern', label: 'Snare' },
+      { key: 'hatPattern', label: 'Hat' },
+      { key: 'clapPattern', label: 'Clap' },
+      { key: 'ridePattern', label: 'Ride' },
+      { key: 'stabPattern', label: 'Stab' },
+    ];
 
     function saveLibrary() {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(SONGS));
       } catch (err) {
         console.warn('Failed to save library', err);
+      }
+    }
+
+    function saveMix() {
+      try {
+        localStorage.setItem(MIX_KEY, JSON.stringify(mixLevels));
+      } catch (err) {
+        console.warn('Failed to save mix', err);
+      }
+    }
+
+    function loadMix() {
+      try {
+        const raw = localStorage.getItem(MIX_KEY);
+        if (raw) {
+          const saved = JSON.parse(raw);
+          if (saved && typeof saved === 'object') {
+            mixLevels = { ...mixLevels, ...saved };
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load mix', err);
       }
     }
 
@@ -69,21 +126,98 @@
       });
     }
 
+    function renderGrid(song) {
+      patternGrid.innerHTML = '';
+      if (!song) return;
+      const table = document.createElement('table');
+      PATTERN_ROWS.forEach(row => {
+        const tr = document.createElement('tr');
+        const label = document.createElement('td');
+        label.textContent = row.label;
+        label.className = 'label';
+        tr.appendChild(label);
+        const pattern = song[row.key];
+        for (let i = 0; i < 16; i++) {
+          const td = document.createElement('td');
+          td.dataset.pattern = row.key;
+          td.dataset.step = i;
+          if (pattern[i]) td.classList.add('on');
+          td.addEventListener('click', () => {
+            pattern[i] = pattern[i] ? 0 : 1;
+            td.classList.toggle('on', pattern[i] === 1);
+            songData.value = JSON.stringify(song, null, 2);
+          });
+          tr.appendChild(td);
+        }
+        table.appendChild(tr);
+      });
+      patternGrid.appendChild(table);
+    }
+
     function loadEditor() {
       const song = SONGS.find(s => s.id === songSelect.value);
       if (song) {
-        if (!song.clapPattern) song.clapPattern = Array(16).fill(0);
-        if (!song.ridePattern) song.ridePattern = Array(16).fill(0);
+        PATTERN_ROWS.forEach(r => {
+          if (!Array.isArray(song[r.key])) song[r.key] = Array(16).fill(0);
+        });
       }
-
       songData.value = song ? JSON.stringify(song, null, 2) : '';
+      renderGrid(song);
     }
 
     loadLibrary();
+    loadMix();
     refreshSelect();
     loadEditor();
 
+    songData.addEventListener('input', () => {
+      try {
+        const updated = JSON.parse(songData.value);
+        const idx = SONGS.findIndex(s => s.id === songSelect.value);
+        if (idx >= 0) {
+          SONGS[idx] = updated;
+          renderGrid(updated);
+        }
+      } catch (err) {
+        // ignore invalid JSON while typing
+      }
+    });
+
     const music = new Music({ volume: 0.5 });
+    const reverbSlider = document.getElementById('reverbAmount');
+    music.setReverb(parseFloat(reverbSlider.value));
+    reverbSlider.oninput = () => music.setReverb(parseFloat(reverbSlider.value));
+
+    const variationToggle = document.getElementById('variationToggle');
+    music.setVariationEnabled(variationToggle.checked);
+    variationToggle.onchange = () => music.setVariationEnabled(variationToggle.checked);
+
+    const drumsSlider = document.getElementById('drumsVol');
+    const bassSlider = document.getElementById('bassVol');
+    const leadSlider = document.getElementById('leadVol');
+    const padSlider = document.getElementById('padVol');
+    const fxSlider = document.getElementById('fxVol');
+
+    function applyMix() {
+      drumsSlider.value = mixLevels.drums;
+      bassSlider.value = mixLevels.bass;
+      leadSlider.value = mixLevels.lead;
+      padSlider.value = mixLevels.pad;
+      fxSlider.value = mixLevels.fx;
+      music.setDrumsVolume(parseFloat(mixLevels.drums));
+      music.setBassVolume(parseFloat(mixLevels.bass));
+      music.setLeadVolume(parseFloat(mixLevels.lead));
+      music.setPadVolume(parseFloat(mixLevels.pad));
+      music.setFxVolume(parseFloat(mixLevels.fx));
+    }
+
+    applyMix();
+
+    drumsSlider.oninput = () => { mixLevels.drums = parseFloat(drumsSlider.value); music.setDrumsVolume(mixLevels.drums); saveMix(); };
+    bassSlider.oninput = () => { mixLevels.bass = parseFloat(bassSlider.value); music.setBassVolume(mixLevels.bass); saveMix(); };
+    leadSlider.oninput = () => { mixLevels.lead = parseFloat(leadSlider.value); music.setLeadVolume(mixLevels.lead); saveMix(); };
+    padSlider.oninput = () => { mixLevels.pad = parseFloat(padSlider.value); music.setPadVolume(mixLevels.pad); saveMix(); };
+    fxSlider.oninput = () => { mixLevels.fx = parseFloat(fxSlider.value); music.setFxVolume(mixLevels.fx); saveMix(); };
     music.onStep = (step, stepsPerBar) => {
       songProgress.value = (step + 1) / stepsPerBar;
     };
@@ -96,50 +230,42 @@
       return parseFloat(document.getElementById('fadeDuration').value) || 0;
     }
 
-    function fadeOut(duration) {
-      return new Promise(resolve => {
-        if (!music.masterGain || !music.ctx) {
-          music.stop();
-          resolve();
-          return;
-        }
-        const ctx = music.ctx;
-        const gain = music.masterGain.gain;
-        const now = ctx.currentTime;
-        gain.cancelScheduledValues(now);
-        gain.setValueAtTime(gain.value, now);
-        gain.linearRampToValueAtTime(0.0001, now + duration);
-        setTimeout(() => {
-          music.stop();
-          resolve();
-        }, duration * 1000);
-      });
-    }
-
-    function fadeIn(duration) {
-      if (!music.masterGain || !music.ctx) return;
-      const ctx = music.ctx;
-      const gain = music.masterGain.gain;
-      const now = ctx.currentTime;
-      const target = music.isMuted ? 0.0001 : music.volume;
-      gain.cancelScheduledValues(now);
-      gain.setValueAtTime(0.0001, now);
-      gain.linearRampToValueAtTime(target, now + duration);
-    }
-
-    document.getElementById('playBtn').onclick = async () => {
+    document.getElementById('playBtn').onclick = () => {
       const song = SONGS.find(s => s.id === songSelect.value);
       const fade = getFadeDuration();
-      await fadeOut(fade);
-      resetProgress();
-      music.loadSong(song);
-      music.start();
-      fadeIn(fade);
+      music.crossfadeTo(song, fade).then(resetProgress);
     };
 
     document.getElementById('stopBtn').onclick = () => {
       const fade = getFadeDuration();
-      fadeOut(fade).then(resetProgress);
+      music.fadeOut(fade).then(resetProgress);
+    };
+
+    document.getElementById('recordBtn').onclick = async () => {
+      const song = SONGS.find(s => s.id === songSelect.value);
+      const duration = parseFloat(document.getElementById('recordDuration').value) || 30;
+      const fade = getFadeDuration();
+      await music.fadeOut(0);
+      const recorder = music.createRecorder();
+      const chunks = [];
+      recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+      recorder.start();
+      music.loadSong(song);
+      music.start();
+      if (fade > 0) music.fadeIn(fade);
+      setTimeout(() => {
+        recorder.stop();
+        music.fadeOut(fade).then(resetProgress);
+      }, duration * 1000);
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: 'audio/webm' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${song.id}.webm`;
+        a.click();
+        URL.revokeObjectURL(url);
+      };
     };
 
     document.getElementById('muteBtn').onclick = () => {
