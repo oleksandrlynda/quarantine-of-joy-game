@@ -24,7 +24,8 @@ export class ShardAvatar {
 
     // Barrage state
     this.phase = 1;
-    this.maxHp = 1500;
+    // Track the boss's maximum HP based on its initial health value
+    this.maxHp = root.userData.hp;
     this.invuln = false;
     this._barrageState = 'idle';
     this._barrageTimer = 0;
@@ -42,6 +43,9 @@ export class ShardAvatar {
     // Mirages (visual fakes anchored at refs.mirageAnchors)
     this.mirages = []; // { root, head, anchor, timer, life }
     this._mirageCooldown = 4.5 + Math.random() * 1.5; // first mirage burst shortly after spawn
+    this._extraMirages = 0; // additional mirages granted by HP thresholds
+    this._belowHalf = false;
+    this._belowQuarter = false;
 
     // Time‑rings (phase 2)
     this.rings = []; // { mesh, center, radius, life, playerInside }
@@ -267,7 +271,7 @@ export class ShardAvatar {
     // Clear existing mirages first
     for (const m of this.mirages) ctx.scene.remove(m.root);
     this.mirages.length = 0;
-    const count = Math.min(anchors.length, 2 + (Math.random() < 0.5 ? 0 : 1));
+    const count = Math.min(anchors.length, 2 + this._extraMirages + (Math.random() < 0.5 ? 0 : 1));
     const chosen = new Set();
     const positions = [];
     const makeOffsetPos = (anchor) => {
@@ -482,6 +486,24 @@ export class ShardAvatar {
       // Slightly faster cadence and alternate sweeps
       this._barrageTimer = Math.min(this._barrageTimer, 1.6);
       this._ringCooldown = 2.5; // soon after entering phase 2
+    }
+
+    // HP threshold mirage bonuses
+    let triggered = false;
+    if (!this._belowHalf && this.root.userData.hp <= this.maxHp * 0.5) {
+      this._belowHalf = true;
+      this._extraMirages++;
+      triggered = true;
+    }
+    if (!this._belowQuarter && this.root.userData.hp <= this.maxHp * 0.25) {
+      this._belowQuarter = true;
+      this._extraMirages++;
+      this.speed *= 1.1;
+      triggered = true;
+    }
+    if (triggered) {
+      this._spawnMirages(ctx);
+      this._mirageCooldown = 10 + Math.random() * 4;
     }
 
     // Movement
