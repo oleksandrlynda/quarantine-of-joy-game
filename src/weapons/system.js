@@ -177,6 +177,8 @@ export class WeaponSystem {
   onAmmoPickup(amount) {
     const gain = Math.max(0, amount | 0);
     const name = this.current?.name || '';
+    // BeamSaber has no ammo economy
+    if (name === 'BeamSaber') return;
     // Balance pass: scale ammo pickup by weapon archetype so each drop yields
     // a comparable fraction of that weapon's default reserve.
     // Target avg fraction of default reserve per drop (approx):
@@ -198,7 +200,11 @@ export class WeaponSystem {
       }
     };
     const multiplier = weaponPickupMultiplier(name);
-    if (!this.splitPickupsProportionally || this.inventory.length <= 1) {
+
+    // Exclude BeamSaber from split calculations
+    const weapons = this.inventory.filter(w => w?.name !== 'BeamSaber');
+
+    if (!this.splitPickupsProportionally || weapons.length <= 1) {
       const adjustedGain = Math.floor(gain * multiplier);
       this.current?.addReserve(adjustedGain);
       this.S?.reload?.();
@@ -206,21 +212,21 @@ export class WeaponSystem {
       return;
     }
     // Proportional to deficits against each weapon's nominal reserve
-    const deficits = this.inventory.map(w => Math.max(0, (w.cfg.reserve || 0) - (w.reserveAmmo || 0)));
+    const deficits = weapons.map(w => Math.max(0, (w.cfg.reserve || 0) - (w.reserveAmmo || 0)));
     const totalDeficit = deficits.reduce((a,b)=>a+b,0);
     if (totalDeficit <= 0) {
       // Fallback: split evenly
-      const per = Math.floor(gain / this.inventory.length);
-      let rem = gain - per * this.inventory.length;
-      for (let i=0;i<this.inventory.length;i++) {
+      const per = Math.floor(gain / weapons.length);
+      let rem = gain - per * weapons.length;
+      for (let i=0;i<weapons.length;i++) {
         const add = per + (rem>0?1:0); rem = Math.max(0, rem-1);
-        this.inventory[i].addReserve(add);
+        weapons[i].addReserve(add);
       }
     } else {
       let remaining = gain;
-      for (let i=0;i<this.inventory.length;i++) {
+      for (let i=0;i<weapons.length;i++) {
         const share = Math.floor(gain * (deficits[i] / totalDeficit));
-        this.inventory[i].addReserve(share);
+        weapons[i].addReserve(share);
         remaining -= share;
       }
       // distribute any rounding remainder to current weapon first
