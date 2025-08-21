@@ -21,6 +21,7 @@ import { StoryManager } from './story.js';
 const musicSelect = document.getElementById('musicSelect');
 let musicChoice = musicSelect ? musicSelect.value : 'library';
 let sunoAudio = null; // HTMLAudioElement for Suno playback
+let sunoTrackIndex = 0; // rotate through SUNO_TRACKS
 if (musicSelect) {
   musicSelect.addEventListener('change', e => {
     musicChoice = e.target.value;
@@ -349,6 +350,7 @@ const SUNO_TRACKS = [
   'assets/music/suno-remix-4-non-commercial-use-only.mp3',
   'assets/music/suno-remix-5-non-commercial-use-only.mp3',
 ];
+const SUNO_BOSS_TRACK = 'assets/music/boss-standoff 1 (Suno Remix) - non commerial use only.mp3';
 
 function stopSuno(){
   if (sunoAudio) {
@@ -359,11 +361,22 @@ function stopSuno(){
 
 function playSuno(){
   stopSuno();
-  const track = SUNO_TRACKS[Math.floor(Math.random()*SUNO_TRACKS.length)];
+  const track = SUNO_TRACKS[sunoTrackIndex % SUNO_TRACKS.length];
+  sunoTrackIndex = (sunoTrackIndex + 1) % SUNO_TRACKS.length;
   sunoAudio = new Audio(track);
-  sunoAudio.loop = true;
   sunoAudio.volume = 0.35;
   sunoAudio.muted = S.isMuted;
+  sunoAudio.addEventListener('ended', playSuno);
+  try { sunoAudio.play(); } catch(_){}
+  try { music.stop?.(); } catch(_){}
+}
+
+function playSunoBoss(){
+  stopSuno();
+  sunoAudio = new Audio(SUNO_BOSS_TRACK);
+  sunoAudio.volume = 0.35;
+  sunoAudio.muted = S.isMuted;
+  sunoAudio.loop = true;
   try { sunoAudio.play(); } catch(_){}
   try { music.stop?.(); } catch(_){}
 }
@@ -792,26 +805,30 @@ if (enemyManager && enemyManager.bossManager) {
   const bm = enemyManager.bossManager;
   const originalStartBoss = bm.startBoss.bind(bm);
   bm.startBoss = (wave) => {
-    // Enter boss mode: duck base track and switch to boss song at bar boundary
-    music.enterBossMode();
-    // Apply per-boss profile
-    let profile = { hatExtraDensity: 0.15, padBrightnessHz: 2200, toms: true, stingerTone: 1.0 };
-    if (wave === 5) { // Broodmaker light
-      profile = { ...profile, motifSemis: [0, -2, 0, -3], leadArpOverride: [0, 12, 7, 12], delayTimeOverride: 0.2 };
-    } else if (wave === 10) { // Sanitizer
-      profile = { ...profile, motifSemis: [2, 0, -2, 0], padBrightnessHz: 2600, delayTimeOverride: 0.17, stingerTone: 1.1 };
-    } else if (wave === 15) { // Captain
-      profile = { ...profile, motifSemis: [0, 5, 0, -5], leadArpOverride: [0, 7, 12, 19], delayTimeOverride: 0.19, stingerTone: 0.95 };
-    } else if (wave === 20) { // Shard Avatar
-      profile = { ...profile, motifSemis: [0, 3, 0, -2], padBrightnessHz: 2400, delayTimeOverride: 0.16, stingerTone: 1.2 };
-    } else if (wave === 25) { // Broodmaker heavy
-      profile = { ...profile, motifSemis: [0, -1, 0, -3], padBrightnessHz: 2300, delayTimeOverride: 0.18, stingerTone: 0.9 };
+    if (musicChoice === 'suno') {
+      playSunoBoss();
+    } else {
+      // Enter boss mode: duck base track and switch to boss song at bar boundary
+      music.enterBossMode();
+      // Apply per-boss profile
+      let profile = { hatExtraDensity: 0.15, padBrightnessHz: 2200, toms: true, stingerTone: 1.0 };
+      if (wave === 5) { // Broodmaker light
+        profile = { ...profile, motifSemis: [0, -2, 0, -3], leadArpOverride: [0, 12, 7, 12], delayTimeOverride: 0.2 };
+      } else if (wave === 10) { // Sanitizer
+        profile = { ...profile, motifSemis: [2, 0, -2, 0], padBrightnessHz: 2600, delayTimeOverride: 0.17, stingerTone: 1.1 };
+      } else if (wave === 15) { // Captain
+        profile = { ...profile, motifSemis: [0, 5, 0, -5], leadArpOverride: [0, 7, 12, 19], delayTimeOverride: 0.19, stingerTone: 0.95 };
+      } else if (wave === 20) { // Shard Avatar
+        profile = { ...profile, motifSemis: [0, 3, 0, -2], padBrightnessHz: 2400, delayTimeOverride: 0.16, stingerTone: 1.2 };
+      } else if (wave === 25) { // Broodmaker heavy
+        profile = { ...profile, motifSemis: [0, -1, 0, -3], padBrightnessHz: 2300, delayTimeOverride: 0.18, stingerTone: 0.9 };
+      }
+      if (music.applyBossProfile) music.applyBossProfile(profile);
+      music.playBossStinger({ tone: profile.stingerTone });
+      currentSongIndex = SONGS.findIndex(s => s.id === 'boss-standoff');
+      if (currentSongIndex < 0) currentSongIndex = 0;
+      loadCurrentSong();
     }
-    if (music.applyBossProfile) music.applyBossProfile(profile);
-    music.playBossStinger({ tone: profile.stingerTone });
-    currentSongIndex = SONGS.findIndex(s => s.id === 'boss-standoff');
-    if (currentSongIndex < 0) currentSongIndex = 0;
-    loadCurrentSong();
     originalStartBoss(wave);
     try { if (story) story.onBossStart(wave); } catch(_) {}
     // Record boss max HP for intensity mapping
@@ -823,13 +840,18 @@ if (enemyManager && enemyManager.bossManager) {
     let dropPos = null;
     try { dropPos = bm?.boss?.root?.position?.clone?.() || null; } catch(_) { dropPos = null; }
     originalOnBossDeath();
-    // Leave boss mode: restore main playlist and volume
-    music.exitBossMode();
-    if (music.applyBossProfile) music.applyBossProfile({ hatExtraDensity: 0.0, toms: false, motifSemis: null });
-    if (music.setBossIntensity) music.setBossIntensity(0);
-    // Advance to next non-boss track
-    currentSongIndex = (currentSongIndex + 1) % SONGS.length;
-    loadCurrentSong();
+    if (musicChoice === 'suno') {
+      stopSuno();
+      playSuno();
+    } else {
+      // Leave boss mode: restore main playlist and volume
+      music.exitBossMode();
+      if (music.applyBossProfile) music.applyBossProfile({ hatExtraDensity: 0.0, toms: false, motifSemis: null });
+      if (music.setBossIntensity) music.setBossIntensity(0);
+      // Advance to next non-boss track
+      currentSongIndex = (currentSongIndex + 1) % SONGS.length;
+      loadCurrentSong();
+    }
 
     // Guaranteed boss drops: 1 ammo and 1 medkit
     try {
