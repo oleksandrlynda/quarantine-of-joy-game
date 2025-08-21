@@ -8,6 +8,10 @@
   <style>
     body{ padding:20px; }
     select, button{ margin:4px; }
+    #patternGrid table{ border-collapse:collapse; }
+    #patternGrid td{ width:20px; height:20px; border:1px solid #999; text-align:center; cursor:pointer; }
+    #patternGrid td.on{ background:#6cf; }
+    #patternGrid td.label{ border:none; cursor:default; font-weight:bold; }
   </style>
 </head>
 <body>
@@ -42,6 +46,7 @@
   </div>
   <progress id="songProgress" value="0" max="1" style="width:300px;"></progress>
   <h2>Song Editor</h2>
+  <div id="patternGrid"></div>
   <textarea id="songData" rows="12" cols="80"></textarea><br />
   <button id="saveSong">Save Changes</button>
   <button id="addSong">Add As New</button>
@@ -54,9 +59,18 @@
     const songSelect = document.getElementById('songSelect');
     const songData = document.getElementById('songData');
     const songProgress = document.getElementById('songProgress');
+    const patternGrid = document.getElementById('patternGrid');
     const STORAGE_KEY = 'musicLibrary';
     const MIX_KEY = 'musicMix';
     let mixLevels = { drums: 1, bass: 1, lead: 1, pad: 1, fx: 1 };
+    const PATTERN_ROWS = [
+      { key: 'kickPattern', label: 'Kick' },
+      { key: 'snarePattern', label: 'Snare' },
+      { key: 'hatPattern', label: 'Hat' },
+      { key: 'clapPattern', label: 'Clap' },
+      { key: 'ridePattern', label: 'Ride' },
+      { key: 'stabPattern', label: 'Stab' },
+    ];
 
     function saveLibrary() {
       try {
@@ -112,20 +126,62 @@
       });
     }
 
+    function renderGrid(song) {
+      patternGrid.innerHTML = '';
+      if (!song) return;
+      const table = document.createElement('table');
+      PATTERN_ROWS.forEach(row => {
+        const tr = document.createElement('tr');
+        const label = document.createElement('td');
+        label.textContent = row.label;
+        label.className = 'label';
+        tr.appendChild(label);
+        const pattern = song[row.key];
+        for (let i = 0; i < 16; i++) {
+          const td = document.createElement('td');
+          td.dataset.pattern = row.key;
+          td.dataset.step = i;
+          if (pattern[i]) td.classList.add('on');
+          td.addEventListener('click', () => {
+            pattern[i] = pattern[i] ? 0 : 1;
+            td.classList.toggle('on', pattern[i] === 1);
+            songData.value = JSON.stringify(song, null, 2);
+          });
+          tr.appendChild(td);
+        }
+        table.appendChild(tr);
+      });
+      patternGrid.appendChild(table);
+    }
+
     function loadEditor() {
       const song = SONGS.find(s => s.id === songSelect.value);
       if (song) {
-        if (!song.clapPattern) song.clapPattern = Array(16).fill(0);
-        if (!song.ridePattern) song.ridePattern = Array(16).fill(0);
+        PATTERN_ROWS.forEach(r => {
+          if (!Array.isArray(song[r.key])) song[r.key] = Array(16).fill(0);
+        });
       }
-
       songData.value = song ? JSON.stringify(song, null, 2) : '';
+      renderGrid(song);
     }
 
     loadLibrary();
     loadMix();
     refreshSelect();
     loadEditor();
+
+    songData.addEventListener('input', () => {
+      try {
+        const updated = JSON.parse(songData.value);
+        const idx = SONGS.findIndex(s => s.id === songSelect.value);
+        if (idx >= 0) {
+          SONGS[idx] = updated;
+          renderGrid(updated);
+        }
+      } catch (err) {
+        // ignore invalid JSON while typing
+      }
+    });
 
     const music = new Music({ volume: 0.5 });
     const reverbSlider = document.getElementById('reverbAmount');
