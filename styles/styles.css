@@ -45,6 +45,7 @@ button{ cursor:pointer; border:0; border-radius:14px; padding:12px 16px; font-we
 /* Wave pill progress */
 #wavePill{ position:relative; overflow:hidden; }
 #waveBar{ position:absolute; left:0; bottom:0; height:4px; background:linear-gradient(90deg,#22c55e,#86efac); width:0%; transition: width 0.12s linear; }
+#wavePill.hydra #waveBar{ background:linear-gradient(90deg,#a855f7,#c084fc); }
 
 /* Low state cues */
 .low{ outline:2px solid var(--warn); box-shadow:0 0 0 2px #ef444422 inset; }
