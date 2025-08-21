@@ -141,12 +141,23 @@ export class Captain {
   _applyVolleyDamage(dir, ctx){
     // Instantaneous cone check: player within narrow 8° half-angle, within 26u
     const origin = this.root.position;
-    const toPlayer = ctx.player.position.clone().sub(origin); const dist = toPlayer.length();
+    const playerPos = ctx.player.position.clone();
+    const toPlayer3d = playerPos.clone().sub(origin);
+    const dist = toPlayer3d.length();
     if (dist > 26) return;
+    const toPlayer = toPlayer3d.clone();
     toPlayer.y = 0; if (toPlayer.lengthSq() === 0) return; toPlayer.normalize();
     const cos = dir.dot(toPlayer);
     const cosHalf = Math.cos((Math.PI/180)*8);
-    if (cos >= cosHalf){ ctx.onPlayerDamage?.(14); }
+    if (cos >= cosHalf){
+      // Raycast toward player; skip damage if any object blocks line of sight
+      this._raycaster.set(origin, toPlayer3d.normalize());
+      this._raycaster.far = dist;
+      const hits = this._raycaster.intersectObjects(ctx.objects, false);
+      if (!hits || hits.length === 0){
+        ctx.onPlayerDamage?.(14);
+      }
+    }
   }
 
   _rotateY(v, angle){
