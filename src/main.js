@@ -18,6 +18,17 @@ import { Progression } from './progression.js';
 import { loadAllModels, prewarmAllShaders } from '../loader.js?v=3';
 import { StoryManager } from './story.js';
 
+// --- Music selection ---
+const musicSelect = document.getElementById('musicSelect');
+let musicChoice = musicSelect ? musicSelect.value : 'library';
+let sunoAudio = null; // HTMLAudioElement for Suno playback
+let sunoTrackIndex = 0; // rotate through SUNO_TRACKS
+if (musicSelect) {
+  musicSelect.addEventListener('change', e => {
+    musicChoice = e.target.value;
+  });
+}
+
 // ------ Seeded RNG + URL persistence ------
 const url = new URL(window.location.href);
 const params = url.searchParams;
@@ -165,7 +176,7 @@ obstacleManager.getPlayer = () => controls.getObject();
 obstacleManager.onScore = (points) => { addScore(points); };
 obstacleManager.onPlayerDamage = (amount) => {
   if (paused || gameOver) return;
-  hp -= amount; if (hp <= 0) { hp = 0; gameOver = true; document.getElementById('retry').style.display=''; document.getElementById('center').style.display='grid'; }
+  hp -= amount; if (hp <= 0) { hp = 0; gameOver = true; document.getElementById('retry').style.display=''; document.getElementById('center').style.display='grid'; stopSuno(); }
   // Apply universal hit VFX on any damage source
   if (effects && typeof effects.onPlayerHit === 'function') effects.onPlayerHit(amount);
   updateHUD();
@@ -358,7 +369,52 @@ function loadCurrentSong(){
   lastSongRotateBar = music.barCounter;
 }
 loadCurrentSong();
-document.getElementById('mute').onclick=()=>{ const muted = !(S.isMuted); S.setMuted(muted); document.getElementById('mute').textContent=muted?'🔇':'🔊'; music.setMuted(muted); };
+
+const SUNO_TRACKS = [
+  'assets/music/suno-remix-1-non-commercial-use-only.mp3',
+  'assets/music/suno-remix-2-non-commercial-use-only.mp3',
+  'assets/music/suno-remix-3-non-commercial-use-only.mp3',
+  'assets/music/suno-remix-4-non-commercial-use-only.mp3',
+  'assets/music/suno-remix-5-non-commercial-use-only.mp3',
+];
+const SUNO_BOSS_TRACK = 'assets/music/boss-standoff 1 (Suno Remix) - non commerial use only.mp3';
+
+function stopSuno(){
+  if (sunoAudio) {
+    try { sunoAudio.pause(); sunoAudio.currentTime = 0; } catch(_){}
+    sunoAudio = null;
+  }
+}
+
+function playSuno(){
+  stopSuno();
+  const track = SUNO_TRACKS[sunoTrackIndex % SUNO_TRACKS.length];
+  sunoTrackIndex = (sunoTrackIndex + 1) % SUNO_TRACKS.length;
+  sunoAudio = new Audio(track);
+  sunoAudio.volume = 0.35;
+  sunoAudio.muted = S.isMuted;
+  sunoAudio.addEventListener('ended', playSuno);
+  try { sunoAudio.play(); } catch(_){}
+  try { music.stop?.(); } catch(_){}
+}
+
+function playSunoBoss(){
+  stopSuno();
+  sunoAudio = new Audio(SUNO_BOSS_TRACK);
+  sunoAudio.volume = 0.35;
+  sunoAudio.muted = S.isMuted;
+  sunoAudio.loop = true;
+  try { sunoAudio.play(); } catch(_){}
+  try { music.stop?.(); } catch(_){}
+}
+
+document.getElementById('mute').onclick=()=>{
+  const muted = !(S.isMuted);
+  S.setMuted(muted);
+  document.getElementById('mute').textContent = muted?'🔇':'🔊';
+  music.setMuted(muted);
+  if (sunoAudio) sunoAudio.muted = muted;
+};
 
 // Tracer + sparks
 const tracers = [];
@@ -684,6 +740,7 @@ const playBtn = document.getElementById('play');
 const retryBtn = document.getElementById('retry');
 
 function reset(){ // clear enemies
+  stopSuno();
   enemyManager.reset();
   pickups.resetAll(); pickups.onWave(enemyManager.wave);
   hp=100; score=0; paused=false; gameOver=false; resetCombo(); if (weaponSystem) weaponSystem.reset(); updateHUD();
@@ -699,8 +756,8 @@ function reset(){ // clear enemies
   try { story?.reset(); story?.startRun(); } catch(_) {}
 }
 
-playBtn.onclick = ()=>{ panel.parentElement.style.display='none'; controls.lock(); reset(); music.start(); };
-retryBtn.onclick = ()=>{ panel.parentElement.style.display='none'; controls.lock(); reset(); music.start(); };
+playBtn.onclick = ()=>{ panel.parentElement.style.display='none'; controls.lock(); reset(); if (musicChoice === 'suno') { playSuno(); } else { music.start(); } };
+retryBtn.onclick = ()=>{ panel.parentElement.style.display='none'; controls.lock(); reset(); if (musicChoice === 'suno') { playSuno(); } else { music.start(); } };
 
 // Quality preset buttons: update URL params and reload
 const qLow = document.getElementById('qLow');
@@ -775,26 +832,30 @@ if (enemyManager && enemyManager.bossManager) {
   const bm = enemyManager.bossManager;
   const originalStartBoss = bm.startBoss.bind(bm);
   bm.startBoss = (wave) => {
-    // Enter boss mode: duck base track and switch to boss song at bar boundary
-    music.enterBossMode();
-    // Apply per-boss profile
-    let profile = { hatExtraDensity: 0.15, padBrightnessHz: 2200, toms: true, stingerTone: 1.0 };
-    if (wave === 5) { // Broodmaker light
-      profile = { ...profile, motifSemis: [0, -2, 0, -3], leadArpOverride: [0, 12, 7, 12], delayTimeOverride: 0.2 };
-    } else if (wave === 10) { // Sanitizer
-      profile = { ...profile, motifSemis: [2, 0, -2, 0], padBrightnessHz: 2600, delayTimeOverride: 0.17, stingerTone: 1.1 };
-    } else if (wave === 15) { // Captain
-      profile = { ...profile, motifSemis: [0, 5, 0, -5], leadArpOverride: [0, 7, 12, 19], delayTimeOverride: 0.19, stingerTone: 0.95 };
-    } else if (wave === 20) { // Shard Avatar
-      profile = { ...profile, motifSemis: [0, 3, 0, -2], padBrightnessHz: 2400, delayTimeOverride: 0.16, stingerTone: 1.2 };
-    } else if (wave === 25) { // Broodmaker heavy
-      profile = { ...profile, motifSemis: [0, -1, 0, -3], padBrightnessHz: 2300, delayTimeOverride: 0.18, stingerTone: 0.9 };
+    if (musicChoice === 'suno') {
+      playSunoBoss();
+    } else {
+      // Enter boss mode: duck base track and switch to boss song at bar boundary
+      music.enterBossMode();
+      // Apply per-boss profile
+      let profile = { hatExtraDensity: 0.15, padBrightnessHz: 2200, toms: true, stingerTone: 1.0 };
+      if (wave === 5) { // Broodmaker light
+        profile = { ...profile, motifSemis: [0, -2, 0, -3], leadArpOverride: [0, 12, 7, 12], delayTimeOverride: 0.2 };
+      } else if (wave === 10) { // Sanitizer
+        profile = { ...profile, motifSemis: [2, 0, -2, 0], padBrightnessHz: 2600, delayTimeOverride: 0.17, stingerTone: 1.1 };
+      } else if (wave === 15) { // Captain
+        profile = { ...profile, motifSemis: [0, 5, 0, -5], leadArpOverride: [0, 7, 12, 19], delayTimeOverride: 0.19, stingerTone: 0.95 };
+      } else if (wave === 20) { // Shard Avatar
+        profile = { ...profile, motifSemis: [0, 3, 0, -2], padBrightnessHz: 2400, delayTimeOverride: 0.16, stingerTone: 1.2 };
+      } else if (wave === 25) { // Broodmaker heavy
+        profile = { ...profile, motifSemis: [0, -1, 0, -3], padBrightnessHz: 2300, delayTimeOverride: 0.18, stingerTone: 0.9 };
+      }
+      if (music.applyBossProfile) music.applyBossProfile(profile);
+      music.playBossStinger({ tone: profile.stingerTone });
+      currentSongIndex = SONGS.findIndex(s => s.id === 'boss-standoff');
+      if (currentSongIndex < 0) currentSongIndex = 0;
+      loadCurrentSong();
     }
-    if (music.applyBossProfile) music.applyBossProfile(profile);
-    music.playBossStinger({ tone: profile.stingerTone });
-    currentSongIndex = SONGS.findIndex(s => s.id === 'boss-standoff');
-    if (currentSongIndex < 0) currentSongIndex = 0;
-    loadCurrentSong();
     originalStartBoss(wave);
     try { if (story) story.onBossStart(wave); } catch(_) {}
     // Record boss max HP for intensity mapping
@@ -806,13 +867,18 @@ if (enemyManager && enemyManager.bossManager) {
     let dropPos = null;
     try { dropPos = bm?.boss?.root?.position?.clone?.() || null; } catch(_) { dropPos = null; }
     originalOnBossDeath();
-    // Leave boss mode: restore main playlist and volume
-    music.exitBossMode();
-    if (music.applyBossProfile) music.applyBossProfile({ hatExtraDensity: 0.0, toms: false, motifSemis: null });
-    if (music.setBossIntensity) music.setBossIntensity(0);
-    // Advance to next non-boss track
-    currentSongIndex = (currentSongIndex + 1) % SONGS.length;
-    loadCurrentSong();
+    if (musicChoice === 'suno') {
+      stopSuno();
+      playSuno();
+    } else {
+      // Leave boss mode: restore main playlist and volume
+      music.exitBossMode();
+      if (music.applyBossProfile) music.applyBossProfile({ hatExtraDensity: 0.0, toms: false, motifSemis: null });
+      if (music.setBossIntensity) music.setBossIntensity(0);
+      // Advance to next non-boss track
+      currentSongIndex = (currentSongIndex + 1) % SONGS.length;
+      loadCurrentSong();
+    }
 
     // Guaranteed boss drops: 1 ammo and 1 medkit
     try {

@@ -410,6 +410,12 @@ export class EnemyManager {
     return new this.THREE.Vector3(v.x * c - v.z * s, 0, v.x * s + v.z * c).normalize();
   }
 
+  applyKnockback(enemy, vector) {
+    if (!enemy || !vector) return;
+    const step = vector.clone ? vector.clone() : new this.THREE.Vector3(vector.x || 0, vector.y || 0, vector.z || 0);
+    this._moveWithCollisions(enemy, step);
+  }
+
   _moveWithCollisions(enemy, step) {
     const THREE = this.THREE;
     if (!this._tmp) {
@@ -641,20 +647,80 @@ export class EnemyManager {
         }
       }
     }
-  
-    // --- fill ctx + blackboard the way enemies expect ---
-    const ctx = this._ctx;
+    const ctx = this._ctx || (this._ctx = {});
+
+    // 2) Per-frame basics
     ctx.player = playerObject;
     ctx.objects = this.objects;
     ctx.scene = this.scene;
     ctx.onPlayerDamage = onPlayerDamage;
-  
-    const bb = ctx.blackboard;
-    // forward from the provider (used by some behaviors to flank/plan)
-    const info = this.getPlayer ? this.getPlayer() : null;
-    bb.playerForward = info && info.forward ? info.forward : null;
-  
-    // player speed EMA (used by some to decide chase vs hold)
+
+    // 3) One-time helper wiring (from main). Create once.
+    if (!ctx._spawnBullet) {
+      ctx._spawnBullet = (kind, origin, velocity, maxLife, damage) =>
+        this._spawnBullet(kind, origin, velocity, maxLife, damage);
+    }
+    if (!ctx.separation) {
+      ctx.separation = (...args) => this.separation(...args);
+    }
+    if (!ctx.avoidObstacles) {
+      ctx.avoidObstacles = (origin, desiredDir, maxDist) =>
+        this._avoidObstacles(origin, desiredDir, maxDist);
+    }
+    if (!ctx.moveWithCollisions) {
+      ctx.moveWithCollisions = (enemy, step) => this._moveWithCollisions(enemy, step);
+    }
+    if (!ctx.applyKnockback) {
+      ctx.applyKnockback = (enemy, vec) => this.applyKnockback(enemy, vec);
+    }
+    if (!ctx.alliesNearbyCount) {
+      // Count allies within a radius around a position, excluding an optional self root
+      ctx.alliesNearbyCount = (position, radius = 8.0, selfRoot = null) => {
+        const r2 = Math.max(0, radius) * Math.max(0, radius);
+        let count = 0;
+        for (const other of this.enemies) {
+          if (selfRoot && other === selfRoot) continue;
+          const dx = other.position.x - position.x;
+          const dy = other.position.y - position.y;
+          const dz = other.position.z - position.z;
+          const d2 = dx*dx + dy*dy + dz*dz;
+          if (d2 <= r2) count++;
+        }
+        return count;
+      };
+    }
+    if (!ctx.proposeHeal) {
+      // Healer support: register max heal per target per tick (non-stacking)
+      ctx.proposeHeal = (() => {
+        const registry = new Map();
+        const fn = (targetRoot, amount) => {
+          if (!targetRoot || !amount || amount <= 0) return;
+          const prev = registry.get(targetRoot) || 0;
+          if (amount > prev) registry.set(targetRoot, amount);
+        };
+        fn._registry = registry;
+        return fn;
+      })();
+    }
+    if (!ctx.sniperFired) {
+      // Sniper coordination: record last shot to stagger others
+      ctx.sniperFired = () => { this._sniperLastFireAt = this._aiClock; };
+    }
+    if (!ctx.fallbackMeleeUpdate) {
+      // temporary helper so non-implemented types behave sanely
+      ctx.fallbackMeleeUpdate = (inst, _dt) => {
+        const fake = new MeleeEnemy({
+          THREE: this.THREE,
+          mats: this.mats,
+          cfg: { type: 'grunt', hp: 1, speedMin: inst.speed, speedMax: inst.speed, color: 0xffffff },
+          spawnPos: inst.root.position.clone()
+        });
+        fake.root = inst.root; // reuse same root; only use update logic
+        fake.update(_dt, ctx);
+      };
+    }
+
+    // 4) Player speed EMA (from HEAD)
     if (!this._playerPrevPos && playerObject && playerObject.position) {
       this._playerPrevPos = playerObject.position.clone();
       this._playerSpeedEMA = 0;
@@ -663,21 +729,29 @@ export class EnemyManager {
       const d = this._tmp.v1.copy(playerObject.position).sub(this._playerPrevPos || playerObject.position);
       const instSpeed = d.length() / Math.max(1e-3, dt);
       const alpha = 0.25; // EMA smoothing
-      this._playerSpeedEMA = (this._playerSpeedEMA == null) ? instSpeed : (alpha*instSpeed + (1-alpha)*this._playerSpeedEMA);
+      this._playerSpeedEMA = (this._playerSpeedEMA == null)
+        ? instSpeed
+        : (alpha * instSpeed + (1 - alpha) * this._playerSpeedEMA);
       this._playerPrevPos.copy(playerObject.position);
     }
-    bb.playerSpeed = this._playerSpeedEMA || 0;
-  
-    // regroup heuristic (restored)
+
+    // 5) Blackboard (merge of both)
+    const info = this.getPlayer ? this.getPlayer() : null;
+    const forward = info && info.forward ? info.forward.clone() : null;
     const bossActive = !!(this.bossManager && this.bossManager.active && this.bossManager.boss);
-    bb.regroup = !bossActive && this.waveStartingAlive > 0 && this.alive <= Math.max(1, Math.floor(this.waveStartingAlive * 0.25));
-  
-    bb.alive = this.alive;
-    bb.waveStartingAlive = this.waveStartingAlive;
-    bb.time = this._aiClock;
-    bb.sniperLastFireAt = this._sniperLastFireAt;
-  
-    // boss update
+
+    // Create or reuse bb object so other code can stash things on it
+    const bb = ctx.blackboard || (ctx.blackboard = {});
+    bb.playerForward       = forward;
+    bb.playerSpeed         = this._playerSpeedEMA || 0;
+    bb.suppression         = bb.suppression || false; // keep if already set by combat logic
+    bb.regroup             = !bossActive
+                          && this.waveStartingAlive > 0
+                          && this.alive <= Math.max(1, Math.floor(this.waveStartingAlive * 0.25));
+    bb.alive               = this.alive;
+    bb.waveStartingAlive   = this.waveStartingAlive;
+    bb.time                = this._aiClock;
+    bb.sniperLastFireAt    = this._sniperLastFireAt;
     if (this.bossManager) this.bossManager.update(dt, ctx);
   
     // time-sliced AI

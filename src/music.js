@@ -6,11 +6,16 @@ export class Music {
     this.getAudioContext = options.audioContextProvider || (() => new (window.AudioContext || window.webkitAudioContext)());
     this.ctx = null;
     this.masterGain = null;
+    this.reverb = null;
+    this.reverbGain = null;
+    this.reverbBus = null;
     this.busses = { drums: null, bass: null, lead: null, pad: null, fx: null };
+    this.busVolumes = { drums: 1, bass: 1, lead: 1, pad: 1, fx: 1 };
     this.isPlaying = false;
     this.isMuted = false;
     this.volume = options.volume != null ? options.volume : 0.4; // overall music volume
     this.originalVolume = this.volume;
+    this.reverbAmount = options.reverb != null ? options.reverb : 0.25; // wet level
 
     // Tempo and scheduling
     this.bpm = options.bpm || 132; // up-tempo "drive"
@@ -23,6 +28,7 @@ export class Music {
     this._timerId = null;
     this.barCounter = 0;
     this.secondsPerStep = 0;
+    this.onStep = null; // optional callback for playback progress
     this.swing = 0.12; // 0..0.5 of step; 0.12 = gentle swing
     this.energy = 0; // 0..3 from gameplay
     this.mode = 'normal'; // 'normal' | 'boss'
@@ -52,10 +58,18 @@ export class Music {
     this.kickPattern = [1,0,0,0, 1,0,0,0, 1,0,0,0, 1,0,0,0]; // 4-on-the-floor
     this.snarePattern = [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0]; // 2 and 4
     this.hatPattern =   [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0]; // offbeat 8ths
+    this.clapPattern =  [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0]; // no claps by default
+    this.ridePattern =  [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0]; // no rides by default
+    this.stabPattern =  [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0]; // simple chord stabs on 1 and 3
 
     // 8-bar chord progression (relative to root) default
     this.progression = [0, 8, 3, 10, 0, 8, 10, 0];
     this.leadArp = [0, 12, 7, 12];
+
+    // Pattern variation
+    this.variation = { kick: 0, snare: 0, hat: 0, clap: 0, ride: 0, stab: 0 };
+    this.variationEnabled = true;
+    this._varPatterns = {};
   }
 
   ensureContext() {
@@ -69,6 +83,19 @@ export class Music {
       this.busses.lead = this.ctx.createGain();
       this.busses.pad = this.ctx.createGain();
       this.busses.fx = this.ctx.createGain();
+      this.busses.drums.gain.value = this.busVolumes.drums;
+      this.busses.bass.gain.value = this.busVolumes.bass;
+      this.busses.lead.gain.value = this.busVolumes.lead;
+      this.busses.pad.gain.value = this.busVolumes.pad;
+      this.busses.fx.gain.value = this.busVolumes.fx;
+
+      // Simple reverb bus
+      this.reverbBus = this.ctx.createGain();
+      this.reverb = this.ctx.createConvolver();
+      this.reverb.buffer = this.makeImpulseBuffer();
+      this.reverbGain = this.ctx.createGain();
+      this.reverbGain.gain.value = this.reverbAmount;
+      this.reverbBus.connect(this.reverb).connect(this.reverbGain).connect(this.masterGain);
 
       // Subtle stereo motion for lead
       this.leadPanner = this.ctx.createStereoPanner();
@@ -98,12 +125,29 @@ export class Music {
       this.busses.bass.connect(this.masterGain);
       this.busses.lead.connect(this.leadPanner).connect(this.masterGain);
       this.busses.lead.connect(this.delay);
+      this.busses.lead.connect(this.reverbBus);
       this.busses.pad.connect(this.masterGain);
       this.busses.pad.connect(this.delay);
+      this.busses.pad.connect(this.reverbBus);
       this.busses.fx.connect(this.delay);
+      this.busses.fx.connect(this.reverbBus);
 
       this.masterGain.connect(this.ctx.destination);
     }
+  }
+
+  makeImpulseBuffer(duration = 1.2) {
+    const rate = this.ctx.sampleRate;
+    const length = rate * duration;
+    const impulse = this.ctx.createBuffer(2, length, rate);
+    for (let ch = 0; ch < impulse.numberOfChannels; ch++) {
+      const buf = impulse.getChannelData(ch);
+      for (let i = 0; i < length; i++) {
+        const decay = Math.pow(1 - i / length, 2);
+        buf[i] = (Math.random() * 2 - 1) * decay;
+      }
+    }
+    return impulse;
   }
 
   // Expose underlying AudioContext for sharing with SFX
@@ -136,11 +180,14 @@ export class Music {
     const scheduler = () => {
       if (!this.isPlaying) return;
       while (this.nextNoteTime < this.ctx.currentTime + this.scheduleAheadTime) {
-        this.scheduleStep(this.currentStep, this.nextNoteTime);
+        const stepForCallback = this.currentStep;
+        this.scheduleStep(stepForCallback, this.nextNoteTime);
         this.nextNoteTime += secondsPerStep;
-        const prev = this.currentStep;
         this.currentStep = (this.currentStep + 1) % this.stepsPerBar;
-        if (prev === this.stepsPerBar - 1) this.barCounter++;
+        if (typeof this.onStep === 'function') {
+          this.onStep(stepForCallback, this.stepsPerBar);
+        }
+        if (stepForCallback === this.stepsPerBar - 1) this.barCounter++;
       }
     };
 
@@ -168,6 +215,124 @@ export class Music {
     }
   }
 
+  setReverb(amount) {
+    this.reverbAmount = Math.max(0, Math.min(1, amount));
+    if (this.reverbGain) {
+      this.reverbGain.gain.setTargetAtTime(this.reverbAmount, this.ctx.currentTime, 0.01);
+    }
+  }
+
+  setBusVolume(bus, volume) {
+    const v = Math.max(0, Math.min(1, volume));
+    this.busVolumes[bus] = v;
+    if (this.busses[bus]) {
+      this.busses[bus].gain.setTargetAtTime(v, this.ctx?.currentTime || 0, 0.01);
+    }
+  }
+
+  getBusVolume(bus) {
+    return this.busVolumes[bus];
+  }
+
+  setDrumsVolume(v) { this.setBusVolume('drums', v); }
+  getDrumsVolume() { return this.getBusVolume('drums'); }
+
+  setBassVolume(v) { this.setBusVolume('bass', v); }
+  getBassVolume() { return this.getBusVolume('bass'); }
+
+  setLeadVolume(v) { this.setBusVolume('lead', v); }
+  getLeadVolume() { return this.getBusVolume('lead'); }
+
+  setPadVolume(v) { this.setBusVolume('pad', v); }
+  getPadVolume() { return this.getBusVolume('pad'); }
+
+  setFxVolume(v) { this.setBusVolume('fx', v); }
+  getFxVolume() { return this.getBusVolume('fx'); }
+
+  setVariationEnabled(enabled) {
+    this.variationEnabled = !!enabled;
+  }
+
+  randomizePattern(pattern, probability) {
+    if (!probability) return pattern.slice();
+    const out = pattern.slice();
+    for (let i = 0; i < out.length; i++) {
+      if (!out[i] && Math.random() < probability) out[i] = 1;
+    }
+    return out;
+  }
+
+  applyVariation() {
+    if (!this.variationEnabled) {
+      this._varPatterns = {
+        kick: this.kickPattern,
+        snare: this.snarePattern,
+        hat: this.hatPattern,
+        clap: this.clapPattern,
+        ride: this.ridePattern,
+        stab: this.stabPattern,
+      };
+      return;
+    }
+    this._varPatterns.kick = this.randomizePattern(this.kickPattern, this.variation.kick);
+    this._varPatterns.snare = this.randomizePattern(this.snarePattern, this.variation.snare);
+    this._varPatterns.hat = this.randomizePattern(this.hatPattern, this.variation.hat);
+    this._varPatterns.clap = this.randomizePattern(this.clapPattern, this.variation.clap);
+    this._varPatterns.ride = this.randomizePattern(this.ridePattern, this.variation.ride);
+    this._varPatterns.stab = this.randomizePattern(this.stabPattern, this.variation.stab);
+  }
+
+  fadeOut(duration = 0.5) {
+    return new Promise(resolve => {
+      this.ensureContext();
+      if (!this.masterGain) {
+        this.stop();
+        resolve();
+        return;
+      }
+      const ctx = this.ctx;
+      const gain = this.masterGain.gain;
+      const now = ctx.currentTime;
+      gain.cancelScheduledValues(now);
+      gain.setValueAtTime(gain.value, now);
+      gain.linearRampToValueAtTime(0.0001, now + duration);
+      setTimeout(() => {
+        this.stop();
+        resolve();
+      }, duration * 1000);
+    });
+  }
+
+  fadeIn(duration = 0.5) {
+    this.ensureContext();
+    if (!this.masterGain) return;
+    const ctx = this.ctx;
+    const gain = this.masterGain.gain;
+    const now = ctx.currentTime;
+    const target = this.isMuted ? 0.0001 : this.volume;
+    gain.cancelScheduledValues(now);
+    gain.setValueAtTime(0.0001, now);
+    gain.linearRampToValueAtTime(target, now + duration);
+  }
+
+  async crossfadeTo(song, duration = 0.5) {
+    await this.fadeOut(duration);
+    this.loadSong(song);
+    this.start();
+    this.fadeIn(duration);
+  }
+
+  createRecorder() {
+    this.ensureContext();
+    const dest = this.ctx.createMediaStreamDestination();
+    this.masterGain.connect(dest);
+    const recorder = new MediaRecorder(dest.stream);
+    recorder.addEventListener('stop', () => {
+      try { this.masterGain.disconnect(dest); } catch (_) {}
+    });
+    return recorder;
+  }
+
   // Recompute internal timing when BPM changes
   recomputeTempo() {
     const secondsPerBeat = 60 / this.bpm;
@@ -180,9 +345,9 @@ export class Music {
     this.originalVolume = this.volume;
     // Lower base slightly to make room for boss cue, push rhythm up
     if (this.masterGain) this.masterGain.gain.setTargetAtTime(Math.max(0.12, this.originalVolume * 0.65), this.ctx.currentTime, 0.15);
-    if (this.busses && this.busses.drums) this.busses.drums.gain.setTargetAtTime(1.0, this.ctx.currentTime, 0.15);
-    if (this.busses && this.busses.bass) this.busses.bass.gain.setTargetAtTime(0.95, this.ctx.currentTime, 0.15);
-    if (this.busses && this.busses.lead) this.busses.lead.gain.setTargetAtTime(0.9, this.ctx.currentTime, 0.15);
+    if (this.busses && this.busses.drums) this.busses.drums.gain.setTargetAtTime(1.0 * this.busVolumes.drums, this.ctx.currentTime, 0.15);
+    if (this.busses && this.busses.bass) this.busses.bass.gain.setTargetAtTime(0.95 * this.busVolumes.bass, this.ctx.currentTime, 0.15);
+    if (this.busses && this.busses.lead) this.busses.lead.gain.setTargetAtTime(0.9 * this.busVolumes.lead, this.ctx.currentTime, 0.15);
   }
 
   exitBossMode() {
@@ -200,8 +365,12 @@ export class Music {
     if (song.kickPattern) this.kickPattern = song.kickPattern.slice();
     if (song.snarePattern) this.snarePattern = song.snarePattern.slice();
     if (song.hatPattern) this.hatPattern = song.hatPattern.slice();
+    if (song.clapPattern) this.clapPattern = song.clapPattern.slice();
+    if (song.ridePattern) this.ridePattern = song.ridePattern.slice();
+    if (song.stabPattern) this.stabPattern = song.stabPattern.slice();
     if (song.leadArp) this.leadArp = song.leadArp.slice();
     if (song.delayTime && this.delay) this.delay.delayTime.setTargetAtTime(song.delayTime, this.ctx?.currentTime || 0, 0.05);
+    if (song.variations) this.variation = { ...this.variation, ...song.variations };
     // Reset position to bar start on song load
     this.currentStep = 0;
     this.barCounter = 0;
@@ -286,17 +455,17 @@ export class Music {
     const bass = 0.7 + this.energy * 0.1;
     const lead = 0.6 + this.energy * 0.13;
     const pad = 0.45 + this.energy * 0.08 + (this.mode === 'boss' ? this.bossIntensity * 0.15 : 0);
-    this.busses.drums.gain.setTargetAtTime(drum, this.ctx.currentTime, 0.05);
-    this.busses.bass.gain.setTargetAtTime(bass, this.ctx.currentTime, 0.05);
-    this.busses.lead.gain.setTargetAtTime(lead, this.ctx.currentTime, 0.05);
-    this.busses.pad.gain.setTargetAtTime(pad, this.ctx.currentTime, 0.08);
+    this.busses.drums.gain.setTargetAtTime(drum * this.busVolumes.drums, this.ctx.currentTime, 0.05);
+    this.busses.bass.gain.setTargetAtTime(bass * this.busVolumes.bass, this.ctx.currentTime, 0.05);
+    this.busses.lead.gain.setTargetAtTime(lead * this.busVolumes.lead, this.ctx.currentTime, 0.05);
+    this.busses.pad.gain.setTargetAtTime(pad * this.busVolumes.pad, this.ctx.currentTime, 0.08);
     this.delayGain.gain.setTargetAtTime(0.12 + this.energy * 0.05, this.ctx.currentTime, 0.2);
   }
 
   setBossIntensity(value) {
     this.bossIntensity = Math.max(0, Math.min(1, value));
     if (this.delayGain) this.delayGain.gain.setTargetAtTime(0.16 + this.bossIntensity * 0.12, this.ctx.currentTime, 0.25);
-    if (this.busses?.drums) this.busses.drums.gain.setTargetAtTime(0.85 + this.bossIntensity * 0.2, this.ctx.currentTime, 0.1);
+    if (this.busses?.drums) this.busses.drums.gain.setTargetAtTime((0.85 + this.bossIntensity * 0.2) * this.busVolumes.drums, this.ctx.currentTime, 0.1);
   }
 
   scheduleStep(stepIndex, time) {
@@ -306,16 +475,37 @@ export class Music {
     // Swing offsets for micro-groove on certain parts
     const swingOffset = (stepIndex % 2 === 1) ? this.secondsPerStep * this.swing : 0;
 
+    if (stepIndex === 0) this.applyVariation();
+
+    const kickPat = this._varPatterns.kick || this.kickPattern;
+    const snarePat = this._varPatterns.snare || this.snarePattern;
+    const hatPat = this._varPatterns.hat || this.hatPattern;
+    const clapPat = this._varPatterns.clap || this.clapPattern;
+    const ridePat = this._varPatterns.ride || this.ridePattern;
+    const stabPat = this._varPatterns.stab || this.stabPattern;
+
     // Drums with occasional fills
-    if (this.kickPattern[stepIndex]) this.playKick(time);
-    if (this.snarePattern[stepIndex]) this.playSnare(time);
+    if (kickPat[stepIndex]) this.playKick(time);
+    if (snarePat[stepIndex]) this.playSnare(time);
     // Light extra ghost kick on step 12 when energy high
     if (this.energy >= 2 && stepIndex === 12) this.playKick(time + 0.001);
 
     // Hats density scales with energy and boss profile
     const extraHat = (this.mode === 'boss' && Math.random() < this.bossProfile.hatExtraDensity && (stepIndex % 2 === 0));
-    const hatOn = this.hatPattern[stepIndex] || (this.energy >= 2 && stepIndex % 4 === 2) || extraHat;
+    const hatOn = hatPat[stepIndex] || (this.energy >= 2 && stepIndex % 4 === 2) || extraHat;
     if (hatOn) this.playHat(time + swingOffset * 0.8);
+    if (ridePat && ridePat[stepIndex]) {
+      this.playRide(time + swingOffset * 0.8);
+    }
+    if (clapPat && clapPat[stepIndex]) {
+      this.playClap(time + swingOffset * 0.8);
+    }
+
+    // Short chord stabs for rhythmic accents
+    if (stabPat && stabPat[stepIndex]) {
+      const chord = this.makeMinorChord(rootSemi);
+      this.playStab(time + swingOffset * 0.5, chord);
+    }
 
     // Drum fill every 4th bar (last beat 12..15)
     if ((this.barCounter % 4) === 3 && stepIndex >= 12) {
@@ -407,6 +597,28 @@ export class Music {
     noise.stop(time + 0.1);
   }
 
+  playClap(time) {
+    const a = this.ctx;
+    const bufferSize = 0.06 * a.sampleRate | 0;
+    const buffer = a.createBuffer(1, bufferSize, a.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * (1 - i / bufferSize);
+    }
+    const noise = a.createBufferSource();
+    noise.buffer = buffer;
+    const bp = a.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 1200;
+    const g = a.createGain();
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.exponentialRampToValueAtTime(0.5, time + 0.003);
+    g.gain.exponentialRampToValueAtTime(0.0001, time + 0.12);
+    noise.connect(bp).connect(g).connect(this.masterGain);
+    noise.start(time);
+    noise.stop(time + 0.13);
+  }
+
   playHat(time) {
     const a = this.ctx;
     const bufferSize = 0.03 * a.sampleRate | 0;
@@ -425,6 +637,26 @@ export class Music {
     noise.connect(hp).connect(g).connect(this.masterGain);
     noise.start(time);
     noise.stop(time + 0.06);
+  }
+
+  playRide(time) {
+    const a = this.ctx;
+    const bufferSize = 0.2 * a.sampleRate | 0;
+    const buffer = a.createBuffer(1, bufferSize, a.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) { data[i] = Math.random() * 2 - 1; }
+    const noise = a.createBufferSource();
+    noise.buffer = buffer;
+    const hp = a.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 4000;
+    const g = a.createGain();
+    g.gain.setValueAtTime(0.0001, time);
+    g.gain.exponentialRampToValueAtTime(0.25, time + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.0001, time + 0.3);
+    noise.connect(hp).connect(g).connect(this.masterGain);
+    noise.start(time);
+    noise.stop(time + 0.31);
   }
 
   playBass(time, freq, length = 0.2) {
@@ -470,6 +702,23 @@ export class Music {
 
   makeMinorChord(rootSemi) {
     return [rootSemi, rootSemi + 3, rootSemi + 7];
+  }
+
+  playStab(time, semis, length = 0.25) {
+    const a = this.ctx;
+    for (const s of semis) {
+      const freq = this.noteToFreq(this.baseFreq, s);
+      const osc = a.createOscillator();
+      const g = a.createGain();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(freq, time);
+      g.gain.setValueAtTime(0.0001, time);
+      g.gain.exponentialRampToValueAtTime(0.3, time + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, time + length);
+      osc.connect(g).connect(this.busses.pad);
+      osc.start(time);
+      osc.stop(time + length + 0.02);
+    }
   }
 
   playPadChord(time, semis, length = 1.2) {

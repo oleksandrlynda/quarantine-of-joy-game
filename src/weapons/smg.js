@@ -28,7 +28,7 @@ export class SMG extends Weapon {
   }
 
   onFire(ctx) {
-    const { THREE, camera, raycaster, enemyManager, objects, effects, S, pickups, addScore, addComboAction, obstacleManager } = ctx;
+    const { THREE, camera, raycaster, enemyManager, objects, effects, S, pickups, addScore, addComboAction, obstacleManager, applyKnockback } = ctx;
     // Recoil: visible per‑shot 0.8–1.2° pitch, ±0.5° yaw; fast recovery; no FOV kick
     const pitch = (1.4 + Math.random() * 0.6) * (Math.PI/180);
     const yaw = ((Math.random()*2 - 1) * 0.8) * (Math.PI/180);
@@ -60,7 +60,7 @@ export class SMG extends Weapon {
       const dmg = base * fall;
       res.enemyRoot.userData.hp -= dmg;
       // tiny pushback
-      res.enemyRoot.position.add(dir.clone().multiplyScalar(0.12));
+      applyKnockback?.(res.enemyRoot, dir.clone().multiplyScalar(0.12));
       effects?.spawnBulletImpact?.(end, res.hitFace?.normal);
       if (S && S.impactFlesh) S.impactFlesh();
       if (S && S.enemyPain) S.enemyPain(res.enemyRoot?.userData?.type || 'grunt');
