@@ -228,7 +228,10 @@ const weaponIconEl = document.getElementById('weaponIcon');
 const hpPillEl = document.getElementById('hpPill');
 const ammoPillEl = document.getElementById('ammoPill');
 const waveBarEl = document.getElementById('waveBar');
+const wavePillEl = document.getElementById('wavePill');
 const remainingEl = document.getElementById('remaining');
+const hydraWrapEl = document.getElementById('hydraWrap');
+const hydraCountEl = document.getElementById('hydraCount');
 const hitmarkerEl = document.getElementById('hitmarker');
 const bossHudEl = document.getElementById('bossHud');
 const bossNameEl = document.getElementById('bossName');
@@ -309,12 +312,32 @@ function updateHUDComboAndBoss(){
   // Low state cues
   if (hpPillEl){ hpPillEl.classList.remove('low','crit'); if (hp <= 25) { hpPillEl.classList.add('crit'); } else if (hp <= 50) { hpPillEl.classList.add('low'); } }
   if (ammoPillEl){ const ammoValLocal = weaponSystem ? weaponSystem.getAmmo() : 30; ammoPillEl.classList.remove('need-reload'); if (ammoValLocal <= 0) ammoPillEl.classList.add('need-reload'); }
-  // Wave progress
+  // Hydra lineage aggregate
+  let hydraAlive = 0, hydraDesc = 0;
+  try {
+    const bb = enemyManager?._ctx?.blackboard;
+    if (bb && bb.hydraLineages) {
+      for (const v of Object.values(bb.hydraLineages)) {
+        hydraAlive += v.alive || 0;
+        hydraDesc += v.descendants || 0;
+      }
+    }
+  } catch(_) {}
+  if (hydraWrapEl) {
+    if (hydraAlive > 0) {
+      hydraWrapEl.style.display = '';
+      if (hydraCountEl) hydraCountEl.textContent = `${hydraAlive}/${hydraDesc}`;
+    } else {
+      hydraWrapEl.style.display = 'none';
+    }
+  }
+  // Wave progress (account for hydra descendants)
   if (waveBarEl && typeof enemyManager.waveStartingAlive === 'number'){
-    const total = Math.max(1, enemyManager.waveStartingAlive);
+    const total = Math.max(1, enemyManager.waveStartingAlive + hydraDesc);
     const remaining = Math.max(0, enemyManager.alive|0);
     const done01 = Math.max(0, Math.min(1, 1 - (remaining / total)));
     waveBarEl.style.width = `${(done01*100).toFixed(1)}%`;
+    if (wavePillEl) wavePillEl.classList.toggle('hydra', hydraAlive > 0);
   }
   if (remainingEl) { remainingEl.textContent = Math.max(0, enemyManager.alive|0); }
   // Hide remaining when boss active
