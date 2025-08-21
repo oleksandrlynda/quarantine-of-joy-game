@@ -37,13 +37,13 @@ export class Progression {
       return;
     }
     if (wave === 3) { this._presentOffer(['Shotgun','SMG']); return; }
-    if (wave === 4) { this._presentOffer(['Shotgun','SMG']); return; }
+    if (wave === 4) { this._presentOffer(['Minigun','SMG']); return; }
     if (wave === 5) { this._presentOffer(['Shotgun','SMG']); return; }
     if (wave === 6) { this._presentOffer(['SMG','Rifle']); return; }
-    if (wave === 7) { this._presentOffer(['Rifle','Shotgun']); return; }
+    if (wave === 7) { this._presentOffer(['Rifle','BeamSaber']); return; }
     if (wave === 8) { this._presentOffer(['Shotgun','SMG']); return; }
     if (wave === 9) { this._presentOffer(['SMG','Rifle']); return; }
-    if (wave === 9) { this._presentOffer(['SMG','Shotgun']); return; }
+    if (wave === 9) { this._presentOffer(['SMG','Minigun']); return; }
     if (wave === 11) { this._presentOffer(['Rifle','DMR']); return; }
     if (wave === 12) { this._presentOffer(['DMR','BeamSaber']); return; }
 

@@ -7,9 +7,9 @@ export class Minigun extends Weapon {
     super({
       name: 'Minigun',
       mode: 'auto',
-      fireDelayMs: 15, // ~66 rps
-      magSize: 100,
-      reserve: 100
+      fireDelayMs: 20, // ~66 rps
+      magSize: 200,
+      reserve: 300
     });
     this._bloom = 0; // grows while firing
     this._maxBloom = 0.12; // radians (~6.8 deg)

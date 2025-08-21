@@ -132,7 +132,12 @@ export class Hydraclone {
   // --- Manager/scene registration helper (used by global queue spawns) ---
   static registerInstance(inst, ctx) {
     if (inst.enemyManager && typeof inst.enemyManager.registerExternalEnemy === 'function') {
+      // Ensure waveStartingAlive is a number before tracking additional spawns
+      if (typeof inst.enemyManager.waveStartingAlive !== 'number') {
+        inst.enemyManager.waveStartingAlive = inst.enemyManager.alive || 0;
+      }
       inst.enemyManager.registerExternalEnemy(inst, { countsTowardAlive: true });
+      inst.enemyManager.waveStartingAlive++;
       return inst;
     }
     // Fallback if no manager helper available
@@ -286,6 +291,15 @@ export class Hydraclone {
       this._didRegisterDeath = true;
       for (const c of this._mirrorClones) { ctx.scene.remove(c.root); }
       this._mirrorClones.length = 0;
+      const pos = this.root.position.clone();
+      if (ctx.pickups) {
+        if (this.gen === 0) {
+          ctx.pickups.dropMultiple('med', pos, 1);
+          ctx.pickups.dropMultiple('ammo', pos, 4);
+        } else {
+          ctx.pickups.dropMultiple('random', pos, 1);
+        }
+      }
       // removal is handled by EnemyManager; nothing else to do here
       return;
     }

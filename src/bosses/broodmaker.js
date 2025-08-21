@@ -40,7 +40,7 @@ export class Broodmaker {
     this._burrowTimer = 0;
 
     // Phase 2: Flyers + Goo + weakpoint exposure
-    this._flyerCooldown = 6 + Math.random() * 2;
+    this._flyerCooldown = 4 + Math.random() * 2;
     this._flyerRoots = new Set();
     this._flyerCap = 6;
 
@@ -102,6 +102,7 @@ export class Broodmaker {
       }
       if (this.phase === 2) {
         this._updateFlyerBrood(dt, ctx);
+        this._updateBroodlings(dt, ctx);
         this._updateGoo(dt, ctx);
         this._updateWeakpoint(dt); // auto-close when window ends
       }
