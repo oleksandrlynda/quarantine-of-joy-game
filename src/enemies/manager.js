@@ -655,6 +655,7 @@ export class EnemyManager {
     ctx.objects = this.objects;
     ctx.scene = this.scene;
     ctx.onPlayerDamage = onPlayerDamage;
+    ctx.pickups = this.pickups;
 
     // 3) One-time helper wiring (from main). Create once.
     if (!ctx._spawnBullet) {
