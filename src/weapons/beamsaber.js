@@ -24,8 +24,8 @@ export class BeamSaber extends Weapon {
     const hits = candidates.length ? raycaster.intersectObjects(candidates, true) : [];
     const handled = new Set();
 
-    if (S && S.shot) S.shot('dmr');
-    effects?.spawnMuzzleFlash?.(0.3);
+    if (S && S.shot) S.shot('saber');
+    effects?.spawnSaberSlash?.(origin, end);
 
     for (const hit of hits) {
       if (hit.distance > range) continue;
@@ -37,10 +37,8 @@ export class BeamSaber extends Weapon {
       try { window._HUD && window._HUD.showHitmarker && window._HUD.showHitmarker(); } catch(_) {}
       obj.userData.hp -= 40;
       applyKnockback?.(obj, dir.clone().multiplyScalar(0.25));
-      effects?.spawnBulletImpact?.(hit.point, hit.face?.normal);
       if (S && S.impactFlesh) S.impactFlesh();
       if (S && S.enemyPain) S.enemyPain(obj?.userData?.type || 'grunt');
-      effects?.spawnBulletDecal?.(hit.point, hit.face?.normal, { size: 0.12, ttl: 10, color: 0x101010, softness: 0.5, object: hit.object, owner: obj, attachTo: obj });
 
       if (obj.userData.hp <= 0) {
         effects?.enemyDeath?.(obj.position.clone());
@@ -64,11 +62,10 @@ export class BeamSaber extends Weapon {
       const worldHits = raycaster.intersectObjects(objects, true);
       if (worldHits.length) {
         const h = worldHits[0];
-        effects?.spawnBulletImpact?.(h.point, h.face?.normal);
+        // optional: minimal spark could be triggered here if available
       }
     }
 
-    if (ctx.addTracer) ctx.addTracer(origin, end);
     this.ammoInMag = 1;
     ctx.updateHUD?.();
   }

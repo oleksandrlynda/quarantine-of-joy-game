@@ -158,6 +158,9 @@ export class Effects {
     window._EFFECTS.spawnBulletImpact = (position, normal)=>{
       this.spawnBulletImpact(position, normal);
     };
+    window._EFFECTS.spawnSaberSlash = (start, end, options={})=>{
+      this.spawnSaberSlash(start, end, options);
+    };
   }
 
   // --- Tracer pool internals ---
@@ -625,6 +628,17 @@ export class Effects {
   // External control from game: set fatigue level 0..1 (mapped from low stamina)
   setFatigue(level){
     this.fatigueLevel = Math.max(0, Math.min(1, level||0));
+  }
+
+  spawnSaberSlash(start, end, options = {}) {
+    if (!start || !end) return;
+    const opts = {
+      width: options.width ?? 0.1,
+      ttl: options.ttl ?? 0.08,
+      color: options.color ?? 0x88ccff,
+      cross: options.cross ?? true
+    };
+    this.spawnBulletTracer(start, end, opts);
   }
 
   // Fast-moving additive sprite from start->end with brief fadeout
