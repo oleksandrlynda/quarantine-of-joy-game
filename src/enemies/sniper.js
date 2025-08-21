@@ -7,11 +7,10 @@ export class SniperEnemy {
     this.cfg = cfg;
     this._enemyManager = enemyManager || null;
   
-    // Use dedicated SniperBot asset with long rifle
     if (!_sniperCache.model) _sniperCache.model = createSniperBot({ THREE, mats, scale: 0.70 });
     const src = _sniperCache.model;
     const clone = src.root.clone(true);
-    // Remap refs for clone
+  
     const remapRefs = (srcRoot, cloneRoot, refs) => {
       const out = {};
       const getPath = (node) => { const path = []; let cur = node; while (cur && cur !== srcRoot) { const parent = cur.parent; if (!parent) return null; const idx = parent.children.indexOf(cur); if (idx < 0) return null; path.push(idx); cur = parent; } return path.reverse(); };
@@ -41,28 +40,38 @@ export class SniperEnemy {
     this._raycaster = new THREE.Raycaster();
     this._faceDir = new this.THREE.Vector3(0, 0, 1);
   
-    // --- NEW: cover-peek state ---
-    this.coverAnchor = null;          // a point on/near cover between sniper and player
-    this.peekOffset = null;           // lateral offset used to create LOS around cover edge
-    this.peekTimer = 0;               // time spent currently peeking
-    this.peekDuration = 1.6 + Math.random()*0.6; // how long he risks exposure per peek
-    this.peekCooldown = 0;            // cooldown before next peek attempt
+    // Cover/peek
+    this.coverAnchor = null;
+    this.peekOffset = null;
+    this.peekTimer = 0;
+    this.peekDuration = 1.6 + Math.random()*0.6;
+    this.peekCooldown = 0;
   
-    // --- NEW: counter-aim (tuck back if player looks at sniper) ---
-    this.tuckTimer = 0;               // time staying tucked (no LOS) after detecting player aim
+    // Counter-aim / tuck
+    this.tuckTimer = 0;
     this.tuckDuration = 0.9 + Math.random()*0.4;
-    this.tuckCooldown = 0;            // prevents spam
+    this.tuckCooldown = 0;
     this._lastPlayerForward = new THREE.Vector3(0,0,1);
   
-    // --- NEW: laser line during windup ---
-    this._aimLine = null;             // THREE.Line
-    this._aimHeat = 0;                // 0..1 grows to shot
+    // Laser
+    this._aimLine = null;
+    this._aimHeat = 0;
   
-    // temp vectors
+    // --- NEW: persistent strafe & burst movement to avoid jitter ---
+    this._strafeDir = Math.random() < 0.5 ? 1 : -1;   // persists; flips with cooldown
+    this._strafeSwapCD = 0;                            // seconds until allowed to flip
+    this._moveBurstTimer = 0;                          // current “commit” window
+    this._moveBurstDur = 0;                            // planned duration
+    this._moveBurstDir = this._strafeDir;              // cached dir for the burst
+  
+    // --- NEW: idle relocation when in open space (no cover) ---
+    this._idleRelocateCD = 0;                          // cooldown before picking a new vantage
+  
+    // temps
     this._tmpV1 = new THREE.Vector3();
     this._tmpV2 = new THREE.Vector3();
-  }  
-
+  }
+  
   update(dt, ctx){
     const THREE = this.THREE;
     const e = this.root;
@@ -71,14 +80,17 @@ export class SniperEnemy {
     const dist = toPlayer.length();
     const hasLOS = this._hasLOS(e.position, playerPos, ctx.objects);
   
-    // decay/advance timers
+    // timers
     if (this.cooldown>0) this.cooldown = Math.max(0, this.cooldown - dt);
     if (this.postShotRelocate>0) this.postShotRelocate = Math.max(0, this.postShotRelocate - dt);
     if (this.peekCooldown>0) this.peekCooldown = Math.max(0, this.peekCooldown - dt);
     if (this.tuckCooldown>0) this.tuckCooldown = Math.max(0, this.tuckCooldown - dt);
     if (this.tuckTimer>0) this.tuckTimer = Math.max(0, this.tuckTimer - dt);
+    if (this._strafeSwapCD>0) this._strafeSwapCD = Math.max(0, this._strafeSwapCD - dt);
+    if (this._moveBurstTimer>0) this._moveBurstTimer = Math.max(0, this._moveBurstTimer - dt);
+    if (this._idleRelocateCD>0) this._idleRelocateCD = Math.max(0, this._idleRelocateCD - dt);
   
-    // --- Face player by yaw only (elite stays calm) ---
+    // face player (calm)
     const inBandYaw = dist >= this.engageRange.min && dist <= this.engageRange.max;
     const aiming = hasLOS && inBandYaw && (this.windup > 0 || this.cooldown <= 0) && this.tuckTimer<=0;
     const faceVec = aiming ? toPlayer.clone().setY(0) : toPlayer.clone().multiplyScalar(0.6).setY(0);
@@ -89,96 +101,100 @@ export class SniperEnemy {
       if (this._faceDir.lengthSq() > 0) this._faceDir.normalize();
     }
     const lookTarget = this._tmpV1.copy(e.position).add(this._faceDir); lookTarget.y = e.position.y;
-    e.lookAt(lookTarget); e.rotateY(Math.PI); // asset faces +Z
+    e.lookAt(lookTarget); e.rotateY(Math.PI);
   
-    // --- Elite positioning/cover logic ---
-    // If we don't have LOS, register/refresh a cover anchor along the blocked ray.
+    // cover anchoring when LOS blocked or tucked
     if (!hasLOS || this.tuckTimer>0) {
-      // tuck: ensure we *stay* without LOS by biasing anchor behind the cover
       const anchor = this._raycastToPlayer(e.position, playerPos, ctx.objects);
       if (anchor) this.coverAnchor = anchor;
     }
   
-    // Decide desired movement
+    // movement
     const desired = new THREE.Vector3();
     const flatToPlayer = toPlayer.clone().setY(0); if (flatToPlayer.lengthSq()>0) flatToPlayer.normalize();
     const side = new THREE.Vector3(-flatToPlayer.z, 0, flatToPlayer.x);
   
-    // Post-shot displacement (fast lateral shuffle to new angle)
+    // post-shot relocation: strong lateral commit
     if (this.postShotRelocate>0) {
       if (!this.displaceTarget) {
-        const dir = (Math.random()<0.5?1:-1);
         const span = 7 + Math.random()*5;
+        const dir = (Math.random()<0.5?1:-1);
         this.displaceTarget = e.position.clone().add(side.clone().multiplyScalar(dir*span));
       }
       const toTgt = this.displaceTarget.clone().sub(e.position).setY(0);
       if (toTgt.lengthSq()>0.0004) desired.add(toTgt.normalize());
-      if (toTgt.length()<0.8 || this.postShotRelocate<=0) {
-        this.displaceTarget = null;
-      }
-      // break any aim/laser while moving
+      if (toTgt.length()<0.8 || this.postShotRelocate<=0) this.displaceTarget = null;
+  
+      // break aim/laser while moving
       this.windup = 0; this._setAimLine(null, ctx.scene); this._aimHeat = 0;
     }
     else if (this.tuckTimer>0) {
-      // stay behind cover (tiny jitter to avoid predictability)
-      desired.add(side.clone().multiplyScalar((Math.random()<0.5?1:-1)*0.2));
-      // no aiming while tucked
+      // stay behind cover gently (no jitter; tiny side bias)
+      desired.add(side.clone().multiplyScalar(0.25 * this._strafeDir));
       this.windup = 0; this._setAimLine(null, ctx.scene); this._aimHeat = 0;
     }
     else if (!hasLOS) {
-      // Move to cover anchor if we have one (hug cover)
+      // move to cover anchor; if none (open arena), plan an idle relocation (wide lateral)
       if (!this.coverAnchor) this.coverAnchor = this._raycastToPlayer(e.position, playerPos, ctx.objects);
       if (this.coverAnchor) {
         const toAnchor = this.coverAnchor.clone().sub(e.position).setY(0);
         if (toAnchor.lengthSq()>0.0004) desired.add(toAnchor.normalize());
-        // try to pick a peek offset when close to anchor
         if (toAnchor.length()<1.4 && (!this.peekOffset || this.peekCooldown<=0)) {
           this.peekOffset = this._computePeekDesiredFromCover(this.coverAnchor, playerPos, ctx.objects);
           this.peekTimer = 0;
         }
-      } else {
-        // fall back: drift to long range
-        desired.add(flatToPlayer.clone().multiplyScalar(-1));
+      } else if (this._idleRelocateCD<=0) {
+        // open space: commit to a lateral run 10–16m to vary angle
+        const span = 10 + Math.random()*6;
+        this.displaceTarget = e.position.clone().add(side.clone().multiplyScalar(span * this._strafeDir));
+        this.postShotRelocate = 1.1 + Math.random()*0.4; // reuse relocation mechanic
+        this._idleRelocateCD = 2.4 + Math.random()*1.2;
       }
     }
     else {
-      // We have LOS. If we have a peek offset, try to hold that edge (minimal exposure)
+      // LOS present
       if (this.peekOffset) {
+        // hold edge with small commitment
         const edgePos = this.coverAnchor ? this.coverAnchor.clone().add(this.peekOffset) : e.position.clone();
         const toEdge = edgePos.sub(e.position).setY(0);
         if (toEdge.length()>0.2) desired.add(toEdge.normalize());
-        // track peek exposure time
         this.peekTimer += dt;
         if (this.peekTimer >= this.peekDuration) {
-          // leave edge and re-hide (reset LOS)
           this.peekOffset = null; this.peekCooldown = 0.8 + Math.random()*0.6;
           this.tuckTimer = 0.5 + Math.random()*0.3;
         }
       } else {
-        // soft orbit at long range while keeping LOS
-        desired.add(side.multiplyScalar(0.4*(Math.random()<0.5?1:-1)));
-        if (dist < this.preferredRange.min) desired.add(flatToPlayer.clone().multiplyScalar(-1));
-        else if (dist > this.preferredRange.max) desired.add(flatToPlayer);
+        // --- sustained orbit burst instead of per-frame random ---
+        if (this._moveBurstTimer<=0) {
+          this._moveBurstDir = this._strafeDir;
+          this._moveBurstDur = 0.9 + Math.random()*0.7;
+          this._moveBurstTimer = this._moveBurstDur;
+          if (this._strafeSwapCD<=0 && Math.random()<0.25) { this._strafeDir *= -1; this._strafeSwapCD = 1.2; }
+        }
+        desired.add(side.clone().multiplyScalar(0.65 * this._moveBurstDir));
+        // keep preferred range
+        if (dist < this.preferredRange.min) desired.add(flatToPlayer.clone().multiplyScalar(-0.8));
+        else if (dist > this.preferredRange.max) desired.add(flatToPlayer.clone().multiplyScalar(0.8));
       }
     }
   
-    // Obstacle avoidance & move
-    const avoid = desired.lengthSq()>0 ? (ctx.avoidObstacles ? ctx.avoidObstacles(e.position, desired, 1.8) : desired) : desired;
-    const step = desired.clone().add(avoid.multiplyScalar(1.0));
-    if (step.lengthSq()>0) {
-      step.normalize().multiplyScalar(this.speed*dt);
+    // avoidance & move (ensure non-tiny step to avoid “tremble”)
+    const baseStep = desired.lengthSq()>0 ? desired.clone().normalize() : desired;
+    const avoid = baseStep.lengthSq()>0 ? (ctx.avoidObstacles ? ctx.avoidObstacles(e.position, baseStep, 1.8) : baseStep) : baseStep;
+    const step = baseStep.clone().add(avoid.multiplyScalar(1.0));
+    if (step.lengthSq()>1e-6) {
+      step.normalize().multiplyScalar(this.speed * dt * 1.05);
       ctx.moveWithCollisions ? ctx.moveWithCollisions(e, step) : e.position.add(step);
     }
   
-    // --- Counter-aim: if player is looking at sniper, tuck back into cover ---
+    // counter-aim (tuck if player stares at us)
     const pf = (ctx.blackboard && ctx.blackboard.playerForward) ? ctx.blackboard.playerForward.clone() : this._lastPlayerForward.clone();
     if (pf.lengthSq()>0) pf.normalize();
     this._lastPlayerForward.copy(pf);
-    // Vector from player to sniper
     const pts = e.position.clone().sub(playerPos).setY(0); const d2 = pts.lengthSq();
     if (d2>1e-3) {
       pts.normalize();
-      const dot = pf.dot(pts); // ~1 means player looks toward sniper
+      const dot = pf.dot(pts);
       if (dot > 0.92 && this.tuckCooldown<=0 && hasLOS) {
         this.tuckTimer = this.tuckDuration;
         this.tuckCooldown = 1.2 + Math.random()*0.6;
@@ -186,44 +202,37 @@ export class SniperEnemy {
       }
     }
   
-    // --- Fire control ---
+    // fire control
     if (this._projectiles && this._projectiles.length){ this._updateProjectiles(dt, ctx); }
-  
     const canFireWindow = (ctx.blackboard && (ctx.blackboard.time - (ctx.blackboard.sniperLastFireAt||-Infinity)) >= 1.0);
     const inBandRange = dist >= this.engageRange.min && dist <= this.engageRange.max;
     const playerSpeed = (ctx.blackboard && (ctx.blackboard.playerSpeed || 0)) || 0;
-    const steadyShot = playerSpeed < 3.0 || this.peekOffset; // prefers shooting when target is steadier or we are peeking edge
+    const steadyShot = playerSpeed < 3.0 || this.peekOffset;
   
     if (hasLOS && inBandRange && this.cooldown<=0 && this.postShotRelocate<=0 && this.tuckTimer<=0 && canFireWindow && steadyShot){
-      // Windup with laser (intensifies toward shot)
       this.windup += dt;
       this._aimHeat = Math.min(1, this.windup / Math.max(0.001, this.windupReq));
-      const color = 0xff3344;
       const from = this._muzzleWorld();
       const to = playerPos.clone();
-      // faint jitter while heating up (harder to strafe predict)
       to.x += (Math.random()-0.5) * (0.06 * (1 - this._aimHeat));
       to.z += (Math.random()-0.5) * (0.06 * (1 - this._aimHeat));
-      this._setAimLine({from, to, color, alpha: 0.25 + 0.55*this._aimHeat}, ctx.scene);
+      this._setAimLine({from, to, color:0xff3344, alpha: 0.25 + 0.55*this._aimHeat}, ctx.scene);
   
       if (this.windup >= this.windupReq){
-        // Fire
         this.windup = 0; this._aimHeat = 0;
         this._setAimLine(null, ctx.scene);
         this.cooldown = 3.3 + Math.random()*0.9;
         this._fireProjectile(playerPos, ctx);
-        // quick displacement to new angle
+        // immediate lateral shuffle
         this.postShotRelocate = 0.9 + Math.random()*0.5;
         this.displaceTarget = null;
-        // after firing, prefer to re-anchor cover at next evaluation
         this.peekOffset = null; this.peekTimer = 0; this.peekCooldown = 0.6 + Math.random()*0.5;
       }
     } else {
-      // Not in a good window — hide/reset windup
       if (this.windup > 0) { this.windup = 0; this._aimHeat = 0; }
       this._setAimLine(null, ctx.scene);
     }
-  }  
+  }    
 
   _raycastToPlayer(fromPos, playerPos, objects){
     const origin = this._muzzleWorld();
