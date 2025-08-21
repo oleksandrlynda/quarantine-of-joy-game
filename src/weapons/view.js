@@ -209,20 +209,26 @@ export class WeaponView {
         addSight(muzzleZ + L*0.7);
         addSight(muzzleZ + L + 0.12);
       };
-  
+
       const makeGrenade = ()=>{
         const L = 0.20, D = 0.09;
         addBox(D, D, L, 0.0, -0.01, muzzleZ + L*0.5, metal);
         addBox(D*2.6, D*1.6, 0.16, -0.05, -0.015, muzzleZ + L + 0.08, body);
         addSight(muzzleZ + L + 0.06, 0.014, 0.02);
       };
-  
+
+      const makeBeamSaber = ()=>{
+        const L = 0.18, D = 0.04;
+        addBox(D, D, L, 0.0, -0.02, muzzleZ + L*0.5, metal);
+      };
+
       switch ((name||'').toLowerCase()){
         case 'pistol': makePistol(); break;
         case 'smg': makeSMG(); break;
         case 'shotgun': makeShotgun(); break;
         case 'dmr': makeDMR(); break;
         case 'grenade': makeGrenade(); break;
+        case 'beamsaber': makeBeamSaber(); break;
         case 'rifle': default: makeRifle(); break;
       }
   

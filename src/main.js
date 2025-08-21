@@ -291,7 +291,7 @@ function updateHUD(){
   const w = weaponSystem ? weaponSystem.current : null;
   if (weaponNameEl) weaponNameEl.textContent = w ? w.name : 'Rifle';
   if (weaponIconEl) {
-    const iconMap = { Rifle:'assets/icons/weapon-rifle.svg', SMG:'assets/icons/weapon-smg.svg', Shotgun:'assets/icons/weapon-shotgun.svg', DMR:'assets/icons/weapon-dmr.svg', Pistol:'assets/icons/weapon-pistol.svg' };
+    const iconMap = { Rifle:'assets/icons/weapon-rifle.svg', SMG:'assets/icons/weapon-smg.svg', Shotgun:'assets/icons/weapon-shotgun.svg', DMR:'assets/icons/weapon-dmr.svg', Pistol:'assets/icons/weapon-pistol.svg', BeamSaber:'assets/icons/weapon-beamsaber.svg' };
     weaponIconEl.src = iconMap[w?.name] || iconMap.Rifle;
   }
   hpEl.textContent=hp; ammoEl.textContent=ammoVal; magEl.textContent=reserveVal; scoreEl.textContent=score; if (bestEl) bestEl.textContent = best; if(waveEl) waveEl.textContent = enemyManager.wave;
@@ -649,6 +649,11 @@ function step(){
       const len = (prof.lenPx + bloom * (prof.lenPx * 0.6)).toFixed(2);
       crosshairEl.style.setProperty('--xh-gap', `${gap}px`);
       crosshairEl.style.setProperty('--xh-len', `${len}px`);
+      if (typeof prof.rotDeg === 'number') {
+        crosshairEl.style.setProperty('--xh-rot', `${prof.rotDeg}deg`);
+      } else {
+        crosshairEl.style.setProperty('--xh-rot', '0deg');
+      }
       // Optional tint on perfect accuracy
       if (bloom < 0.05) {
         crosshairEl.style.setProperty('--xh', '#16a34a');
