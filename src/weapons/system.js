@@ -215,6 +215,8 @@ export class WeaponSystem {
         case 'Pistol': return 0.45;
         case 'Rifle': return 0.85;
         case 'Minigun': return 1.8;
+        case 'BeamSaber': return 0.0;
+        case 'Grenade': return 0.1;
         default: return 1.0;
       }
     };

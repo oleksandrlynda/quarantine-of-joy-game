@@ -13,7 +13,7 @@ export class Broodmaker {
     const built = createBroodmakerAsset({ THREE, mats, scale: 1.0 });
     const type = this.enablePhase2 ? 'boss_broodmaker_heavy' : 'boss_broodmaker';
     built.root.position.copy(spawnPos);
-    built.root.userData = { type, head: built.head, hp: this.enablePhase2 ? 18000 : 3200, damageMul: 1.0 };
+    built.root.userData = { type, head: built.head, hp: this.enablePhase2 ? 18000 : 2800, damageMul: 1.0 };
     this.root = built.root;
     this.refs = built.refs || {};
 

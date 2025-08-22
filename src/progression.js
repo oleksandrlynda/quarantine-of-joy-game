@@ -63,7 +63,7 @@ export class Progression {
     }
 
     // Sidearm offer at wave 20+: Pistol vs Grenade launcher, once per run
-    if (!this.sidearmOfferShown && wave >= 20){
+    if (!this.sidearmOfferShown && wave >= 15){
       this._presentSidearmOffer();
       this.sidearmOfferShown = true;
     }
