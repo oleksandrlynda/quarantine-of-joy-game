@@ -711,6 +711,7 @@ function step(){
         let totalAmmo = 0;
         try {
           for (const w of (weaponSystem.inventory || [])) {
+            if (w?.name === 'Pistol') continue;
             const mag = Math.max(0, (typeof w.getAmmo === 'function' ? w.getAmmo() : w.ammoInMag) | 0);
             const res = Math.max(0, (typeof w.getReserve === 'function' ? w.getReserve() : w.reserveAmmo) | 0);
             totalAmmo += mag + res;
