@@ -113,6 +113,19 @@
       document.body.appendChild(m);
       const help = document.getElementById('desktopHelp');
       if (help) help.style.display = 'none';
+      const hud = document.getElementById('hud');
+      if (hud) {
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.style.justifyContent = 'flex-end';
+        row.innerHTML = '<div class="pill tiny" id="mobileHelp">Move: joystick • Shoot: 🔥 • Jump: ⤴️</div>';
+        hud.appendChild(row);
+        const hideHelp = () => document.getElementById('mobileHelp')?.remove();
+        setTimeout(hideHelp, 5000);
+        ['joystick','btnFire','btnJump','btnReload'].forEach(id=>{
+          document.getElementById(id)?.addEventListener('touchstart', hideHelp, {once:true});
+        });
+      }
     }
   </script>
   <script type="module" src="src/main.js"></script>
