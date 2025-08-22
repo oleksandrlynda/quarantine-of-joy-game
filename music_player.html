@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Quarantine of Joy — Music Player</title>
+  <title data-i18n="musicPlayer.pageTitle">Quarantine of Joy — Music Player</title>
   <link rel="stylesheet" href="styles/styles.css" />
   <style>
     body{ padding:20px; }
@@ -15,46 +15,50 @@
   </style>
 </head>
 <body>
-  <h1>Music Library Player</h1>
+  <h1 data-i18n="musicPlayer.title">Music Library Player</h1>
   <div>
-    <label for="songSelect">Song:</label>
+    <label for="songSelect" data-i18n="musicPlayer.song">Song:</label>
     <select id="songSelect"></select>
-    <button id="playBtn">Play</button>
-    <button id="stopBtn">Stop</button>
-    <button id="muteBtn">Mute</button>
-    <label for="fadeDuration">Fade (s):</label>
+    <button id="playBtn" data-i18n="musicPlayer.play">Play</button>
+    <button id="stopBtn" data-i18n="musicPlayer.stop">Stop</button>
+    <button id="muteBtn" data-i18n="musicPlayer.mute">Mute</button>
+    <label for="fadeDuration" data-i18n="musicPlayer.fade">Fade (s):</label>
     <input type="number" id="fadeDuration" min="0" max="5" step="0.1" value="0.5" />
-    <label for="reverbAmount">Reverb:</label>
+    <label for="reverbAmount" data-i18n="musicPlayer.reverb">Reverb:</label>
     <input type="range" id="reverbAmount" min="0" max="1" step="0.01" value="0.25" />
-    <label for="variationToggle">Variation:</label>
+    <label for="variationToggle" data-i18n="musicPlayer.variation">Variation:</label>
     <input type="checkbox" id="variationToggle" checked />
-    <label for="recordDuration">Record (s):</label>
+    <label for="recordDuration" data-i18n="musicPlayer.recordS">Record (s):</label>
     <input type="number" id="recordDuration" min="1" max="600" step="1" value="30" />
-    <button id="recordBtn">Record</button>
+    <button id="recordBtn" data-i18n="musicPlayer.record">Record</button>
   </div>
   <div id="mixControls">
-    <label for="drumsVol">Drums:</label>
+    <label for="drumsVol" data-i18n="musicPlayer.drums">Drums:</label>
     <input type="range" id="drumsVol" min="0" max="1" step="0.01" value="1" />
-    <label for="bassVol">Bass:</label>
+    <label for="bassVol" data-i18n="musicPlayer.bass">Bass:</label>
     <input type="range" id="bassVol" min="0" max="1" step="0.01" value="1" />
-    <label for="leadVol">Lead:</label>
+    <label for="leadVol" data-i18n="musicPlayer.lead">Lead:</label>
     <input type="range" id="leadVol" min="0" max="1" step="0.01" value="1" />
-    <label for="padVol">Pad:</label>
+    <label for="padVol" data-i18n="musicPlayer.pad">Pad:</label>
     <input type="range" id="padVol" min="0" max="1" step="0.01" value="1" />
-    <label for="fxVol">FX:</label>
+    <label for="fxVol" data-i18n="musicPlayer.fx">FX:</label>
     <input type="range" id="fxVol" min="0" max="1" step="0.01" value="1" />
   </div>
   <progress id="songProgress" value="0" max="1" style="width:300px;"></progress>
-  <h2>Song Editor</h2>
+  <h2 data-i18n="musicPlayer.editor">Song Editor</h2>
   <div id="patternGrid"></div>
   <textarea id="songData" rows="12" cols="80"></textarea><br />
-  <button id="saveSong">Save Changes</button>
-  <button id="addSong">Add As New</button>
-  <button id="deleteSong">Delete Song</button>
+  <button id="saveSong" data-i18n="musicPlayer.save">Save Changes</button>
+  <button id="addSong" data-i18n="musicPlayer.addNew">Add As New</button>
+  <button id="deleteSong" data-i18n="musicPlayer.delete">Delete Song</button>
 
   <script type="module">
     import { Music } from './src/music.js';
     import { SONGS } from './src/musicLibrary.js';
+    import { initI18n, applyTranslations, t } from './src/i18n/index.js';
+
+    await initI18n();
+    applyTranslations();
 
     const songSelect = document.getElementById('songSelect');
     const songData = document.getElementById('songData');
@@ -64,12 +68,12 @@
     const MIX_KEY = 'musicMix';
     let mixLevels = { drums: 1, bass: 1, lead: 1, pad: 1, fx: 1 };
     const PATTERN_ROWS = [
-      { key: 'kickPattern', label: 'Kick' },
-      { key: 'snarePattern', label: 'Snare' },
-      { key: 'hatPattern', label: 'Hat' },
-      { key: 'clapPattern', label: 'Clap' },
-      { key: 'ridePattern', label: 'Ride' },
-      { key: 'stabPattern', label: 'Stab' },
+      { key: 'kickPattern', label: t('musicPlayer.kick') },
+      { key: 'snarePattern', label: t('musicPlayer.snare') },
+      { key: 'hatPattern', label: t('musicPlayer.hat') },
+      { key: 'clapPattern', label: t('musicPlayer.clap') },
+      { key: 'ridePattern', label: t('musicPlayer.ride') },
+      { key: 'stabPattern', label: t('musicPlayer.stab') },
     ];
 
     function saveLibrary() {

@@ -17,6 +17,7 @@ import { startEditor } from './editor.js';
 import { Progression } from './progression.js';
 import { loadAllModels, prewarmAllShaders } from '../loader.js?v=3';
 import { StoryManager } from './story.js';
+import { t } from './i18n/index.js';
 
 // Prefer the flag set in index.html; fallback to media query
 const isMobile = (typeof window !== 'undefined' && 'IS_MOBILE' in window && window.IS_MOBILE)
@@ -63,9 +64,12 @@ if (seedEl) seedEl.textContent = seed;
 if (copySeedBtn) {
   copySeedBtn.onclick = async () => {
     const shareUrl = window.location.href;
-    try { await navigator.clipboard.writeText(shareUrl); copySeedBtn.textContent = 'Copied!'; setTimeout(()=>copySeedBtn.textContent='Copy', 900); }
-    catch(e){
-      prompt('Copy URL', shareUrl);
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      copySeedBtn.textContent = t('hud.copied');
+      setTimeout(() => (copySeedBtn.textContent = t('hud.copy')), 900);
+    } catch (e) {
+      prompt(t('hud.copyPrompt'), shareUrl);
     }
   };
 }
@@ -79,7 +83,7 @@ if (newSeedBtn) {
 }
 
 const startTipEl = document.getElementById('startTip');
-if (isMobile && startTipEl) startTipEl.textContent = 'Tap Play to start. Drag to look.';
+if (isMobile && startTipEl) startTipEl.textContent = t('start.tipMobile');
 const mobileControlsEl = document.getElementById('mobileControls');
 if (mobileControlsEl) mobileControlsEl.style.display = isMobile ? '' : 'none';
 
@@ -102,15 +106,17 @@ function setLoading(pct, label){
 
 // Kick asset load + shader warmup before proceeding
 try {
-  setLoading(0.02, 'Loading models');
-  const progress = (done, total)=>{ setLoading(0.02 + 0.48*(done/Math.max(1,total)), `Loading models ${done}/${total}`); };
+  setLoading(0.02, t('loading.models'));
+  const progress = (done, total) => {
+    setLoading(0.02 + 0.48 * (done / Math.max(1, total)), `${t('loading.models')} ${done}/${total}`);
+  };
   const shaderWarm = params.get('warmup') === '1';
   const { registry } = await loadAllModels({ renderer, onProgress: progress, skipWarmup: !shaderWarm });
   if (shaderWarm) {
-    setLoading(0.55, 'Compiling shaders');
+    setLoading(0.55, t('loading.compiling'));
     await prewarmAllShaders(renderer, { registry, includeShadows: renderer.shadowMap?.enabled, includeDepthVariants: true, extras: [] });
   }
-  setLoading(1.0, 'Ready');
+  setLoading(1.0, t('loading.ready'));
   // Hide overlay
   if (loadingEl) loadingEl.style.display = 'none';
 } catch(e) { console.warn('Warmup failed — continuing without precompiled shaders'); if (loadingEl) loadingEl.style.display = 'none'; }
@@ -285,7 +291,7 @@ const combo = { tier:0, multiplier:1.0, streakPoints:0, decayTimer:0 };
 
 function updateComboLabel(){
   if (!comboEl) return;
-  comboLabelEl.textContent = `Combo: x${combo.multiplier.toFixed(1)}`;
+  comboLabelEl.textContent = `${t('hud.combo')}: x${combo.multiplier.toFixed(1)}`;
   comboEl.classList.remove('tier1','tier2','tier3','tier4');
   if (combo.tier>0) comboEl.classList.add(`tier${combo.tier}`);
 }
@@ -522,7 +528,7 @@ weaponSystem = new WeaponSystem({
 // Set initial weapon view
 try { weaponView.setWeapon(weaponSystem.getPrimaryName()); } catch(_) {}
 progression = new Progression({ weaponSystem, documentRef: document, onPause: (lock)=>{ offerActive = !!lock; paused = !!lock; }, controls });
-story = storyDisabled ? null : new StoryManager({ documentRef: document, onPause: (lock)=>{ paused = !!lock; }, controls, toastFn: (t)=> showToast(t), tickerFn: (t,r,i)=> showTicker(t,r,i), beatsUrl: 'assets/story/beats.json' });
+story = storyDisabled ? null : new StoryManager({ documentRef: document, onPause: (lock)=>{ paused = !!lock; }, controls, toastFn: (t)=> showToast(t), tickerFn: (t,r,i)=> showTicker(t,r,i) });
 
 
 
