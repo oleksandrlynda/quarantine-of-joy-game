@@ -329,7 +329,7 @@ function updateHUD(){
   const reserveVal = weaponSystem ? (isBeamSaber ? '∞' : weaponSystem.getReserve()) : 60;
   if (weaponNameEl) weaponNameEl.textContent = w ? w.name : 'Rifle';
   if (weaponIconEl) {
-    const iconMap = { Rifle:'assets/icons/weapon-rifle.svg', SMG:'assets/icons/weapon-smg.svg', Shotgun:'assets/icons/weapon-shotgun.svg', DMR:'assets/icons/weapon-dmr.svg', Pistol:'assets/icons/weapon-pistol.svg', BeamSaber:'assets/icons/weapon-beamsaber.svg' };
+    const iconMap = { Rifle:'assets/icons/weapon-rifle.svg', SMG:'assets/icons/weapon-smg.svg', Shotgun:'assets/icons/weapon-shotgun.svg', DMR:'assets/icons/weapon-dmr.svg', Minigun:'assets/icons/weapon-minigun.svg', Pistol:'assets/icons/weapon-pistol.svg', BeamSaber:'assets/icons/weapon-beamsaber.svg' };
     weaponIconEl.src = iconMap[w?.name] || iconMap.Rifle;
   }
   hpEl.textContent = Math.floor(hp); ammoEl.textContent=ammoVal; magEl.textContent=reserveVal; scoreEl.textContent=score; if (bestEl) bestEl.textContent = best; if(waveEl) waveEl.textContent = enemyManager.wave;

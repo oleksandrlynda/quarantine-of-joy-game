@@ -19,44 +19,48 @@ export class Progression {
   _loadUnlocks(){
     try {
       const s = localStorage.getItem(this.UNLOCKS_KEY);
-      return s ? JSON.parse(s) : { bestWave:0, smg:false, shotgun:false, rifle:false, dmr:false, beamsaber:false };
+      return s ? JSON.parse(s) : { bestWave:0, smg:false, shotgun:false, rifle:false, dmr:false, beamsaber:false, minigun:false };
     } catch {
-      return { bestWave:0, smg:false, shotgun:false, rifle:false, dmr:false, beamsaber:false };
+      return { bestWave:0, smg:false, shotgun:false, rifle:false, dmr:false, beamsaber:false, minigun:false };
     }
   }
   _saveUnlocks(){ try { localStorage.setItem(this.UNLOCKS_KEY, JSON.stringify(this.unlocks)); } catch {} }
 
   onWave(wave){
-    // Guided early milestones
-    if (wave === 1) { return; }
-    if (wave === 2) {
-      // Force Shotgun as the first primary
-      const pool = this.ws.getUnlockedPrimaries({ shotgun:true, smg:true, rifle:true, dmr:true, beamsaber:true, minigun:true });
-      const sg = pool.find(x => x.name === 'Shotgun');
-      if (sg) this.ws.swapPrimary(sg.make);
-      return;
-    }
-    if (wave === 3) { this._presentOffer(['Shotgun','SMG']); return; }
-    if (wave === 4) { this._presentOffer(['Minigun','SMG']); return; }
-    if (wave === 5) { this._presentOffer(['Shotgun','SMG']); return; }
-    if (wave === 6) { this._presentOffer(['SMG','Rifle']); return; }
-    if (wave === 7) { this._presentOffer(['Rifle','BeamSaber']); return; }
-    if (wave === 8) { this._presentOffer(['Shotgun','SMG']); return; }
-    if (wave === 9) { this._presentOffer(['SMG','Rifle']); return; }
-    if (wave === 9) { this._presentOffer(['SMG','Minigun']); return; }
-    if (wave === 11) { this._presentOffer(['Rifle','DMR']); return; }
-    if (wave === 12) { this._presentOffer(['DMR','BeamSaber']); return; }
-
-    // After wave 5, unlock persistently and continue normal offers on even waves
+    // Persist unlocks based on highest wave reached
     if (wave > (this.unlocks.bestWave||0)){
       this.unlocks.bestWave = wave;
       if (wave >= 3) this.unlocks.shotgun = true;
+      if (wave >= 4) this.unlocks.minigun = true;
       if (wave >= 5) this.unlocks.smg = true;
       // rifle unlocked after first boss via main.js hook
       // dmr unlocked after second boss via main.js hook
       if (wave >= 12) this.unlocks.beamsaber = true;
       this._saveUnlocks();
     }
+
+    // Guided early milestones
+    const earlyUnlocks = { shotgun:true, smg:true, rifle:true, dmr:true, beamsaber:true, minigun:true };
+    if (wave === 1) { return; }
+    if (wave === 2) {
+      // Force Shotgun as the first primary
+      const pool = this.ws.getUnlockedPrimaries(earlyUnlocks);
+      const sg = pool.find(x => x.name === 'Shotgun');
+      if (sg) this.ws.swapPrimary(sg.make);
+      return;
+    }
+    if (wave === 3) { this._presentOffer(['Shotgun','SMG'], earlyUnlocks); return; }
+    if (wave === 4) { this._presentOffer(['Minigun','SMG'], earlyUnlocks); return; }
+    if (wave === 5) { this._presentOffer(['Shotgun','SMG'], earlyUnlocks); return; }
+    if (wave === 6) { this._presentOffer(['SMG','Rifle'], earlyUnlocks); return; }
+    if (wave === 7) { this._presentOffer(['Rifle','BeamSaber'], earlyUnlocks); return; }
+    if (wave === 8) { this._presentOffer(['Shotgun','SMG'], earlyUnlocks); return; }
+    if (wave === 9) { this._presentOffer(['SMG','Rifle'], earlyUnlocks); return; }
+    if (wave === 10) { this._presentOffer(['SMG','Minigun'], earlyUnlocks); return; }
+    if (wave === 11) { this._presentOffer(['Rifle','DMR'], earlyUnlocks); return; }
+    if (wave === 12) { this._presentOffer(['DMR','BeamSaber'], earlyUnlocks); return; }
+
+    // After wave 5, continue normal offers on even waves
     if (wave >= 6 && (wave % 2) === 0){
       if (this.offerCooldown > 0) { this.offerCooldown -= 1; }
       else { this._presentOffer(); }
@@ -76,9 +80,9 @@ export class Progression {
     if (this.declineBtn) this.declineBtn.onclick = () => this._decline();
   }
 
-  _presentOffer(restrictNames){
+  _presentOffer(restrictNames, unlockOverrides){
     if (!this.offerEl || !this.choicesEl) return;
-    const unlocked = this.ws.getUnlockedPrimaries(this.unlocks);
+    const unlocked = this.ws.getUnlockedPrimaries(unlockOverrides ? { ...this.unlocks, ...unlockOverrides } : this.unlocks);
     // Remove current primary from pool
     let pool = unlocked.filter(x => x.name !== (this.ws.current?.name || 'Rifle'));
     if (Array.isArray(restrictNames) && restrictNames.length > 0) {
@@ -177,7 +181,7 @@ export class Progression {
   }
 
   _iconFor(name){
-    const map = { Rifle:'assets/icons/weapon-rifle.svg', SMG:'assets/icons/weapon-smg.svg', Shotgun:'assets/icons/weapon-shotgun.svg', DMR:'assets/icons/weapon-dmr.svg', Pistol:'assets/icons/weapon-pistol.svg', BeamSaber:'assets/icons/weapon-beamsaber.svg' };
+    const map = { Rifle:'assets/icons/weapon-rifle.svg', SMG:'assets/icons/weapon-smg.svg', Shotgun:'assets/icons/weapon-shotgun.svg', DMR:'assets/icons/weapon-dmr.svg', Minigun:'assets/icons/weapon-minigun.svg', Pistol:'assets/icons/weapon-pistol.svg', BeamSaber:'assets/icons/weapon-beamsaber.svg' };
     return map[name] || map.Rifle;
   }
 }
