@@ -19,6 +19,7 @@ export class StoryManager {
     this.SEEN_KEY = 'bs3d_story_seen';
     this._seen = this._loadSeen();
     this._currentBeat = null;
+    this._tickerShown = false;
   }
 
   _bindUI(){
@@ -33,10 +34,12 @@ export class StoryManager {
     this.active = false;
     this.enabled = false;
     if (this.container) this.container.style.display = 'none';
+    this._tickerShown = false;
   }
 
   startRun(){
     this.enabled = true;
+    this._tickerShown = false;
     // Optionally load external beats for easy authoring
     if (this._beatsUrl) {
       try {
@@ -67,13 +70,17 @@ export class StoryManager {
     if (wave === 5) this._enqueueBeat('bossIncoming');
     if (wave === 10) this._enqueueBeat('midRun');
     if (wave === 20) this._enqueueBeat('lateRun');
-    // Occasionally drop a fun ticker snippet mid-run
-    if (this.ticker && wave > 1 && Math.random() < 0.3) {
+    // Drop a ticker snippet the first time we get past wave 1, then occasionally
+    if (this.ticker && wave > 1) {
       const tickers = Object.keys(this._beats).filter(id => this._beats[id].mode === 'ticker');
       const remaining = tickers.filter(id => !this._beatsFired.has(id));
       if (remaining.length > 0) {
-        const pick = remaining[Math.floor(Math.random() * remaining.length)];
-        this._enqueueBeat(pick);
+        const shouldShow = !this._tickerShown || Math.random() < 0.3;
+        if (shouldShow) {
+          const pick = remaining[Math.floor(Math.random() * remaining.length)];
+          this._enqueueBeat(pick);
+          this._tickerShown = true;
+        }
       }
     }
     this._maybeShow();
