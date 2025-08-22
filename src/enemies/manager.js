@@ -18,13 +18,14 @@ function containsExtrudeGeometry(obj){
 }
 
 export class EnemyManager {
-  constructor(THREE, scene, mats, objects = [], getPlayer = null, arenaRadius = Infinity) {
+  constructor(THREE, scene, mats, objects = [], getPlayer = null, arenaRadius = Infinity, obstacleManager = null) {
     this.THREE = THREE;
     this.scene = scene;
     this.mats = mats;
     this.objects = objects;
     this.getPlayer = getPlayer || (() => ({ position: new THREE.Vector3(), forward: new THREE.Vector3(0,0,1) }));
     this.arenaRadius = arenaRadius;
+    this.obstacleManager = obstacleManager;
     this.enemies = new Set();            // set of root meshes (raycast target) — back-compat
     this.instances = new Set();          // set of enemy instance objects
     this.instanceByRoot = new WeakMap(); // root -> instance
@@ -589,6 +590,10 @@ export class EnemyManager {
 
   startWave() {
     if (this.suspendWaves) return; // disabled in test harness
+    if (this.obstacleManager && this.wave % 5 === 0) {
+      const player = this.getPlayer();
+      try { this.obstacleManager.respawnMissing(player.position.clone(), this.enemies); } catch(_) {}
+    }
     // Gate boss waves
     if (this.wave % 5 === 0) {
       const started = this.bossManager.startBoss(this.wave);

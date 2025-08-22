@@ -1,7 +1,7 @@
 export class Destructible {
   constructor({ THREE, mats, type, position }) {
     this.THREE = THREE;
-    this.type = type; // 'crate' | 'barricade' | 'barrel'
+    this.type = type; // 'crate' | 'barricade' | 'barrel' | 'lowWall'
     this.hp = 1;
     this.root = null;
     this.aabbHalf = new THREE.Vector3(1,1,1);
@@ -27,7 +27,7 @@ export class Destructible {
         break;
       }
       case 'barricade': {
-        // 6x2x1 low wall
+        // 6x2x1 wall
         this.hp = 120;
         const g = new THREE.BoxGeometry(6, 2, 1);
         const m = mats?.wall || new THREE.MeshLambertMaterial({ color: 0x8ecae6 });
@@ -36,6 +36,18 @@ export class Destructible {
         mesh.castShadow = true; mesh.receiveShadow = true;
         this.root = mesh;
         this.aabbHalf.set(3, 1, 0.5);
+        break;
+      }
+      case 'lowWall': {
+        // 6x0.66x1 low wall that can be stepped over
+        this.hp = 40;
+        const g = new THREE.BoxGeometry(6, 0.66, 1);
+        const m = mats?.wall || new THREE.MeshLambertMaterial({ color: 0x8ecae6 });
+        const mesh = new THREE.Mesh(g, m);
+        mesh.position.copy(position || new THREE.Vector3());
+        mesh.castShadow = true; mesh.receiveShadow = true;
+        this.root = mesh;
+        this.aabbHalf.set(3, 0.33, 0.5);
         break;
       }
       case 'barrel':

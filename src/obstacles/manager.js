@@ -16,6 +16,7 @@ export class ObstacleManager {
     this.rootToDestructible = new WeakMap();
     this.destroyCount = 0;
     this.lastDropGate = 0; // count snapshot when a drop was last allowed
+    this.initialObstacleCount = 0;
 
     // hooks set later from main
     this.enemyManager = null;
@@ -51,9 +52,8 @@ export class ObstacleManager {
     // Derive a deterministic RNG for obstacles from the arena seed
     this.rng = makeSeededRng(`obstacles:${seed}`);
 
-    // Mix of destructibles: crates, barricades, barrels
-    const counts = { crate: 10, barricade: 6, barrel: 12 };
-    const placed = [];
+    // Mix of destructibles: crates, barricades, low walls, barrels
+    const counts = { crate: 10, barricade: 6, lowWall: 4, barrel: 12 };
 
     // Precompute bounding boxes for static world objects, skipping the circular arena wall
     const objectBBs = [];
@@ -73,66 +73,14 @@ export class ObstacleManager {
     }
     const arenaRadius = arenaRadiusSq ? Math.sqrt(arenaRadiusSq) : 35;
 
-    const tryPlace = (inst, radiusRange) => {
-      const THREE = this.THREE;
-      // Attempt several times to avoid overlap with placed and static objects
-      const attempts = 28;
-      for (let i = 0; i < attempts; i++) {
-        let x, z;
-        if (radiusRange) {
-          const [rMin, rMax] = radiusRange;
-          const r = Math.sqrt(this.rng() * (rMax * rMax - rMin * rMin) + rMin * rMin);
-          const theta = this.rng() * Math.PI * 2;
-          x = (Math.cos(theta) * r) | 0;
-          z = (Math.sin(theta) * r) | 0;
-        } else {
-          x = (this.rng() * arenaRadius * 2 - arenaRadius) | 0;
-          z = (this.rng() * arenaRadius * 2 - arenaRadius) | 0;
-        }
-        if (arenaRadiusSq !== null && (x * x + z * z) > arenaRadiusSq) continue; // outside circular arena
-        const y = inst.root.position.y || 0;
-        inst.root.position.set(x, y, z);
-
-        // Random rotate barricades 0 or 90 degrees
-        if (inst.type === 'barricade') {
-          const rot = (this.rng() < 0.5) ? 0 : Math.PI / 2;
-          inst.root.rotation.y = rot;
-        } else {
-          inst.root.rotation.y = (this.rng() * Math.PI * 2);
-        }
-
-        // Compute AABB from half extents accounting for rotation (approx by swapping x/z on ~90deg)
-        const hx = (inst.type === 'barricade' && Math.abs(Math.sin(inst.root.rotation.y)) > 0.707)
-          ? inst.aabbHalf.z : inst.aabbHalf.x;
-        const hz = (inst.type === 'barricade' && Math.abs(Math.sin(inst.root.rotation.y)) > 0.707)
-          ? inst.aabbHalf.x : inst.aabbHalf.z;
-        const hy = inst.aabbHalf.y;
-        const min = new THREE.Vector3(x - hx, y - hy, z - hz);
-        const max = new THREE.Vector3(x + hx, y + hy, z + hz);
-        const bb = new THREE.Box3(min, max);
-
-        // Check against world objects (walls)
-        let collides = false;
-        for (const obb of objectBBs) {
-          if (bb.intersectsBox(obb)) { collides = true; break; }
-        }
-        if (collides) continue;
-        // Check against already placed destructibles
-        for (const p of placed) { if (bb.intersectsBox(p.bb)) { collides = true; break; } }
-        if (collides) continue;
-
-        // Place (defer merge until end)
-        this._addDestructible(inst, { defer: true });
-        placed.push({ bb });
-        return true;
-      }
-      return false;
+    const create = (type) => {
+      const y = type === 'barrel' ? 0.6 : (type === 'lowWall' ? 0.33 : 1);
+      return new Destructible({ THREE: this.THREE, mats: this.mats, type, position: new this.THREE.Vector3(0, y, 0) });
     };
 
-    const create = (type) => new Destructible({ THREE: this.THREE, mats: this.mats, type, position: new this.THREE.Vector3(0, type==='barrel'?0.6: (type==='barricade'?1:1), 0) });
-
-    for (let i = 0; i < counts.crate; i++) tryPlace(create('crate'));
-    for (let i = 0; i < counts.barricade; i++) tryPlace(create('barricade'));
+    for (let i = 0; i < counts.crate; i++) this.tryPlace(create('crate'), { objectBBs, arenaRadiusSq, arenaRadius });
+    for (let i = 0; i < counts.barricade; i++) this.tryPlace(create('barricade'), { objectBBs, arenaRadiusSq, arenaRadius });
+    for (let i = 0; i < counts.lowWall; i++) this.tryPlace(create('lowWall'), { objectBBs, arenaRadiusSq, arenaRadius });
 
     // Distribute barrels into a few radial bands to create loose clusters
     const barrelBands = [];
@@ -146,7 +94,7 @@ export class ObstacleManager {
     }
     for (let i = 0; i < counts.barrel; i++) {
       const band = barrelBands[i % barrelBands.length];
-      tryPlace(create('barrel'), band);
+      this.tryPlace(create('barrel'), { objectBBs, arenaRadiusSq, arenaRadius, radiusRange: band });
     }
 
     // Merge placed destructibles by material into a single mesh per material
@@ -173,6 +121,62 @@ export class ObstacleManager {
     }
 
     // Ensure deferred destructibles are registered as colliders in one batch and notify listeners
+    this._flushDeferred();
+    this.initialObstacleCount = this.obstacles.size;
+  }
+
+  respawnMissing(playerPos, enemies = []) {
+    const missing = this.initialObstacleCount - this.obstacles.size;
+    if (missing <= 0) return;
+    const THREE = this.THREE;
+
+    // Static world object bounds (skip existing destructibles)
+    const objectBBs = [];
+    let arenaRadiusSq = null;
+    if (this.objects && this.objects.length) {
+      for (const o of this.objects) {
+        if (this.obstacles.has(o)) continue;
+        if (o.geometry && o.geometry.type === 'ExtrudeGeometry') {
+          const bb = new THREE.Box3().setFromObject(o);
+          const maxR = Math.max(Math.abs(bb.max.x), Math.abs(bb.max.z));
+          arenaRadiusSq = Math.pow(maxR - 1, 2);
+          continue;
+        }
+        try { objectBBs.push(new THREE.Box3().setFromObject(o)); } catch(_){}
+      }
+    }
+    const arenaRadius = arenaRadiusSq ? Math.sqrt(arenaRadiusSq) : 35;
+
+    // Build exclusion AABBs for player and living enemies
+    const exclusions = [];
+    const half = new THREE.Vector3(0.6, 0.8, 0.6);
+    if (playerPos) {
+      const min = playerPos.clone().add(new THREE.Vector3(-half.x, -half.y, -half.z));
+      const max = playerPos.clone().add(new THREE.Vector3(half.x, half.y, half.z));
+      exclusions.push(new THREE.Box3(min, max));
+    }
+    const enemyArr = Array.isArray(enemies) ? enemies : Array.from(enemies || []);
+    for (const e of enemyArr) {
+      const pos = e?.position || e?.root?.position;
+      if (!pos) continue;
+      const min = pos.clone().add(new THREE.Vector3(-half.x, -half.y, -half.z));
+      const max = pos.clone().add(new THREE.Vector3(half.x, half.y, half.z));
+      exclusions.push(new THREE.Box3(min, max));
+    }
+
+    const types = ['crate', 'barricade', 'lowWall', 'barrel'];
+    for (let i = 0; i < missing; i++) {
+      const type = types[(this.rng() * types.length) | 0];
+      const y = type === 'barrel' ? 0.6 : (type === 'lowWall' ? 0.33 : 1);
+      const inst = new Destructible({
+        THREE: this.THREE,
+        mats: this.mats,
+        type,
+        position: new this.THREE.Vector3(0, y, 0)
+      });
+      this.tryPlace(inst, { objectBBs, arenaRadiusSq, arenaRadius, exclusions });
+    }
+
     this._flushDeferred();
   }
 
@@ -229,11 +233,11 @@ export class ObstacleManager {
     }
 
     // Destructible placements
-    // Schema: obstacles: [{ type:'crate'|'barricade'|'barrel', x,y,z, rotY? }]
+    // Schema: obstacles: [{ type:'crate'|'barricade'|'barrel'|'lowWall', x,y,z, rotY? }]
     if (Array.isArray(map.obstacles)) {
       for (const o of map.obstacles) {
         if (!o || !o.type) continue;
-        const yDefault = o.type === 'barrel' ? 0.6 : 1.0;
+        const yDefault = o.type === 'barrel' ? 0.6 : (o.type === 'lowWall' ? 0.33 : 1.0);
         const inst = new Destructible({ THREE: this.THREE, mats: this.mats, type: o.type, position: new this.THREE.Vector3(Number(o.x)||0, (o.y!=null?Number(o.y):yDefault), Number(o.z)||0) });
         if (inst && inst.root) {
           if (o.rotY) inst.root.rotation.y = Number(o.rotY) || 0;
@@ -377,6 +381,57 @@ export class ObstacleManager {
     return pts;
   }
 
+  tryPlace(inst, { objectBBs = [], arenaRadiusSq = null, arenaRadius = 35, exclusions = [], radiusRange = null } = {}) {
+    const THREE = this.THREE;
+    const attempts = 28;
+    for (let i = 0; i < attempts; i++) {
+      let x, z;
+      if (radiusRange) {
+        const [rMin, rMax] = radiusRange;
+        const r = Math.sqrt(this.rng() * (rMax * rMax - rMin * rMin) + rMin * rMin);
+        const theta = this.rng() * Math.PI * 2;
+        x = (Math.cos(theta) * r) | 0;
+        z = (Math.sin(theta) * r) | 0;
+      } else {
+        x = (this.rng() * arenaRadius * 2 - arenaRadius) | 0;
+        z = (this.rng() * arenaRadius * 2 - arenaRadius) | 0;
+      }
+      if (arenaRadiusSq !== null && (x * x + z * z) > arenaRadiusSq) continue;
+      const y = inst.root.position.y || 0;
+      inst.root.position.set(x, y, z);
+
+      if (inst.type === 'barricade' || inst.type === 'lowWall') {
+        const rot = (this.rng() < 0.5) ? 0 : Math.PI / 2;
+        inst.root.rotation.y = rot;
+      } else {
+        inst.root.rotation.y = (this.rng() * Math.PI * 2);
+      }
+
+      const isRect = (inst.type === 'barricade' || inst.type === 'lowWall') && Math.abs(Math.sin(inst.root.rotation.y)) > 0.707;
+      const hx = isRect ? inst.aabbHalf.z : inst.aabbHalf.x;
+      const hz = isRect ? inst.aabbHalf.x : inst.aabbHalf.z;
+      const hy = inst.aabbHalf.y;
+      const min = new THREE.Vector3(x - hx, y - hy, z - hz);
+      const max = new THREE.Vector3(x + hx, y + hy, z + hz);
+      const bb = new THREE.Box3(min, max);
+
+      let collides = false;
+      for (const obb of objectBBs) { if (bb.intersectsBox(obb)) { collides = true; break; } }
+      if (collides) continue;
+      for (const root of this.obstacles) {
+        const obb = new THREE.Box3().setFromObject(root);
+        if (bb.intersectsBox(obb)) { collides = true; break; }
+      }
+      if (collides) continue;
+      for (const ex of exclusions) { if (bb.intersectsBox(ex)) { collides = true; break; } }
+      if (collides) continue;
+
+      this._addDestructible(inst, { defer: true });
+      return true;
+    }
+    return false;
+  }
+
   _addDestructible(inst, { defer = false } = {}) {
     this.scene.add(inst.root);
     this.obstacles.add(inst.root);
@@ -490,8 +545,8 @@ export class ObstacleManager {
 
   _spawnDebris(position, type) {
     const THREE = this.THREE;
-    const count = type === 'barricade' ? 16 : 10;
-    const baseColor = (type === 'crate') ? 0xC6A15B : (type === 'barricade' ? 0x8ecae6 : 0xCC3333);
+    const count = type === 'barricade' ? 16 : (type === 'lowWall' ? 12 : 10);
+    const baseColor = (type === 'crate') ? 0xC6A15B : ((type === 'barricade' || type === 'lowWall') ? 0x8ecae6 : 0xCC3333);
     for (let i = 0; i < count; i++) {
       let item = this._debrisPool.pop();
       if (!item) {
