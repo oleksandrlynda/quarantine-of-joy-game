@@ -79,11 +79,30 @@ button{ cursor:pointer; border:0; border-radius:14px; padding:12px 16px; font-we
 @keyframes toastOut{ to{ opacity:0; transform:translateY(-6px);} }
 
 /* News ticker */
-#newsTicker{ position:fixed; left:50%; bottom:20px; transform:translateX(-50%); pointer-events:none; z-index:4; text-align:center; }
-.ticker{ background:#ffffffee; border:2px solid #00000018; border-radius:12px; padding:6px 12px; font-weight:800; box-shadow:0 10px 30px #00000022; opacity:0; transform:translateY(6px); animation: tickerIn 180ms ease-out forwards; }
-@keyframes tickerIn{ to{ opacity:1; transform:translateY(0);} }
-.ticker.out{ animation: tickerOut 200ms ease-in forwards; }
-@keyframes tickerOut{ to{ opacity:0; transform:translateY(6px);} }
+#newsTicker{
+  position:fixed;
+  bottom:0;
+  left:0;
+  width:100%;
+  overflow:hidden;
+  pointer-events:none;
+  z-index:4;
+  background:#ffffffee;
+  border-top:2px solid #00000018;
+  box-shadow:0 10px 30px #00000022;
+}
+.ticker-track{
+  display:inline-block;
+  white-space:nowrap;
+  font-weight:800;
+  padding:6px 12px;
+  will-change:transform;
+  animation: tickerScroll 10s linear;
+}
+@keyframes tickerScroll{
+  from{ transform:translateX(100%); }
+  to{ transform:translateX(-100%); }
+}
 
 
 /* Mobile controls */

@@ -248,6 +248,7 @@ const bossNameEl = document.getElementById('bossName');
 const bossHpBarEl = document.getElementById('bossHpBar');
 const toastsEl = document.getElementById('toasts');
 const tickerEl = document.getElementById('newsTicker');
+let tickerQueue = Promise.resolve();
 
 // Best score persistence
 const BEST_KEY = 'bs3d_best_score';
@@ -931,13 +932,28 @@ try { window._HUD = { showHitmarker }; } catch(_) {}
 function showTicker(text, repeat = 1, interval = 2400){
   if (!tickerEl) return;
   const cycles = Math.max(1, repeat|0);
-  const delay = interval + 240; // include fade-out buffer
   for (let i = 0; i < cycles; i++){
-    setTimeout(()=>{
-      const el = document.createElement('div'); el.className = 'ticker'; el.textContent = text;
-      tickerEl.appendChild(el);
-      setTimeout(()=>{ el.classList.add('out'); setTimeout(()=>{ try{ tickerEl.removeChild(el);}catch(_){ } }, 240); }, interval);
-    }, i * delay);
+    tickerQueue = tickerQueue.then(() => new Promise(resolve => {
+      const track = document.createElement('div');
+      track.className = 'ticker-track';
+      track.textContent = text;
+      tickerEl.appendChild(track);
+
+      const containerWidth = tickerEl.offsetWidth || window.innerWidth;
+      while (track.offsetWidth < containerWidth * 2){
+        track.textContent += ` \u00a0\u00a0${text}`;
+      }
+
+      const distance = track.offsetWidth + containerWidth;
+      const baseSpeed = containerWidth / (interval/1000);
+      const duration = distance / baseSpeed;
+      track.style.animation = `tickerScroll ${duration}s linear`;
+
+      track.addEventListener('animationend', () => {
+        try { tickerEl.removeChild(track); } catch(_){}
+        resolve();
+      }, { once: true });
+    }));
   }
 }
 
