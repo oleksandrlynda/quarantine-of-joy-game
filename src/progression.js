@@ -1,4 +1,4 @@
-// Lightweight progression + armory offers
+// Progression: tier-aware early game, no duplicate offers vs. current, safer restricted picks
 
 export class Progression {
   constructor({ weaponSystem, documentRef, onPause, controls }){
@@ -6,73 +6,80 @@ export class Progression {
     this.doc = documentRef || document;
     this.onPause = onPause || (()=>{});
     this.controls = controls || null;
+
     this.UNLOCKS_KEY = 'bs3d_unlocks';
     this.unlocks = this._loadUnlocks();
-    this.offerCooldown = 0; // prevents back-to-back only when an offer is accepted
-    this._bindOfferUI();
+
+    this.offerCooldown = 0;         // prevents back-to-back only when an offer is accepted
     this.offerOpen = false;
     this._offerHandlersBound = false;
-    this.bossKills = 0; // track number of defeated bosses this run
-    this.sidearmOfferShown = false;
+    this.bossKills = 0;             // track number of defeated bosses this run
+    this.sidearmOfferShown = false; // show once per run
+
+    this._bindOfferUI();
   }
 
+  // ---------- Persistence ----------
   _loadUnlocks(){
+    const base = { bestWave:0, smg:false, shotgun:false, rifle:false, dmr:false, beamsaber:false, minigun:false };
     try {
       const s = localStorage.getItem(this.UNLOCKS_KEY);
-      return s ? JSON.parse(s) : { bestWave:0, smg:false, shotgun:false, rifle:false, dmr:false, beamsaber:false, minigun:false };
+      return s ? { ...base, ...JSON.parse(s) } : base;
     } catch {
-      return { bestWave:0, smg:false, shotgun:false, rifle:false, dmr:false, beamsaber:false, minigun:false };
+      return base;
     }
   }
   _saveUnlocks(){ try { localStorage.setItem(this.UNLOCKS_KEY, JSON.stringify(this.unlocks)); } catch {} }
 
+  // ---------- Wave hooks ----------
   onWave(wave){
-    // Persist unlocks based on highest wave reached
+    // Persist unlocks by best wave reached (kept compatible with your main.js boss hooks)
     if (wave > (this.unlocks.bestWave||0)){
       this.unlocks.bestWave = wave;
+      if (wave >= 2) this.unlocks.smg = true;        // earlier SMG to improve onboarding
       if (wave >= 3) this.unlocks.shotgun = true;
       if (wave >= 4) this.unlocks.minigun = true;
-      if (wave >= 5) this.unlocks.smg = true;
-      // rifle unlocked after first boss via main.js hook
-      // dmr unlocked after second boss via main.js hook
-      if (wave >= 12) this.unlocks.beamsaber = true;
+      if (wave >= 6) this.unlocks.rifle = true;
+      if (wave >= 11) this.unlocks.dmr = true;
+      if (wave >= 3) this.unlocks.beamsaber = true;
       this._saveUnlocks();
     }
 
-    // Guided early milestones
-    const earlyUnlocks = { shotgun:true, smg:true, rifle:true, dmr:true, beamsaber:true, minigun:true };
+    // Early guided milestones (tier-aware)
+    // Use unlockOverrides to allow showing items before their persistent unlocks fire.
+    // const early = { shotgun:true, smg:true, rifle:true, dmr:true, beamsaber:true, minigun:true };
+
     if (wave === 1) { return; }
+
     if (wave === 2) {
-      // Force Shotgun as the first primary
-      const pool = this.ws.getUnlockedPrimaries(earlyUnlocks);
-      const sg = pool.find(x => x.name === 'Shotgun');
-      if (sg) this.ws.swapPrimary(sg.make);
+      // Guarantee SMG as first primary (safer for new players than Shotgun)
+      const pool = this.ws.getUnlockedPrimaries(this.unlocks);
+      const smg = pool.find(x => x.name === 'SMG');
+      if (smg) this.ws.swapPrimary(smg.make);
       return;
     }
-    if (wave === 3) { this._presentOffer(['Shotgun','SMG'], earlyUnlocks); return; }
-    if (wave === 4) { this._presentOffer(['Minigun','SMG'], earlyUnlocks); return; }
-    if (wave === 5) { this._presentOffer(['Shotgun','SMG'], earlyUnlocks); return; }
-    if (wave === 6) { this._presentOffer(['SMG','Rifle'], earlyUnlocks); return; }
-    if (wave === 7) { this._presentOffer(['Rifle','BeamSaber'], earlyUnlocks); return; }
-    if (wave === 8) { this._presentOffer(['Shotgun','SMG'], earlyUnlocks); return; }
-    if (wave === 9) { this._presentOffer(['SMG','Rifle'], earlyUnlocks); return; }
-    if (wave === 10) { this._presentOffer(['SMG','Minigun'], earlyUnlocks); return; }
-    if (wave === 11) { this._presentOffer(['Rifle','DMR'], earlyUnlocks); return; }
-    if (wave === 12) { this._presentOffer(['DMR','BeamSaber'], earlyUnlocks); return; }
 
-    // After wave 5, continue normal offers on even waves
+    if (wave === 3) { this._presentOffer(['Shotgun','SMG'], this.unlocks); return; }
+    if (wave === 4) { this._presentOffer(['BeamSaber'], this.unlocks); return; }          // single pick allowed; we’ll fill if filtered
+    if (wave === 6) { this._presentOffer(['Rifle','SMG'], this.unlocks); return; }
+    if (wave === 8) { this._presentOffer(['Minigun'], this.unlocks); return; }
+    if (wave === 11){ this._presentOffer(['Rifle','DMR'], this.unlocks); return; }
+    if (wave === 12){ this._presentOffer(['DMR','BeamSaber'], this.unlocks); return; }
+
+    // Normal cadence: even waves ≥ 6 (respect cooldown)
     if (wave >= 6 && (wave % 2) === 0){
-      if (this.offerCooldown > 0) { this.offerCooldown -= 1; }
-      else { this._presentOffer(); }
+      if (this.offerCooldown > 0) this.offerCooldown -= 1;
+      else this._presentOffer();
     }
 
-    // Sidearm offer at wave 20+: Pistol vs Grenade launcher, once per run
+    // Sidearm offer once per run at wave ≥ 15
     if (!this.sidearmOfferShown && wave >= 15){
       this._presentSidearmOffer();
       this.sidearmOfferShown = true;
     }
   }
 
+  // ---------- UI plumbing ----------
   _bindOfferUI(){
     this.offerEl = this.doc.getElementById('offer');
     this.choicesEl = this.doc.getElementById('offerChoices');
@@ -80,29 +87,75 @@ export class Progression {
     if (this.declineBtn) this.declineBtn.onclick = () => this._decline();
   }
 
-  _presentOffer(restrictNames, unlockOverrides){
-    if (!this.offerEl || !this.choicesEl) return;
-    const unlocked = this.ws.getUnlockedPrimaries(unlockOverrides ? { ...this.unlocks, ...unlockOverrides } : this.unlocks);
-    // Remove current primary from pool
-    let pool = unlocked.filter(x => x.name !== (this.ws.current?.name || 'Rifle'));
-    if (Array.isArray(restrictNames) && restrictNames.length > 0) {
-      pool = restrictNames.map(n => pool.find(p => p.name === n)).filter(Boolean);
-    }
-    if (pool.length === 0) return;
-    // pick 2 distinct (or 1 if only one)
-    const picks = [];
-    const rnd = (n)=> Math.floor(Math.random()*n);
-    if (pool.length === 1) picks.push(pool[0]);
-    else if (pool.length === 2 && restrictNames) { picks.push(pool[0], pool[1]); }
-    else {
-      picks.push(pool[rnd(pool.length)]);
-      if (pool.length > 1){
-        let idx = rnd(pool.length);
-        while (pool[idx].name === picks[0].name) idx = rnd(pool.length);
-        picks.push(pool[idx]);
+  // ---------- Offer helpers ----------
+  _currentPrimaryName(){
+    return (this.ws?.current?.name) || null;
+  }
+
+  _currentSidearmName(){
+    const inv = this.ws?.inventory || [];
+    // assuming slot 0 = primary, slot 1 = sidearm if present
+    if (inv.length >= 2 && inv[1] && inv[1].name) return inv[1].name;
+    return null;
+  }
+
+  _filterOutCurrent(pool){
+    const cur = this._currentPrimaryName();
+    return pool.filter(p => p && p.name !== cur);
+  }
+
+  _pickTwoDistinct(pool){
+    if (pool.length <= 1) return pool.slice(0, 1);
+    // pick two uniformly without replacement
+    const i = Math.floor(Math.random()*pool.length);
+    let j = Math.floor(Math.random()*pool.length);
+    while (j === i) j = Math.floor(Math.random()*pool.length);
+    return [pool[i], pool[j]];
+  }
+
+  _expandIfTooShort(picks, fallbackPool){
+    // If after restrictions we have <2, top up from fallback (excluding duplicates)
+    if (picks.length >= 2) return picks;
+    const names = new Set(picks.map(p => p.name));
+    for (const c of fallbackPool){
+      if (!names.has(c.name)){
+        picks.push(c);
+        if (picks.length === 2) break;
       }
     }
-    // build UI
+    return picks;
+  }
+
+  // ---------- Primary offers ----------
+  _presentOffer(restrictNames, unlockOverrides){
+    if (!this.offerEl || !this.choicesEl) return;
+
+    // Base unlocked pool (optionally overridden for early guidance)
+    const unlocked = this.ws.getUnlockedPrimaries(
+      unlockOverrides ? { ...this.unlocks, ...unlockOverrides } : this.unlocks
+    );
+
+    // Always remove CURRENT weapon from consideration
+    let basePool = this._filterOutCurrent(unlocked);
+
+    // Apply restrictions (and still exclude current)
+    let pool = basePool;
+    if (Array.isArray(restrictNames) && restrictNames.length > 0){
+      const wanted = new Set(restrictNames);
+      pool = basePool.filter(p => wanted.has(p.name));
+    }
+
+    // If pool is empty (e.g., restriction excluded the current and left nothing), fall back to basePool
+    if (pool.length === 0) pool = basePool.slice();
+
+    // If still empty (e.g., only weapon unlocked is the one we hold), abort
+    if (pool.length === 0) return;
+
+    // Choose up to two distinct picks, and if restricted left us short, fill from basePool
+    let picks = this._pickTwoDistinct(pool);
+    picks = this._expandIfTooShort(picks, basePool);
+
+    // Build UI
     this.choicesEl.innerHTML = '';
     for (const p of picks){
       const d = this.doc.createElement('div'); d.className = 'choice';
@@ -112,14 +165,21 @@ export class Progression {
       d.onclick = () => this._accept(p);
       this.choicesEl.appendChild(d);
     }
+
     this.offerEl.style.display = '';
     this.offerOpen = true;
     this.onPause(true);
+
     // Release pointer lock so the player can use the mouse
     try { this.controls?.unlock?.(); } catch {}
-    // prevent accidental game reset UI while offer is up
-    try { if (this.doc && this.doc.getElementById('center')) this.doc.getElementById('center').style.display = 'none'; } catch{}
-    // key bindings 1/2 to choose, Esc to decline
+
+    // Hide reset UI while offer is up
+    try {
+      const center = this.doc.getElementById('center');
+      if (center) center.style.display = 'none';
+    } catch {}
+
+    // Key bindings 1/2 to choose, Esc/F to decline
     if (!this._offerHandlersBound){
       this._offerKeyHandler = (e)=>{
         if (!this.offerOpen) return;
@@ -132,14 +192,29 @@ export class Progression {
     }
   }
 
+  // ---------- Sidearm offers ----------
   _presentSidearmOffer(){
     if (!this.offerEl || !this.choicesEl) return;
-    const sidearms = this.ws.getSidearms ? this.ws.getSidearms() : ['Pistol', 'Grenade', 'BeamSaber'];
+
+    // Prefer system-provided sidearms; otherwise default set
+    const raw = this.ws.getSidearms ? this.ws.getSidearms() : [
+      { name:'Pistol', make:()=>new (this.ws.sidearmClasses?.Pistol ?? function(){})() },
+      { name:'Grenade', make:()=>new (this.ws.sidearmClasses?.Grenade ?? function(){})() },
+      { name:'BeamSaber', make:()=>new (this.ws.sidearmClasses?.BeamSaber ?? function(){})() },
+    ];
+
+    // Filter out current sidearm so we never offer the same
+    const curSidearm = this._currentSidearmName();
+    const sidearms = raw.filter(p => p && p.name !== curSidearm);
+
     if (!sidearms.length) return;
+
     this.choicesEl.innerHTML = '';
     for (const p of sidearms){
       const d = this.doc.createElement('div'); d.className = 'choice';
-      const img = this.doc.createElement('img'); img.alt = p.name; img.src = this._iconFor(p.name === 'Grenade' ? 'Pistol' : p.name);
+      const img = this.doc.createElement('img'); img.alt = p.name;
+      // Reuse pistol icon for grenade if you have no grenade icon, keep your previous behavior
+      img.src = this._iconFor(p.name === 'Grenade' ? 'Pistol' : p.name);
       const label = this.doc.createElement('div'); label.textContent = p.name;
       d.appendChild(img); d.appendChild(label);
       d.onclick = () => {
@@ -153,15 +228,18 @@ export class Progression {
       };
       this.choicesEl.appendChild(d);
     }
+
     this.offerEl.style.display = '';
     this.offerOpen = true;
     this.onPause(true);
     try { this.controls?.unlock?.(); } catch {}
   }
 
+  // ---------- Accept / Decline ----------
   _decline(){
     // +20% reserve to current primary
-    const cur = this.ws.current; if (cur) cur.addReserve(Math.floor((cur.getReserve() || 0) * 0.2));
+    const cur = this.ws.current;
+    if (cur) cur.addReserve(Math.floor((cur.getReserve() || 0) * 0.2));
     this._closeOffer(false);
   }
 
@@ -175,15 +253,21 @@ export class Progression {
     if (this.offerEl) this.offerEl.style.display = 'none';
     this.offerOpen = false;
     this.onPause(false);
-    // Try to re-lock pointer immediately after interaction
-    // This is triggered from a click/keypress, so it's a valid user gesture
+    // Try to re-lock pointer immediately after interaction (valid user gesture)
     try { this.controls?.lock?.(); } catch {}
   }
 
+  // ---------- Icons ----------
   _iconFor(name){
-    const map = { Rifle:'assets/icons/weapon-rifle.svg', SMG:'assets/icons/weapon-smg.svg', Shotgun:'assets/icons/weapon-shotgun.svg', DMR:'assets/icons/weapon-dmr.svg', Minigun:'assets/icons/weapon-minigun.svg', Pistol:'assets/icons/weapon-pistol.svg', BeamSaber:'assets/icons/weapon-beamsaber.svg' };
+    const map = {
+      Rifle:'assets/icons/weapon-rifle.svg',
+      SMG:'assets/icons/weapon-smg.svg',
+      Shotgun:'assets/icons/weapon-shotgun.svg',
+      DMR:'assets/icons/weapon-dmr.svg',
+      Minigun:'assets/icons/weapon-minigun.svg',
+      Pistol:'assets/icons/weapon-pistol.svg',
+      BeamSaber:'assets/icons/weapon-beamsaber.svg'
+    };
     return map[name] || map.Rifle;
   }
 }
-
-

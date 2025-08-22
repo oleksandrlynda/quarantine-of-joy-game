@@ -10,8 +10,8 @@ export class Shotgun extends Weapon {
       magSize: 6,
       reserve: 24
     });
-    this.pellets = 12; // more shards
-    this.spreadRad = 0.14; // wider cone (~8 degrees)
+    this.pellets = 13; // more shards
+    this.spreadRad = 0.15; // wider cone (~8 degrees)
     this.range = 28; // short range
     this.fullDamageRange = 6; // no falloff within 6 units
   }

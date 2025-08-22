@@ -176,12 +176,14 @@ export class WeaponSystem {
 
   // Offer pool based on unlock flags
   getUnlockedPrimaries(unlocks){
-    const list = [{ name:'Rifle', make: ()=> new Rifle() }];
+    const list = [];
+    if (unlocks?.rifle) list.push({ name:'Rifle', make: ()=> new Rifle() });
     if (unlocks?.smg) list.push({ name:'SMG', make: ()=> new SMG() });
     if (unlocks?.shotgun) list.push({ name:'Shotgun', make: ()=> new Shotgun() });
     if (unlocks?.dmr) list.push({ name:'DMR', make: ()=> new DMR() });
     if (unlocks?.minigun) list.push({ name:'Minigun', make: ()=> new Minigun() });
     if (unlocks?.beamsaber) list.push({ name:'BeamSaber', make: ()=> new BeamSaber() });
+    if (unlocks?.grenade) list.push({ name:'Grenade', make: ()=> new GrenadePistol() });
     return list;
   }
 
@@ -216,7 +218,7 @@ export class WeaponSystem {
         case 'Rifle': return 0.85;
         case 'Minigun': return 1.8;
         case 'BeamSaber': return 0.0;
-        case 'Grenade': return 0.1;
+        case 'Grenade': return 0.2;
         default: return 1.0;
       }
     };

@@ -41,7 +41,7 @@ export class Pistol extends Weapon {
       let dmg;
       if (res.isHead || res.bodyPart === 'head') dmg = 50;         // 2 hits to kill 100 HP
       else if (res.bodyPart === 'arm' || res.bodyPart === 'leg') dmg = 8; // 12–13 hits for 100 HP
-      else dmg = 20; // torso ~5 hits
+      else dmg = 22; // torso ~5 hits
       res.enemyRoot.userData.hp -= dmg;
       effects?.spawnBulletImpact?.(end, res.hitFace?.normal);
       if (S && S.impactFlesh) S.impactFlesh();
