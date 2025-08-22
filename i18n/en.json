@@ -48,6 +48,8 @@
   "quality.ultraTitle": "aa=on, shadows=on (max)",
   "start.tipDesktop": "Click Play, then click to lock the mouse.",
   "start.tipMobile": "Tap Play to start. Drag to look.",
+  "start.bugs": "Bugs",
+  "start.reportBug": "Report bug",
   "loading.message": "Loading shaders & assets…",
   "loading.models": "Loading models",
   "loading.compiling": "Compiling shaders",
