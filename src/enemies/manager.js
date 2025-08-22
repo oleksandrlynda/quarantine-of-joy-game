@@ -67,7 +67,7 @@ export class EnemyManager {
       flyer:  { type: 'flyer',  hp:  40, speedMin: 12.4, speedMax: 16.7, color: 0xa855f7, kind: 'flyer' },
       healer: { type: 'healer', hp:   90, speedMin: 2.2, speedMax: 2.6, color: 0x84cc16, kind: 'healer' },
       sniper: { type: 'sniper', hp:   135, speedMin: 2.0, speedMax: 2.4, color: 0x444444, kind: 'sniper' },
-      warden: { type: 'warden', hp: 420, speedMin: 1.9, speedMax: 2.3, color: 0x22d3ee, kind: 'warden' },
+      warden: { type: 'warden', hp: 420, speedMin: 1.9, speedMax: 2.2, color: 0x22d3ee, kind: 'warden' },
       // Boss adds
       gruntling: { type: 'gruntling', hp: 20, speedMin: 3.2, speedMax: 4.0, color: 0x3d355d, kind: 'melee' }
     };
@@ -603,7 +603,9 @@ export class EnemyManager {
       }
     }
 
-    const count = 10 + this.wave;
+    const lateGameWave = this.wave >= 35;
+    const lateGameMultiplier = Math.floor(lateGameWave / 10);
+    const count = lateGameWave ? 10 + this.wave + 15 * lateGameMultiplier : 10 + this.wave;
     const types = this._getWaveTypes(this.wave, count);
     this.alive += count;
     if (this.onWave) this.onWave(this.wave, count);

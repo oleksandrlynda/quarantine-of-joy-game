@@ -28,7 +28,7 @@ export class SwarmWarden {
 
     // Motion (hover + strafe orbit)
     this.speed = 1.9;
-    this.cruiseAltitude = 10.5 + Math.random() * 1.2; // higher than flyers
+    this.cruiseAltitude = 25.5 + Math.random() * 1.2; // higher than flyers
     this._t = 0;
     this._yaw = 0; this._pitch = 0; this._roll = 0; this._desiredRoll = 0;
     // Start near cruising height immediately so it doesn't skim the ground on spawn
