@@ -185,7 +185,8 @@ const enemyManager = new EnemyManager(
     const f = new THREE.Vector3(); camera.getWorldDirection(f); f.y = 0; f.normalize();
     return { position: pos, forward: f };
   },
-  arenaRadius
+  arenaRadius,
+  obstacleManager
 );
 // Ensure enemy manager colliders include arena floor and obstacles
 if (enemyManager.refreshColliders) enemyManager.refreshColliders(objects);
