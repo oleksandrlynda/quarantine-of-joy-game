@@ -153,7 +153,7 @@ export class StoryManager {
     if (beat && beat.mode === 'ticker'){
       const ticker = this.ticker || (typeof window !== 'undefined' && window._HUD && typeof window._HUD.ticker === 'function' ? window._HUD.ticker : null);
       const repeat = typeof beat.repeat === 'number' ? beat.repeat : 3;
-      const interval = typeof beat.interval === 'number' ? beat.interval : 2400;
+      const interval = typeof beat.interval === 'number' ? beat.interval : 8000;
       if (ticker) ticker(beat.text, repeat, interval);
       if (beat.id) this._markSeen(beat.id, beat.persistOnce);
       const now = performance.now ? performance.now() : Date.now();

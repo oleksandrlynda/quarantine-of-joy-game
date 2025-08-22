@@ -99,6 +99,11 @@ button{ cursor:pointer; border:0; border-radius:14px; padding:12px 16px; font-we
   will-change:transform;
   animation: tickerScroll 10s linear;
 }
+.ticker-track .ticker-item{
+  display:inline-block;
+  margin-right:4rem;
+  white-space:nowrap;
+}
 @keyframes tickerScroll{
   from{ transform:translateX(100%); }
   to{ transform:translateX(-100%); }

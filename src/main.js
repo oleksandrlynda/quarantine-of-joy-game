@@ -929,19 +929,23 @@ function showHitmarker(){
 try { window._HUD = { showHitmarker }; } catch(_) {}
 
 // Ticker system
-function showTicker(text, repeat = 1, interval = 2400){
+function showTicker(text, repeat = 1, interval = 8000){
   if (!tickerEl) return;
-  const cycles = Math.max(1, repeat|0);
+  const cycles = Math.max(1, repeat | 0);
   for (let i = 0; i < cycles; i++){
     tickerQueue = tickerQueue.then(() => new Promise(resolve => {
       const track = document.createElement('div');
       track.className = 'ticker-track';
-      track.textContent = text;
+
+      const item = document.createElement('span');
+      item.className = 'ticker-item';
+      item.textContent = text;
+      track.appendChild(item);
       tickerEl.appendChild(track);
 
       const containerWidth = tickerEl.offsetWidth || window.innerWidth;
       while (track.offsetWidth < containerWidth * 2){
-        track.textContent += ` \u00a0\u00a0${text}`;
+        track.appendChild(item.cloneNode(true));
       }
 
       const distance = track.offsetWidth + containerWidth;
