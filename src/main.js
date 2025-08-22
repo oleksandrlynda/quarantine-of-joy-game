@@ -508,7 +508,7 @@ weaponSystem = new WeaponSystem({
 // Set initial weapon view
 try { weaponView.setWeapon(weaponSystem.getPrimaryName()); } catch(_) {}
 progression = new Progression({ weaponSystem, documentRef: document, onPause: (lock)=>{ offerActive = !!lock; paused = !!lock; }, controls });
-story = storyDisabled ? null : new StoryManager({ documentRef: document, onPause: (lock)=>{ paused = !!lock; }, controls, toastFn: (t)=> showToast(t), tickerFn: (t)=> showTicker(t), beatsUrl: 'assets/story/beats.json' });
+story = storyDisabled ? null : new StoryManager({ documentRef: document, onPause: (lock)=>{ paused = !!lock; }, controls, toastFn: (t)=> showToast(t), tickerFn: (t,r,i)=> showTicker(t,r,i), beatsUrl: 'assets/story/beats.json' });
 
 
 
@@ -928,11 +928,17 @@ function showHitmarker(){
 try { window._HUD = { showHitmarker }; } catch(_) {}
 
 // Ticker system
-function showTicker(text){
+function showTicker(text, repeat = 1, interval = 2400){
   if (!tickerEl) return;
-  const el = document.createElement('div'); el.className = 'ticker'; el.textContent = text;
-  tickerEl.appendChild(el);
-  setTimeout(()=>{ el.classList.add('out'); setTimeout(()=>{ try{ tickerEl.removeChild(el);}catch(_){ } }, 240); }, 2400);
+  const cycles = Math.max(1, repeat|0);
+  const delay = interval + 240; // include fade-out buffer
+  for (let i = 0; i < cycles; i++){
+    setTimeout(()=>{
+      const el = document.createElement('div'); el.className = 'ticker'; el.textContent = text;
+      tickerEl.appendChild(el);
+      setTimeout(()=>{ el.classList.add('out'); setTimeout(()=>{ try{ tickerEl.removeChild(el);}catch(_){ } }, 240); }, interval);
+    }, i * delay);
+  }
 }
 
 // Toast system
@@ -943,7 +949,7 @@ function showToast(text){
   setTimeout(()=>{ el.classList.add('out'); setTimeout(()=>{ try{ toastsEl.removeChild(el);}catch(_){ } }, 240); }, 1200);
 }
 
-try { if (window && window._HUD) { window._HUD.toast = (t)=> showToast(t); window._HUD.ticker = (t)=> showTicker(t); } } catch(_) {}
+try { if (window && window._HUD) { window._HUD.toast = (t)=> showToast(t); window._HUD.ticker = (t,r,i)=> showTicker(t,r,i); } } catch(_) {}
 
 // Boss music transitions
 if (enemyManager && enemyManager.bossManager) {

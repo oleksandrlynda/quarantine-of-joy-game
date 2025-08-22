@@ -152,9 +152,12 @@ export class StoryManager {
     // Ticker-mode beats show in bottom news feed, also non-blocking
     if (beat && beat.mode === 'ticker'){
       const ticker = this.ticker || (typeof window !== 'undefined' && window._HUD && typeof window._HUD.ticker === 'function' ? window._HUD.ticker : null);
-      if (ticker) ticker(beat.text);
+      const repeat = typeof beat.repeat === 'number' ? beat.repeat : 3;
+      const interval = typeof beat.interval === 'number' ? beat.interval : 2400;
+      if (ticker) ticker(beat.text, repeat, interval);
       if (beat.id) this._markSeen(beat.id, beat.persistOnce);
-      this._lastShownAt = performance.now ? performance.now() : Date.now();
+      const now = performance.now ? performance.now() : Date.now();
+      this._lastShownAt = now + repeat * (interval + 240);
       if (this.queue.length > 0) setTimeout(()=> this._maybeShow(), 50);
       return;
     }
@@ -226,7 +229,7 @@ const NARRATIVE_BEATS = {
   lateRun: { id:'lateRun', text: 'You are deep in. Adversaries deploying elites. Prioritize targets and use cover.', mode: 'toast', persistOnce: true },
   lowHp: { id:'lowHp', text: 'Critical health! Break line of sight and use cover or medkits.', mode: 'toast', persistOnce: true },
   firstMed: { id:'firstMed', text: 'Medkit collected. Stay mobile and top up when safe.', mode: 'toast', persistOnce: true },
-  ticker_gossip1: { id:'ticker_gossip1', text: 'Newsflash: lab coffee machine may be sentient.', mode: 'ticker' },
+  ticker_gossip1: { id:'ticker_gossip1', text: 'Newsflash: lab coffee machine may be sentient.', mode: 'ticker', repeat: 2 },
   ticker_gossip2: { id:'ticker_gossip2', text: 'Rumor: maintenance drones plan a union vote.', mode: 'ticker' },
   ticker_gossip3: { id:'ticker_gossip3', text: "Fun fact: drones still can't appreciate jazz.", mode: 'ticker' },
   ticker_gossip4: { id:'ticker_gossip4', text: 'Alert: vending machines now accept emotional support coins.', mode: 'ticker' },
