@@ -54,8 +54,10 @@ export class WeaponView {
         angle: 1.2,
         dir: 1
       };
-  
-      // recoil 
+
+      // --- charging glow state ---
+      this._chargeState = { active: false, t: 0, dur: 2.5 };
+      // recoil
       this._kickPos = 0; 
       this._kickRot = 0;    
       this._kickVelPos = 0;
@@ -68,7 +70,8 @@ export class WeaponView {
       this._matMetal = new THREE.MeshStandardMaterial({ color: 0x4c5560, roughness: 0.35, metalness: 0.65, emissive: 0x000000 });
       this._matBody  = new THREE.MeshStandardMaterial({ color: 0x23272b, roughness: 0.7,  metalness: 0.2,  emissive: 0x060606 });
       this._matBlade = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x60a5fa, emissiveIntensity: 4.0, roughness: 0.2, metalness: 0.0 });
-  
+      this._baseBladeIntensity = this._matBlade.emissiveIntensity;
+
       this.setWeapon('rifle');
     }
   
@@ -85,11 +88,15 @@ export class WeaponView {
       this._kickVelRot += 0.35 * s;
     }
 
-    startSlash(){
+    startSlash(opts){
       const s = this._slashState;
       s.active = true;
       s.t = 0;
       s.dir *= -1;
+      if (opts && typeof opts.dur === 'number') s.dur = opts.dur;
+      else s.dur = 0.15;
+      if (opts && typeof opts.angle === 'number') s.angle = opts.angle;
+      else s.angle = 1.2;
     }
 
     updateSlash(dt){
@@ -111,6 +118,33 @@ export class WeaponView {
         s.active = false;
         node.rotation.set(0,0,0);
         node.position.set(0,0,0);
+      }
+    }
+
+    startCharge(){
+      const c = this._chargeState;
+      c.active = true;
+      c.t = 0;
+    }
+
+    endCharge(){
+      const c = this._chargeState;
+      c.active = false;
+      c.t = 0;
+      if (this._matBlade) this._matBlade.emissiveIntensity = this._baseBladeIntensity;
+    }
+
+    updateCharge(dt){
+      const c = this._chargeState;
+      if (!this._matBlade) return;
+      if (c.active){
+        c.t += dt;
+        const r = Math.min(1, c.t / c.dur);
+        const target = this._baseBladeIntensity + 8 * r;
+        this._matBlade.emissiveIntensity += (target - this._matBlade.emissiveIntensity) * Math.min(1, dt*10);
+      } else {
+        const target = this._baseBladeIntensity;
+        this._matBlade.emissiveIntensity += (target - this._matBlade.emissiveIntensity) * Math.min(1, dt*10);
       }
     }
   
@@ -153,6 +187,7 @@ export class WeaponView {
       this._recoil.rotation.x = -this._kickRot;
       
       this.updateSlash(dt);
+      this.updateCharge(dt);
 
       // No idle breathing sway; keep weapon fully steady when standing still
       // ---- reload tilt on model node ----
@@ -187,6 +222,7 @@ export class WeaponView {
   
     setWeapon(name){
       this.clear();
+      this.endCharge();
       const THREE = this.THREE;
       const meshes = [];
       const body = this._matBody, metal = this._matMetal;

@@ -499,8 +499,16 @@ try { weaponView.setWeapon(weaponSystem.getPrimaryName()); } catch(_) {}
 progression = new Progression({ weaponSystem, documentRef: document, onPause: (lock)=>{ offerActive = !!lock; paused = !!lock; }, controls });
 story = storyDisabled ? null : new StoryManager({ documentRef: document, onPause: (lock)=>{ paused = !!lock; }, controls, toastFn: (t)=> showToast(t), beatsUrl: 'assets/story/beats.json' });
 
-window.addEventListener('mousedown', e=>{ if(!controls.isLocked || paused) return; weaponSystem.triggerDown(); });
-window.addEventListener('mouseup', ()=>{ weaponSystem.triggerUp(); });
+window.addEventListener('mousedown', e=>{
+  if (!controls.isLocked || paused) return;
+  if (e.button === 2) weaponSystem.triggerAltDown();
+  else weaponSystem.triggerDown();
+});
+window.addEventListener('mouseup', e=>{
+  if (e.button === 2) weaponSystem.triggerAltUp();
+  else weaponSystem.triggerUp();
+});
+window.addEventListener('contextmenu', e=>{ e.preventDefault(); });
 window.addEventListener('keydown', e=>{
   if(e.code==='KeyR'){ weaponSystem.reload(); }
   if(e.code==='KeyP'){ paused=!paused; }
