@@ -52,15 +52,44 @@ export class ObstacleManager {
     this.rng = makeSeededRng(`obstacles:${seed}`);
 
     // Mix of destructibles: crates, barricades, barrels
-    const counts = { crate: 10, barricade: 6, barrel: 6 };
+    const counts = { crate: 10, barricade: 6, barrel: 12 };
     const placed = [];
-    const tryPlace = (inst) => {
+
+    // Precompute bounding boxes for static world objects, skipping the circular arena wall
+    const objectBBs = [];
+    let arenaRadiusSq = null;
+    if (this.objects && this.objects.length) {
+      const THREE = this.THREE;
+      for (const o of this.objects) {
+        // Circular arena wall uses ExtrudeGeometry; treat it as a radial boundary instead of an AABB
+        if (o.geometry && o.geometry.type === 'ExtrudeGeometry') {
+          const bb = new THREE.Box3().setFromObject(o);
+          const maxR = Math.max(Math.abs(bb.max.x), Math.abs(bb.max.z));
+          arenaRadiusSq = Math.pow(maxR - 1, 2); // subtract a small margin from outer radius
+          continue;
+        }
+        try { objectBBs.push(new THREE.Box3().setFromObject(o)); } catch (_) {}
+      }
+    }
+    const arenaRadius = arenaRadiusSq ? Math.sqrt(arenaRadiusSq) : 35;
+
+    const tryPlace = (inst, radiusRange) => {
       const THREE = this.THREE;
       // Attempt several times to avoid overlap with placed and static objects
       const attempts = 28;
       for (let i = 0; i < attempts; i++) {
-        const x = (this.rng() * 70 - 35) | 0;
-        const z = (this.rng() * 70 - 35) | 0;
+        let x, z;
+        if (radiusRange) {
+          const [rMin, rMax] = radiusRange;
+          const r = Math.sqrt(this.rng() * (rMax * rMax - rMin * rMin) + rMin * rMin);
+          const theta = this.rng() * Math.PI * 2;
+          x = (Math.cos(theta) * r) | 0;
+          z = (Math.sin(theta) * r) | 0;
+        } else {
+          x = (this.rng() * arenaRadius * 2 - arenaRadius) | 0;
+          z = (this.rng() * arenaRadius * 2 - arenaRadius) | 0;
+        }
+        if (arenaRadiusSq !== null && (x * x + z * z) > arenaRadiusSq) continue; // outside circular arena
         const y = inst.root.position.y || 0;
         inst.root.position.set(x, y, z);
 
@@ -84,11 +113,8 @@ export class ObstacleManager {
 
         // Check against world objects (walls)
         let collides = false;
-        if (this.objects) {
-          for (const o of this.objects) {
-            const obb = new THREE.Box3().setFromObject(o);
-            if (bb.intersectsBox(obb)) { collides = true; break; }
-          }
+        for (const obb of objectBBs) {
+          if (bb.intersectsBox(obb)) { collides = true; break; }
         }
         if (collides) continue;
         // Check against already placed destructibles
@@ -107,7 +133,21 @@ export class ObstacleManager {
 
     for (let i = 0; i < counts.crate; i++) tryPlace(create('crate'));
     for (let i = 0; i < counts.barricade; i++) tryPlace(create('barricade'));
-    for (let i = 0; i < counts.barrel; i++) tryPlace(create('barrel'));
+
+    // Distribute barrels into a few radial bands to create loose clusters
+    const barrelBands = [];
+    const clusterCount = 2 + (this.rng() * 2) | 0; // 2-3 clusters
+    for (let c = 0; c < clusterCount; c++) {
+      const center = this.rng() * arenaRadius;
+      const half = 3 + this.rng() * 4; // band half-width between 3-7 units
+      const rMin = Math.max(0, center - half);
+      const rMax = Math.min(arenaRadius, center + half);
+      barrelBands.push([rMin, rMax]);
+    }
+    for (let i = 0; i < counts.barrel; i++) {
+      const band = barrelBands[i % barrelBands.length];
+      tryPlace(create('barrel'), band);
+    }
 
     // Merge placed destructibles by material into a single mesh per material
     this._mergeStaticByMaterial();

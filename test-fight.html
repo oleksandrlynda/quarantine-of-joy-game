@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Block Strike 3D — Fight Test (1v1)</title>
+  <title>Quarantine of Joy — Fight Test (1v1)</title>
   <link rel="stylesheet" href="styles/styles.css" />
   <style>
     body{ margin:0; overflow:hidden; }
@@ -44,7 +44,7 @@
     import { StrikeAdjudicator } from './src/bosses/adjudicator.js';
 
     // World
-    const { renderer, scene, camera, skyMat, mats, objects } = createWorld(THREE, Math.random);
+    const { renderer, scene, camera, skyMat, mats, objects, arenaRadius } = createWorld(THREE, Math.random);
     camera.position.set(0, 1.7, 8);
 
     // Preload assets and warm shaders
@@ -64,7 +64,7 @@
     const S = new SFX({ audioContextProvider: ()=>musicShim.getContext(), fxBusProvider: ()=>musicShim.getFxBus() });
 
     // Player
-    const player = new PlayerController(THREE, camera, document.body, objects);
+    const player = new PlayerController(THREE, camera, document.body, objects, arenaRadius);
     scene.add(player.controls.getObject());
     const controls = player.controls;
 
@@ -73,7 +73,7 @@
       const pos = controls.getObject().position.clone();
       const f = new THREE.Vector3(); camera.getWorldDirection(f); f.y=0; f.normalize();
       return { position: pos, forward: f };
-    });
+    }, arenaRadius);
     // Test harness mode: no waves
     enemyManager.suspendWaves = true;
 

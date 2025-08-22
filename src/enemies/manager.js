@@ -10,12 +10,13 @@ import { BossManager } from '../bosses/manager.js';
 import { Hydraclone } from '../bosses/hydraclone.js';
 
 export class EnemyManager {
-  constructor(THREE, scene, mats, objects = [], getPlayer = null) {
+  constructor(THREE, scene, mats, objects = [], getPlayer = null, arenaRadius = Infinity) {
     this.THREE = THREE;
     this.scene = scene;
     this.mats = mats;
     this.objects = objects;
     this.getPlayer = getPlayer || (() => ({ position: new THREE.Vector3(), forward: new THREE.Vector3(0,0,1) }));
+    this.arenaRadius = arenaRadius;
     this.enemies = new Set();            // set of root meshes (raycast target) — back-compat
     this.instances = new Set();          // set of enemy instance objects
     this.instanceByRoot = new WeakMap(); // root -> instance
@@ -25,7 +26,9 @@ export class EnemyManager {
     this.onWave = null;
     this.onRemaining = null;
 
-    this.objectBBs = this.objects.map(o => new this.THREE.Box3().setFromObject(o));
+    this.objectBBs = this.objects
+      .filter(o => !o.geometry?.isExtrudeGeometry)
+      .map(o => new this.THREE.Box3().setFromObject(o));
     this.raycaster = new this.THREE.Raycaster();
     try { this.raycaster.firstHitOnly = true; } catch(_) {}
     this.up = new this.THREE.Vector3(0,1,0);
@@ -70,7 +73,9 @@ export class EnemyManager {
   // Rebuild collidable AABBs after the shared objects list changes (e.g., obstacles destroyed)
   refreshColliders(objects = this.objects) {
     this.objects = objects;
-    this.objectBBs = this.objects.map(o => new this.THREE.Box3().setFromObject(o));
+    this.objectBBs = this.objects
+      .filter(o => !o.geometry?.isExtrudeGeometry)
+      .map(o => new this.THREE.Box3().setFromObject(o));
   }
 
   _initBulletPools() {
@@ -312,9 +317,6 @@ export class EnemyManager {
     const THREE = this.THREE;
     const edge = [];
     const mid = [];
-    // Arena approx bounds from world: walls at ±40; keep safe margin inside
-    const min = -38, max = 38; // inner edge to avoid wall thickness
-    const midMin = -24, midMax = 24; // mid rectangle ring
     const step = 3; // spacing between spawn points
 
     const tryAdd = (x, z, out) => {
@@ -322,6 +324,27 @@ export class EnemyManager {
       if (!this._isSpawnAreaClear(pos, 0.6)) return;
       out.push(pos);
     };
+
+    if (this.arenaRadius !== Infinity) {
+      const wallT = 1;
+      const edgeR = this.arenaRadius - wallT / 2 - 1 - this.enemyHalf.x;
+      const midR = edgeR * 0.63;
+      const edgeSegs = Math.max(8, Math.round((2 * Math.PI * edgeR) / step));
+      for (let i = 0; i < edgeSegs; i++) {
+        const a = (i / edgeSegs) * Math.PI * 2;
+        tryAdd(Math.cos(a) * edgeR, Math.sin(a) * edgeR, edge);
+      }
+      const midSegs = Math.max(8, Math.round((2 * Math.PI * midR) / step));
+      for (let i = 0; i < midSegs; i++) {
+        const a = (i / midSegs) * Math.PI * 2;
+        tryAdd(Math.cos(a) * midR, Math.sin(a) * midR, mid);
+      }
+      return { edge, mid };
+    }
+
+    // Fallback rectangle rings for non-circular arenas
+    const min = -38, max = 38; // inner edge to avoid wall thickness
+    const midMin = -24, midMax = 24; // mid rectangle ring
 
     // Outer rectangle ring (clockwise)
     for (let x = min; x <= max; x += step) { tryAdd(x, min, edge); }
@@ -361,7 +384,15 @@ export class EnemyManager {
   
     // against world
     for (const obb of this.objectBBs) { if (bb.intersectsBox(obb)) return false; }
-  
+
+    // enforce arena bounds (1m from inner wall for circular arenas)
+    if (this.arenaRadius !== Infinity) {
+      const wallT = 1; // world.js wall thickness
+      const maxR = this.arenaRadius - wallT / 2 - 1;
+      const r = Math.hypot(pos.x, pos.z);
+      if (r + Math.max(half.x, half.z) > maxR) return false;
+    }
+
     // against other enemies (use a second box!)
     for (const e of this.enemies) {
       const ex = e.position.x, ey = e.position.y, ez = e.position.z;

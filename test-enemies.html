@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Block Strike 3D — Enemy/Boss Testbed</title>
+  <title>Quarantine of Joy — Enemy/Boss Testbed</title>
   <link rel="stylesheet" href="styles/styles.css" />
   <style>
     body{ margin:0; overflow:hidden; }
@@ -68,7 +68,7 @@
     }
 
     // World
-    const { renderer, scene, camera, skyMat, hemi, dir, mats, objects } = createWorld(THREE, Math.random);
+    const { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius } = createWorld(THREE, Math.random);
     camera.position.set(0, 18, 36);
     camera.lookAt(0, 1.6, 0);
 
@@ -127,7 +127,7 @@
     // Helper to create a manager bound to a decoy target
     function createManagerFor(decoy){
       const getPlayer = () => ({ position: decoy.obj.position, forward: decoy.forward });
-      const m = new EnemyManager(THREE, scene, mats, objects, getPlayer);
+      const m = new EnemyManager(THREE, scene, mats, objects, getPlayer, arenaRadius);
       managers.push(m);
       return m;
     }
@@ -313,8 +313,8 @@
       const state = { a: { roots: [] }, b: { roots: [] } };
       const getA = ()=>({ position: avgPos(state.b.roots), forward: new THREE.Vector3(0,0,1) });
       const getB = ()=>({ position: avgPos(state.a.roots), forward: new THREE.Vector3(0,0,1) });
-      const mgrA = new EnemyManager(THREE, scene, mats, objects, getA); mgrA.wave = 0; mgrA.startWave = ()=>{};
-      const mgrB = new EnemyManager(THREE, scene, mats, objects, getB); mgrB.wave = 0; mgrB.startWave = ()=>{};
+      const mgrA = new EnemyManager(THREE, scene, mats, objects, getA, arenaRadius); mgrA.wave = 0; mgrA.startWave = ()=>{};
+      const mgrB = new EnemyManager(THREE, scene, mats, objects, getB, arenaRadius); mgrB.wave = 0; mgrB.startWave = ()=>{};
       managers.push(mgrA, mgrB);
 
       // Patch bullet pools to also check vs opponent fighters (segment distance)

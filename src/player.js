@@ -1,11 +1,12 @@
 import { PointerLockControls } from 'https://unpkg.com/three@0.159.0/examples/jsm/controls/PointerLockControls.js?module';
 
 export class PlayerController {
-  constructor(THREE, camera, domElement, collidableObjects){
+  constructor(THREE, camera, domElement, collidableObjects, arenaRadius = Infinity){
     this.THREE = THREE;
     this.camera = camera;
     this.domElement = domElement;
     this.objects = collidableObjects;
+    this.arenaRadius = arenaRadius;
 
     this.controls = new PointerLockControls(camera, domElement);
     this.controls.getObject().position.set(0, 1.7, 8);
@@ -52,8 +53,10 @@ export class PlayerController {
     this.recoilImpulse = 10.0;      // velocity gain per input rad
     this.recoilMaxPitch = 0.35;     // safety cap (~20°)
 
-    // Collision helpers
-    this.objectBBs = this.objects.map(o => new THREE.Box3().setFromObject(o));
+    // Collision helpers (skip extruded walls)
+    this.objectBBs = this.objects
+      .filter(o => !o.geometry?.isExtrudeGeometry)
+      .map(o => new THREE.Box3().setFromObject(o));
     this.colliderHalf = new THREE.Vector3(0.35, 0.9, 0.35); // approx capsule half extents
     this.fullHeight = this.colliderHalf.y * 2; // ~1.8m
     this._groundRaycaster = new THREE.Raycaster();
@@ -183,7 +186,9 @@ export class PlayerController {
   refreshColliders(objects){
     const THREE = this.THREE;
     this.objects = objects;
-    this.objectBBs = this.objects.map(o => new THREE.Box3().setFromObject(o));
+    this.objectBBs = this.objects
+      .filter(o => !o.geometry?.isExtrudeGeometry)
+      .map(o => new THREE.Box3().setFromObject(o));
   }
 
   resetPosition(x=0, y=1.7, z=8){
@@ -281,6 +286,10 @@ export class PlayerController {
     const jumpAssistMax = 0.30 * this.fullHeight; // ≤30%: auto jump
     const tryAxis = (dx, dz)=>{
       const nx = pos.x + dx, nz = pos.z + dz;
+      if (this.arenaRadius !== Infinity) {
+        const maxR = this.arenaRadius - this.colliderHalf.x;
+        if (Math.hypot(nx, nz) > maxR) return false;
+      }
       // Compute player's current feet Y based on eye height (supports mid-air jump movement)
       const eye = this.crouching ? 1.25 : 1.7;
       const feetY = (o.position.y - eye);
@@ -369,6 +378,10 @@ export class PlayerController {
     const THREE = this.THREE;
     const half = this.colliderHalf;
     const t = this._tmp;
+    if (this.arenaRadius !== Infinity) {
+      const maxR = this.arenaRadius - half.x;
+      if (Math.hypot(x, z) > maxR) return false;
+    }
     t.min.set(x - half.x, 0.2, z - half.z);
     t.max.set(x + half.x, 1.9, z + half.z);
     t.pbb.min.copy(t.min); t.pbb.max.copy(t.max);
@@ -382,9 +395,8 @@ export class PlayerController {
     // Quick accept
     if (this._isPositionFree(x, baseY, z)) { this._tmp.pos.set(x, baseY, z); return this._tmp.pos; }
     // Clamp search inside arena inner margin
-    const min = -38 + this.colliderHalf.x;
-    const max =  38 - this.colliderHalf.x;
-    const clamp = (v)=> Math.max(min, Math.min(max, v));
+    const maxR = this.arenaRadius !== Infinity ? this.arenaRadius - this.colliderHalf.x : 38;
+    const clamp = (v)=> Math.max(-maxR, Math.min(maxR, v));
     const directions = [];
     const dirCount = 16; // 22.5° steps
     for (let i=0;i<dirCount;i++){
@@ -397,6 +409,7 @@ export class PlayerController {
       for (const d of directions){
         const nx = clamp(x + d.dx * r);
         const nz = clamp(z + d.dz * r);
+        if (this.arenaRadius !== Infinity && Math.hypot(nx, nz) > maxR) continue;
         if (this._isPositionFree(nx, baseY, nz)) { this._tmp.pos.set(nx, baseY, nz); return this._tmp.pos; }
       }
     }
