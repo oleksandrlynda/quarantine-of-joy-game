@@ -1,5 +1,13 @@
 import { PointerLockControls } from 'https://unpkg.com/three@0.159.0/examples/jsm/controls/PointerLockControls.js?module';
 
+function containsExtrudeGeometry(obj){
+  if (obj.geometry?.isExtrudeGeometry) return true;
+  for (const child of obj.children || []){
+    if (containsExtrudeGeometry(child)) return true;
+  }
+  return false;
+}
+
 export class PlayerController {
   constructor(THREE, camera, domElement, collidableObjects, arenaRadius = Infinity){
     this.THREE = THREE;
@@ -55,7 +63,7 @@ export class PlayerController {
 
     // Collision helpers (skip extruded walls)
     this.objectBBs = this.objects
-      .filter(o => !o.geometry?.isExtrudeGeometry)
+      .filter(o => !containsExtrudeGeometry(o))
       .map(o => new THREE.Box3().setFromObject(o));
     this.colliderHalf = new THREE.Vector3(0.35, 0.9, 0.35); // approx capsule half extents
     this.fullHeight = this.colliderHalf.y * 2; // ~1.8m
@@ -187,7 +195,7 @@ export class PlayerController {
     const THREE = this.THREE;
     this.objects = objects;
     this.objectBBs = this.objects
-      .filter(o => !o.geometry?.isExtrudeGeometry)
+      .filter(o => !containsExtrudeGeometry(o))
       .map(o => new THREE.Box3().setFromObject(o));
   }
 

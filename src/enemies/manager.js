@@ -9,6 +9,14 @@ import { SwarmWarden } from './warden.js';
 import { BossManager } from '../bosses/manager.js';
 import { Hydraclone } from '../bosses/hydraclone.js';
 
+function containsExtrudeGeometry(obj){
+  if (obj.geometry?.isExtrudeGeometry) return true;
+  for (const child of obj.children || []){
+    if (containsExtrudeGeometry(child)) return true;
+  }
+  return false;
+}
+
 export class EnemyManager {
   constructor(THREE, scene, mats, objects = [], getPlayer = null, arenaRadius = Infinity) {
     this.THREE = THREE;
@@ -27,7 +35,7 @@ export class EnemyManager {
     this.onRemaining = null;
 
     this.objectBBs = this.objects
-      .filter(o => !o.geometry?.isExtrudeGeometry)
+      .filter(o => !containsExtrudeGeometry(o))
       .map(o => new this.THREE.Box3().setFromObject(o));
     this.raycaster = new this.THREE.Raycaster();
     try { this.raycaster.firstHitOnly = true; } catch(_) {}
@@ -74,7 +82,7 @@ export class EnemyManager {
   refreshColliders(objects = this.objects) {
     this.objects = objects;
     this.objectBBs = this.objects
-      .filter(o => !o.geometry?.isExtrudeGeometry)
+      .filter(o => !containsExtrudeGeometry(o))
       .map(o => new this.THREE.Box3().setFromObject(o));
   }
 
