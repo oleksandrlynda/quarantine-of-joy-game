@@ -178,6 +178,8 @@ const enemyManager = new EnemyManager(
     return { position: pos, forward: f };
   }
 );
+// Ensure enemy manager colliders include arena floor and obstacles
+if (enemyManager.refreshColliders) enemyManager.refreshColliders(objects);
 // If map provided explicit enemy spawns, feed them to manager
 if (levelInfo && Array.isArray(levelInfo.enemySpawnPoints) && levelInfo.enemySpawnPoints.length) {
   enemyManager.customSpawnPoints = levelInfo.enemySpawnPoints;
