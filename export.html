@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Quarantine of Joy — Export Assets to GLB</title>
+  <title data-i18n="export.pageTitle">Quarantine of Joy — Export Assets to GLB</title>
   <style>
     body{ margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, "Apple Color Emoji","Segoe UI Emoji"; background:#0b1220; color:#fff }
     #ui{ padding:16px; max-width:1000px; margin:0 auto }
@@ -18,19 +18,20 @@
 </head>
 <body>
   <div id="ui">
-    <h2>Export Procedural Assets → GLB</h2>
+    <h2 data-i18n="export.title">Export Procedural Assets → GLB</h2>
     <div class="row">
-      <button id="scan" class="pill">Scan Assets</button>
-      <button id="exportAll" class="primary">Export All</button>
-      <a id="downloadAll" class="pill" href="#" download style="display:none">Download last GLB</a>
+      <button id="scan" class="pill" data-i18n="export.scan">Scan Assets</button>
+      <button id="exportAll" class="primary" data-i18n="export.exportAll">Export All</button>
+      <a id="downloadAll" class="pill" href="#" download style="display:none" data-i18n="export.downloadLast">Download last GLB</a>
     </div>
-    <table id="assets"><thead><tr><th>Name</th><th>Factory</th><th>Action</th></tr></thead><tbody></tbody></table>
+    <table id="assets"><thead><tr><th data-i18n="export.name">Name</th><th data-i18n="export.factory">Factory</th><th data-i18n="export.action">Action</th></tr></thead><tbody></tbody></table>
     <div id="log" class="pill"></div>
   </div>
 
   <script type="module">
     import * as THREE from 'https://unpkg.com/three@0.159.0/build/three.module.js';
     import { GLTFExporter } from 'https://unpkg.com/three@0.159.0/examples/jsm/exporters/GLTFExporter.js?module';
+    import { initI18n, applyTranslations, t } from './src/i18n/index.js';
 
     // Import our procedural factories (add more as needed)
     import { createGruntBot } from './src/assets/gruntbot.js';
@@ -47,6 +48,9 @@
     import { createSniperBot } from './src/assets/sniper_bot.js';
     import { createSwarmWarden } from './src/assets/swarm_warden.js';
     import { createStrikeAdjudicatorAsset } from './src/assets/boss_adjudicator.js';
+
+    await initI18n();
+    applyTranslations();
 
     const mats = { head: new THREE.MeshLambertMaterial({ color: 0x111827 }) };
 
@@ -78,13 +82,13 @@
       const tdName = document.createElement('td'); tdName.textContent = item.key; tr.appendChild(tdName);
       const tdFact = document.createElement('td'); tdFact.textContent = 'factory()'; tr.appendChild(tdFact);
       const tdAct = document.createElement('td');
-      const btn = document.createElement('button'); btn.textContent = 'Export';
+      const btn = document.createElement('button'); btn.textContent = t('export.export');
       btn.onclick = async () => { await exportOne(item); };
       tdAct.appendChild(btn); tr.appendChild(tdAct);
       tbody.appendChild(tr);
     }
 
-    function scan(){ tbody.innerHTML=''; registry.forEach(buildRow); log('Scanned asset factories.'); }
+    function scan(){ tbody.innerHTML=''; registry.forEach(buildRow); log(t('export.scanned')); }
 
     async function exportOne(item){
       try {
@@ -101,16 +105,16 @@
             a.download = `${item.key}.glb`;
             a.click();
             URL.revokeObjectURL(a.href);
-            log(`Exported ${item.key}.glb`);
+            log(`${t('export.exported')} ${item.key}.glb`);
             resolve();
           }, (err)=>{ reject(err); }, options);
         });
-      } catch(e) { console.error(e); log(`Failed ${item.key}: ${e?.message || e}`); }
+      } catch(e) { console.error(e); log(`${t('export.failed')} ${item.key}: ${e?.message || e}`); }
     }
 
     async function exportAll(){
       for (const it of registry) { await exportOne(it); }
-      log('All exports finished.');
+      log(t('export.allFinished'));
     }
 
     document.getElementById('scan').onclick = scan;

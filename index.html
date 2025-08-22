@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -11,22 +11,22 @@
 <body>
 <div id="hud">
   <div class="row">
-    <div class="pill" id="hpPill">HP: <span id="hp">100</span></div>
-    <div class="pill" id="ammoPill">Ammo: <img id="weaponIcon" class="wicon" alt="" /> <span id="weapon">Rifle</span> — <span id="ammo">30</span>/<span id="mag">60</span></div>
-    <div class="pill">Score: <span id="score">0</span></div>
-    <div class="pill">Best: <span id="best">0</span></div>
-    <div class="pill" id="combo"><span id="comboLabel">Combo: x1.0</span><div id="comboBar"></div></div>
-    <div class="pill" id="wavePill">Wave: <span id="wave">1</span> <span id="remainingWrap" class="tiny" style="margin-left:6px">(<span id="remaining">0</span> left)</span> <span id="hydraWrap" class="tiny" style="margin-left:6px; display:none">(Hydra <span id="hydraCount">0/0</span>)</span><div id="waveBar"></div></div>
-    <div class="pill" id="stamina">Stamina<div id="staminaBar"></div></div>
-    <div class="pill tiny" id="seedPill">Seed: <span id="seed"></span>
-      <button class="mini" id="copySeed" title="Copy share URL">Copy</button>
-      <button class="mini" id="newSeed" title="New seed">New</button>
+    <div class="pill" id="hpPill"><span data-i18n="hud.hp">HP</span>: <span id="hp">100</span></div>
+    <div class="pill" id="ammoPill"><span data-i18n="hud.ammo">Ammo</span>: <img id="weaponIcon" class="wicon" alt="" /> <span id="weapon">Rifle</span> — <span id="ammo">30</span>/<span id="mag">60</span></div>
+    <div class="pill"><span data-i18n="hud.score">Score</span>: <span id="score">0</span></div>
+    <div class="pill"><span data-i18n="hud.best">Best</span>: <span id="best">0</span></div>
+    <div class="pill" id="combo"><span id="comboLabel"></span><div id="comboBar"></div></div>
+    <div class="pill" id="wavePill"><span data-i18n="hud.wave">Wave</span>: <span id="wave">1</span> <span id="remainingWrap" class="tiny" style="margin-left:6px">(<span id="remaining">0</span> <span data-i18n="hud.left">left</span>)</span> <span id="hydraWrap" class="tiny" style="margin-left:6px; display:none">(<span data-i18n="hud.hydra">Hydra</span> <span id="hydraCount">0/0</span>)</span><div id="waveBar"></div></div>
+    <div class="pill" id="stamina"><span data-i18n="hud.stamina">Stamina</span><div id="staminaBar"></div></div>
+    <div class="pill tiny" id="seedPill"><span data-i18n="hud.seed">Seed</span>: <span id="seed"></span>
+      <button class="mini" id="copySeed" data-i18n="hud.copy" data-i18n-title="hud.copyTitle">Copy</button>
+      <button class="mini" id="newSeed" data-i18n="hud.new" data-i18n-title="hud.newTitle">New</button>
     </div>
-    <div class="pill tiny" id="fpsPill">FPS: <span id="fps">0</span></div>
+    <div class="pill tiny" id="fpsPill"><span data-i18n="hud.fps">FPS</span>: <span id="fps">0</span></div>
     <div class="pill" id="mute">🔊</div>
   </div>
   <div class="row" style="justify-content:flex-end">
-    <div class="pill tiny" id="desktopHelp">WASD move • Mouse aim • Click shoot • R reload • Shift sprint • Ctrl crouch • Space jump • P pause</div>
+    <div class="pill tiny" id="desktopHelp" data-i18n="hud.desktopHelp">WASD move • Mouse aim • Click shoot • R reload • Shift sprint • Ctrl crouch • Space jump • P pause</div>
   </div>
 </div>
 
@@ -50,7 +50,7 @@
 <div id="story" style="display:none">
   <div class="card">
     <div id="storyText" class="storyText"></div>
-    <div class="actions"><button class="primary" id="storyNext">Continue</button></div>
+    <div class="actions"><button class="primary" id="storyNext" data-i18n="story.continue">Continue</button></div>
   </div>
   <style>
     #story{ position:fixed; inset:0; display:grid; place-items:center; background:rgba(0,0,0,0.35); pointer-events:auto; z-index:5; }
@@ -64,9 +64,9 @@
 
 <div id="offer" style="display:none">
   <div class="card">
-    <h3>Armory Offer</h3>
+    <h3 data-i18n="offer.title">Armory Offer</h3>
     <div id="offerChoices" class="choices"></div>
-    <div class="actions"><button class="secondary" id="offerDecline">Keep current (+reserve)</button></div>
+    <div class="actions"><button class="secondary" id="offerDecline" data-i18n="offer.keepCurrent">Keep current (+reserve)</button></div>
   </div>
   <style>
     #offer{ position:fixed; inset:0; display:grid; place-items:center; background:rgba(0,0,0,0.35); pointer-events:auto; }
@@ -80,44 +80,48 @@
 
 <div id="center"><div id="panel">
   <h1>Quarantine of <span>Joy</span></h1>
-  <div>Meme-fueled shooter. Hijack feeds, raise hype, roast the Bureau.</div>
+  <div data-i18n="start.tagline">Meme-fueled shooter. Hijack feeds, raise hype, roast the Bureau.</div>
   <div style="display:flex; gap:10px; justify-content:center; margin:12px 0; flex-wrap:wrap">
-    <div class="pill">Waves of bots</div>
-    <div class="pill">Hitscan rifle + tracers</div>
-    <div class="pill">Headshot bonus</div>
-    <div class="pill">Procedural arena</div>
+    <div class="pill" data-i18n="feature.waves">Waves of bots</div>
+    <div class="pill" data-i18n="feature.hitscan">Hitscan rifle + tracers</div>
+    <div class="pill" data-i18n="feature.headshot">Headshot bonus</div>
+    <div class="pill" data-i18n="feature.procedural">Procedural arena</div>
   </div>
   <div style="display:flex; justify-content:center; gap:8px; margin:12px 0; flex-wrap:wrap">
     <select id="musicSelect" class="secondary startSelect" style="cursor:pointer; border:0; border-radius:14px; padding:12px 16px; font-weight:900; box-shadow:0 12px 36px #0000002a;">
-      <option value="library">chatGPT 5 music</option>
-      <option value="suno">Suno Remix</option>
+      <option value="library" data-i18n="music.library">chatGPT 5 music</option>
+      <option value="suno" data-i18n="music.suno">Suno Remix</option>
     </select>
     <select id="arenaShape" class="secondary startSelect" style="cursor:pointer; border:0; border-radius:14px; padding:12px 16px; font-weight:900; box-shadow:0 12px 36px #0000002a;">
-      <option value="box">Box Arena</option>
-      <option value="circle">Circle Arena</option>
-      <option value="diamond">Diamond Arena</option>
-      <option value="triangle">Triangle Arena</option>
-      <option value="pi">П Arena</option>
+      <option value="box" data-i18n="arena.box">Box Arena</option>
+      <option value="circle" data-i18n="arena.circle">Circle Arena</option>
+      <option value="diamond" data-i18n="arena.diamond">Diamond Arena</option>
+      <option value="triangle" data-i18n="arena.triangle">Triangle Arena</option>
+      <option value="pi" data-i18n="arena.pi">П Arena</option>
+    </select>
+    <select id="langSelect" class="secondary startSelect" style="cursor:pointer; border:0; border-radius:14px; padding:12px 16px; font-weight:900; box-shadow:0 12px 36px #0000002a;">
+      <option value="en" data-i18n="lang.english">English</option>
+      <option value="uk" data-i18n="lang.ukrainian">Ukrainian</option>
     </select>
   </div>
   <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap">
-    <button class="primary" id="play">▶️ Play</button>
-    <button class="secondary" id="retry" style="display:none">🔁 Retry</button>
+    <button class="primary" id="play" data-i18n="start.play">▶️ Play</button>
+    <button class="secondary" id="retry" style="display:none" data-i18n="start.retry">🔁 Retry</button>
   </div>
-  <div class="tiny" style="margin-top:10px; text-align:center">Quality presets</div>
+  <div class="tiny" style="margin-top:10px; text-align:center" data-i18n="start.qualityLabel">Quality presets</div>
   <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:6px">
-    <button class="secondary" id="qLow" title="aa=off, shadows=off, auto DPR">Low</button>
-    <button class="secondary" id="qMed" title="aa=off, shadows=off, auto DPR + ACES">Medium</button>
-    <button class="secondary" id="qHigh" title="aa=on, shadows=on">High</button>
-    <button class="secondary" id="qUltra" title="aa=on, shadows=on (max)" >Ultra</button>
+    <button class="secondary" id="qLow" data-i18n="quality.low" data-i18n-title="quality.lowTitle" title="aa=off, shadows=off, auto DPR">Low</button>
+    <button class="secondary" id="qMed" data-i18n="quality.medium" data-i18n-title="quality.medTitle" title="aa=off, shadows=off, auto DPR + ACES">Medium</button>
+    <button class="secondary" id="qHigh" data-i18n="quality.high" data-i18n-title="quality.highTitle" title="aa=on, shadows=on">High</button>
+    <button class="secondary" id="qUltra" data-i18n="quality.ultra" data-i18n-title="quality.ultraTitle" title="aa=on, shadows=on (max)" >Ultra</button>
   </div>
-  <div class="tiny" style="margin-top:8px" id="startTip">Click Play, then click to lock the mouse.</div>
+  <div class="tiny" style="margin-top:8px" id="startTip" data-i18n="start.tipDesktop">Click Play, then click to lock the mouse.</div>
 </div></div>
 
 <!-- Loading overlay from performance branch -->
 <div id="loading" style="position:fixed; inset:0; display:grid; place-items:center; background:#0b1220; color:#fff; z-index:9999">
   <div style="width:min(92%,520px); text-align:center">
-    <div style="font-weight:700; margin-bottom:10px">Loading shaders &amp; assets…</div>
+    <div style="font-weight:700; margin-bottom:10px" data-i18n="loading.message">Loading shaders &amp; assets…</div>
     <div id="loadingBarWrap" style="height:10px; background:#222; border-radius:8px; overflow:hidden">
       <div id="loadingBar" style="height:100%; width:0%; background:#22c55e; transition:width 0.15s ease"></div>
     </div>
@@ -125,8 +129,23 @@
   </div>
 </div>
 
+<script type="module">
+  import { initI18n, setLanguage, applyTranslations, getLanguage } from './src/i18n/index.js';
+  await initI18n();
+  applyTranslations();
+  const langSelect = document.getElementById('langSelect');
+  if (langSelect) {
+    langSelect.value = getLanguage();
+    langSelect.addEventListener('change', async (e) => {
+      await setLanguage(e.target.value);
+      applyTranslations();
+    });
+  }
+</script>
+
 <!-- Mobile controls from main branch -->
-<script>
+<script type="module">
+  import { t } from './src/i18n/index.js';
   window.IS_MOBILE = window.matchMedia('(pointer:coarse)').matches;
   if (window.IS_MOBILE) {
     const m = document.createElement('div');
@@ -146,7 +165,7 @@
       const row = document.createElement('div');
       row.className = 'row';
       row.style.justifyContent = 'flex-end';
-      row.innerHTML = '<div class="pill tiny" id="mobileHelp">Move: joystick • Shoot: 🔥 • Jump: ⤴️</div>';
+      row.innerHTML = `<div class="pill tiny" id="mobileHelp">${t('hud.mobileHelp')}</div>`;
       hud.appendChild(row);
       const hideHelp = () => document.getElementById('mobileHelp')?.remove();
       setTimeout(hideHelp, 5000);
