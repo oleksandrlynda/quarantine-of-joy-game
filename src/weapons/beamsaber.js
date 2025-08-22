@@ -18,7 +18,7 @@ export class BeamSaber extends Weapon {
     const { THREE, camera, raycaster, enemyManager, effects, S, pickups, addScore, addComboAction, applyKnockback, objects } = ctx;
     const origin = camera.getWorldPosition(new THREE.Vector3());
     const dir = camera.getWorldDirection(new THREE.Vector3()).normalize();
-    const range = heavy ? 6 : 5;
+    const range = heavy ? 5 : 3;
     const end = origin.clone().add(dir.clone().multiplyScalar(range));
 
     raycaster.set(origin, dir);
