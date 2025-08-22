@@ -53,8 +53,10 @@ export class PlayerController {
     this.recoilImpulse = 10.0;      // velocity gain per input rad
     this.recoilMaxPitch = 0.35;     // safety cap (~20°)
 
-    // Collision helpers
-    this.objectBBs = this.objects.map(o => new THREE.Box3().setFromObject(o));
+    // Collision helpers (skip extruded walls)
+    this.objectBBs = this.objects
+      .filter(o => o.geometry?.type !== 'ExtrudeGeometry')
+      .map(o => new THREE.Box3().setFromObject(o));
     this.colliderHalf = new THREE.Vector3(0.35, 0.9, 0.35); // approx capsule half extents
     this.fullHeight = this.colliderHalf.y * 2; // ~1.8m
     this._groundRaycaster = new THREE.Raycaster();
@@ -184,7 +186,9 @@ export class PlayerController {
   refreshColliders(objects){
     const THREE = this.THREE;
     this.objects = objects;
-    this.objectBBs = this.objects.map(o => new THREE.Box3().setFromObject(o));
+    this.objectBBs = this.objects
+      .filter(o => o.geometry?.type !== 'ExtrudeGeometry')
+      .map(o => new THREE.Box3().setFromObject(o));
   }
 
   resetPosition(x=0, y=1.7, z=8){
