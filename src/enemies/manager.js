@@ -25,7 +25,9 @@ export class EnemyManager {
     this.onWave = null;
     this.onRemaining = null;
 
-    this.objectBBs = this.objects.map(o => new this.THREE.Box3().setFromObject(o));
+    this.objectBBs = this.objects
+      .filter(o => o.geometry?.type !== 'ExtrudeGeometry')
+      .map(o => new this.THREE.Box3().setFromObject(o));
     this.raycaster = new this.THREE.Raycaster();
     try { this.raycaster.firstHitOnly = true; } catch(_) {}
     this.up = new this.THREE.Vector3(0,1,0);
@@ -70,7 +72,9 @@ export class EnemyManager {
   // Rebuild collidable AABBs after the shared objects list changes (e.g., obstacles destroyed)
   refreshColliders(objects = this.objects) {
     this.objects = objects;
-    this.objectBBs = this.objects.map(o => new this.THREE.Box3().setFromObject(o));
+    this.objectBBs = this.objects
+      .filter(o => o.geometry?.type !== 'ExtrudeGeometry')
+      .map(o => new this.THREE.Box3().setFromObject(o));
   }
 
   _initBulletPools() {
