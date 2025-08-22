@@ -3,14 +3,15 @@ export class WeaponView {
       this.THREE = THREE;
       this.camera = camera;
   
-      // ---- hierarchy: root -> sway -> recoil -> model ----
+      // ---- hierarchy: root -> sway -> recoil -> slash -> model ----
       this.root = new THREE.Group();
       this.root.renderOrder = 10000;
       camera.add(this.root);
-  
+
       this._sway   = new THREE.Group();   this.root.add(this._sway);
       this._recoil = new THREE.Group();   this._sway.add(this._recoil);
-      this._model  = new THREE.Group();   this._recoil.add(this._model);
+      this._slashNode = new THREE.Group(); this._recoil.add(this._slashNode);
+      this._model  = new THREE.Group();   this._slashNode.add(this._model);
   
       // sockets
       this.sockets = { muzzle: new THREE.Object3D() };
@@ -44,6 +45,15 @@ export class WeaponView {
         drop: 0.06,
         back: 0.04
       };
+
+      // --- slash swing state ---
+      this._slashState = {
+        active: false,
+        t: 0,
+        dur: 0.15,
+        angle: 1.2,
+        dir: 1
+      };
   
       // recoil 
       this._kickPos = 0; 
@@ -71,8 +81,37 @@ export class WeaponView {
     onFire(strength=1){
       // recoil
       const s = Math.max(0.2, Math.min(1.5, strength));
-      this._kickVelPos -= 0.55 * s; 
-      this._kickVelRot += 0.35 * s; 
+      this._kickVelPos -= 0.55 * s;
+      this._kickVelRot += 0.35 * s;
+    }
+
+    startSlash(){
+      const s = this._slashState;
+      s.active = true;
+      s.t = 0;
+      s.dir *= -1;
+    }
+
+    updateSlash(dt){
+      const s = this._slashState;
+      const node = this._slashNode;
+      if (!s.active){
+        node.rotation.set(0,0,0);
+        node.position.set(0,0,0);
+        return;
+      }
+      s.t += dt;
+      const r = s.t / s.dur;
+      const swing = (0.5 - r) * s.angle * s.dir;
+      const arc = Math.sin(r * Math.PI);
+      node.rotation.y = swing;
+      node.position.x = 0.1 * arc * s.dir;
+      node.position.y = 0.02 * arc;
+      if (r >= 1){
+        s.active = false;
+        node.rotation.set(0,0,0);
+        node.position.set(0,0,0);
+      }
     }
   
     update(dt){
@@ -110,9 +149,11 @@ export class WeaponView {
       this._kickVelRot += accelRot * dt;
       this._kickRot    += this._kickVelRot * dt;
   
-      this._recoil.position.z = -this._kickPos;     
-      this._recoil.rotation.x = -this._kickRot;     
-  
+      this._recoil.position.z = -this._kickPos;
+      this._recoil.rotation.x = -this._kickRot;
+      
+      this.updateSlash(dt);
+
       // No idle breathing sway; keep weapon fully steady when standing still
       // ---- reload tilt on model node ----
       if (this._reload.active) {
