@@ -44,7 +44,7 @@
     import { StrikeAdjudicator } from './src/bosses/adjudicator.js';
 
     // World
-    const { renderer, scene, camera, skyMat, mats, objects } = createWorld(THREE, Math.random);
+    const { renderer, scene, camera, skyMat, mats, objects, arenaRadius } = createWorld(THREE, Math.random);
     camera.position.set(0, 1.7, 8);
 
     // Preload assets and warm shaders
@@ -64,7 +64,7 @@
     const S = new SFX({ audioContextProvider: ()=>musicShim.getContext(), fxBusProvider: ()=>musicShim.getFxBus() });
 
     // Player
-    const player = new PlayerController(THREE, camera, document.body, objects);
+    const player = new PlayerController(THREE, camera, document.body, objects, arenaRadius);
     scene.add(player.controls.getObject());
     const controls = player.controls;
 

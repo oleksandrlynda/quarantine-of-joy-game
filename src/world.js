@@ -117,6 +117,7 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
 
   // Collidable objects
   const objects = [];
+  let arenaRadius = Infinity;
 
   function makeArena(shape){
     const wallH = 6, wallT = 1;
@@ -142,10 +143,19 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
 
     switch(shape){
       case 'circle': {
-        const floor = new THREE.Mesh(new THREE.CylinderGeometry(40,40,1,32), mats.floor);
-        floor.position.y = -0.5; floor.receiveShadow = !!enableShadows; scene.add(floor);
-        const wall = new THREE.Mesh(new THREE.CylinderGeometry(40,40,wallH,32,1,true), mats.wall);
-        wall.position.y = wallH/2; wall.castShadow = wall.receiveShadow = !!enableShadows; scene.add(wall); objects.push(wall);
+        arenaRadius = 40;
+        const floor = new THREE.Mesh(new THREE.CircleGeometry(arenaRadius, 32), mats.floor);
+        floor.rotation.x = -Math.PI/2; floor.position.y = -0.01; floor.receiveShadow = !!enableShadows; scene.add(floor);
+        const wallShape = new THREE.Shape();
+        wallShape.absarc(0, 0, arenaRadius + wallT/2, 0, Math.PI * 2, false);
+        const holePath = new THREE.Path();
+        holePath.absarc(0, 0, arenaRadius - wallT/2, 0, Math.PI * 2, true);
+        wallShape.holes.push(holePath);
+        const wallGeo = new THREE.ExtrudeGeometry(wallShape, { depth: wallH, bevelEnabled: false, curveSegments: 32 });
+        const wall = new THREE.Mesh(wallGeo, mats.wall);
+        wall.rotation.x = -Math.PI/2;
+        wall.castShadow = wall.receiveShadow = !!enableShadows;
+        scene.add(wall); objects.push(wall);
         break;
       }
       case 'diamond':
@@ -166,7 +176,7 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
 
   makeArena(arenaShape);
 
-  return { renderer, scene, camera, skyMat, hemi, dir, mats, objects };
+  return { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius };
 }
 
 

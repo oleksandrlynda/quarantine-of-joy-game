@@ -1,7 +1,7 @@
 import * as THREE from 'https://unpkg.com/three@0.159.0/build/three.module.js';
 import { PointerLockControls } from 'https://unpkg.com/three@0.159.0/examples/jsm/controls/PointerLockControls.js?module';
 import { WeatherSystem } from './weather.js';
-import { createWorld } from './world.js?v=1';
+import { createWorld } from './world.js?v=2';
 import { makeSeededRng, makeNamespacedRng, generateSeedString } from './util/rng.js';
 import { EnemyManager } from './enemies.js';
 import { PlayerController } from './player.js';
@@ -84,7 +84,7 @@ const mobileControlsEl = document.getElementById('mobileControls');
 if (mobileControlsEl) mobileControlsEl.style.display = isMobile ? '' : 'none';
 
 // ------ World (renderer, scene, camera, lights, sky, materials, arena) ------
-const { renderer, scene, camera, skyMat, hemi, dir, mats, objects } = createWorld(THREE, rng, arenaShape);
+const { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius } = createWorld(THREE, rng, arenaShape);
 const wantEditor = (new URL(window.location.href)).searchParams.get('editor') === '1';
 const storyParam = (new URL(window.location.href)).searchParams.get('story');
 const storyDisabled = storyParam === '0' || storyParam === 'false';
@@ -154,7 +154,7 @@ if (levelParam) {
 const weather = new WeatherSystem({ THREE, scene, skyMat, hemi, dir });
 
 // ------ Player ------
-const player = new PlayerController(THREE, camera, document.body, objects);
+const player = new PlayerController(THREE, camera, document.body, objects, arenaRadius);
 const controls = player.controls;
 scene.add(controls.getObject());
 // Ensure player colliders include maze/destructibles
