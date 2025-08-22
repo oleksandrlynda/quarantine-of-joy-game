@@ -86,13 +86,16 @@ export class PlayerController {
         if (dx > threshold) this.keys.add('KeyD');
       };
       if (joyEl){
-        let active = false;
+        let active = false, joyId = null;
         joyEl.addEventListener('touchstart', e=>{
+          const t = e.changedTouches[0];
+          joyId = t.identifier;
           active = true; e.preventDefault();
         });
         joyEl.addEventListener('touchmove', e=>{
           if(!active) return; e.preventDefault();
-          const t = e.touches[0];
+          const t = Array.from(e.touches).find(tt=>tt.identifier===joyId);
+          if(!t) return;
           const rect = joyEl.getBoundingClientRect();
           const r = rect.width/2;
           const x = t.clientX - (rect.left + r);
@@ -105,12 +108,16 @@ export class PlayerController {
           updateFromVector(dx, dy);
         }, {passive:false});
         const reset = ()=>{
-          active = false;
+          active = false; joyId = null;
           if (knob) knob.style.transform = 'translate(0,0)';
           updateFromVector(0,0);
         };
-        joyEl.addEventListener('touchend', reset);
-        joyEl.addEventListener('touchcancel', reset);
+        joyEl.addEventListener('touchend', e=>{
+          if(Array.from(e.changedTouches).some(t=>t.identifier===joyId)) reset();
+        });
+        joyEl.addEventListener('touchcancel', e=>{
+          if(Array.from(e.changedTouches).some(t=>t.identifier===joyId)) reset();
+        });
       }
         // Look controls on right side
         let lookId = null, lx=0, ly=0;
