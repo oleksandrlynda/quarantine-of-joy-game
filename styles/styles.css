@@ -75,7 +75,9 @@ button{ cursor:pointer; border:0; border-radius:14px; padding:12px 16px; font-we
 
 /* Mobile controls */
 @media (pointer:coarse){
-  #hud{ padding-bottom:120px; }
+  #hud{ padding:6px 6px 120px; }
+  #hud .row{ flex-wrap:wrap; gap:6px; }
+  #hud .pill{ padding:6px 8px; font-size:14px; }
   #mobileControls{ position:fixed; inset:0; pointer-events:none; }
   #mobileControls #joystick{ position:absolute; left:20px; bottom:20px; width:100px; height:100px; pointer-events:auto; }
   #mobileControls #joystick .base{ position:absolute; inset:0; background:#ffffff55; border:2px solid #00000033; border-radius:50%; }
