@@ -26,7 +26,7 @@
     <div class="pill" id="mute">🔊</div>
   </div>
   <div class="row" style="justify-content:flex-end">
-    <div class="pill tiny">WASD move • Mouse aim • Click shoot • R reload • Shift sprint • Ctrl crouch • Space jump • P pause</div>
+    <div class="pill tiny" id="desktopHelp">WASD move • Mouse aim • Click shoot • R reload • Shift sprint • Ctrl crouch • Space jump • P pause</div>
   </div>
   </div>
   <div id="crosshair">
@@ -95,9 +95,26 @@
     <button class="secondary" id="qHigh" title="aa=on, shadows=on">High</button>
     <button class="secondary" id="qUltra" title="aa=on, shadows=on (max)" >Ultra</button>
   </div>
-  <div class="tiny" style="margin-top:8px">Click Play, then click to lock the mouse.
-  </div>
-</div></div>
-<script type="module" src="src/main.js"></script>
-</body>
-</html>
+    <div class="tiny" style="margin-top:8px" id="startTip">Click Play, then click to lock the mouse.
+    </div>
+  </div></div>
+  <script>
+    window.IS_MOBILE = window.matchMedia('(pointer:coarse)').matches;
+    if (window.IS_MOBILE) {
+      const m = document.createElement('div');
+      m.id = 'mobileControls';
+      m.innerHTML = `
+        <div id="joystick" class="joy"><div class="base"></div><div class="knob"></div></div>
+        <div id="actionButtons">
+          <button id="btnFire">🔥</button>
+          <button id="btnJump">⤴️</button>
+          <button id="btnReload">🔄</button>
+        </div>`;
+      document.body.appendChild(m);
+      const help = document.getElementById('desktopHelp');
+      if (help) help.style.display = 'none';
+    }
+  </script>
+  <script type="module" src="src/main.js"></script>
+  </body>
+  </html>

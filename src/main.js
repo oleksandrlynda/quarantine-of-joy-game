@@ -17,6 +17,8 @@ import { startEditor } from './editor.js';
 import { Progression } from './progression.js';
 import { StoryManager } from './story.js';
 
+const isMobile = window.IS_MOBILE || window.matchMedia('(pointer:coarse)').matches;
+
 // --- Music selection ---
 const musicSelect = document.getElementById('musicSelect');
 let musicChoice = musicSelect ? musicSelect.value : 'library';
@@ -61,6 +63,11 @@ if (newSeedBtn) {
     window.location.href = `${u.pathname}?${u.searchParams.toString()}`;
   };
 }
+
+const startTipEl = document.getElementById('startTip');
+if (isMobile && startTipEl) startTipEl.textContent = 'Tap Play to start. Drag to look.';
+const mobileControlsEl = document.getElementById('mobileControls');
+if (mobileControlsEl) mobileControlsEl.style.display = isMobile ? '' : 'none';
 
 // ------ World (renderer, scene, camera, lights, sky, materials, arena) ------
 const { renderer, scene, camera, skyMat, hemi, dir, mats, objects } = createWorld(THREE, rng);
@@ -437,19 +444,38 @@ try { weaponView.setWeapon(weaponSystem.getPrimaryName()); } catch(_) {}
 progression = new Progression({ weaponSystem, documentRef: document, onPause: (lock)=>{ offerActive = !!lock; paused = !!lock; }, controls });
 story = storyDisabled ? null : new StoryManager({ documentRef: document, onPause: (lock)=>{ paused = !!lock; }, controls, toastFn: (t)=> showToast(t), beatsUrl: 'assets/story/beats.json' });
 
-window.addEventListener('mousedown', e=>{ if(!controls.isLocked || paused) return; weaponSystem.triggerDown(); });
-window.addEventListener('mouseup', ()=>{ weaponSystem.triggerUp(); });
-window.addEventListener('keydown', e=>{
-  if(e.code==='KeyR'){ weaponSystem.reload(); }
-  if(e.code==='KeyP'){ paused=!paused; }
-  if(e.code==='Digit1'){ weaponSystem.switchSlot(1); }
-  if(e.code==='Digit2'){ weaponSystem.switchSlot(2); }
-  if(e.code==='Digit3'){ weaponSystem.switchSlot(3); }
-  if(e.code==='Digit4'){ weaponSystem.switchSlot(4); }
-  if(e.code==='Digit5'){ weaponSystem.switchSlot(5); }
-  // Update view on quick slot changes
-  try { weaponView.setWeapon(weaponSystem.getPrimaryName()); } catch(_) {}
-});
+if (!isMobile){
+  window.addEventListener('mousedown', e=>{ if(!controls.isLocked || paused) return; weaponSystem.triggerDown(); });
+  window.addEventListener('mouseup', ()=>{ weaponSystem.triggerUp(); });
+  window.addEventListener('keydown', e=>{
+    if(e.code==='KeyR'){ weaponSystem.reload(); }
+    if(e.code==='KeyP'){ paused=!paused; }
+    if(e.code==='Digit1'){ weaponSystem.switchSlot(1); }
+    if(e.code==='Digit2'){ weaponSystem.switchSlot(2); }
+    if(e.code==='Digit3'){ weaponSystem.switchSlot(3); }
+    if(e.code==='Digit4'){ weaponSystem.switchSlot(4); }
+    if(e.code==='Digit5'){ weaponSystem.switchSlot(5); }
+    try { weaponView.setWeapon(weaponSystem.getPrimaryName()); } catch(_) {}
+  });
+} else {
+  const fireBtn = document.getElementById('btnFire');
+  const reloadBtn = document.getElementById('btnReload');
+  const jumpBtn = document.getElementById('btnJump');
+  if (fireBtn){
+    fireBtn.addEventListener('touchstart', e=>{ e.preventDefault(); e.stopPropagation(); weaponSystem.triggerDown(); }, {passive:false});
+    const end = ()=> weaponSystem.triggerUp();
+    fireBtn.addEventListener('touchend', end);
+    fireBtn.addEventListener('touchcancel', end);
+  }
+  if (reloadBtn){
+    reloadBtn.addEventListener('touchstart', e=>{ e.preventDefault(); e.stopPropagation(); }, {passive:false});
+    reloadBtn.addEventListener('touchend', ()=>{ weaponSystem.reload(); });
+  }
+  if (jumpBtn){
+    jumpBtn.addEventListener('touchstart', e=>{ e.preventDefault(); e.stopPropagation(); }, {passive:false});
+    jumpBtn.addEventListener('touchend', ()=>{ player.jump(); });
+  }
+}
 
 updateHUD();
 
@@ -487,7 +513,7 @@ function step(){
   _lastFrameAt = now;
 
   const dt = Math.min(0.033, clock.getDelta());
-  if(controls.isLocked && !paused && !gameOver){
+  if((controls.isLocked || isMobile) && !paused && !gameOver){
     // advance game time only while active
     gameTime += dt;
     // player movement update
@@ -729,8 +755,21 @@ function reset(){ // clear enemies
   try { story?.reset(); story?.startRun(); } catch(_) {}
 }
 
-playBtn.onclick = ()=>{ panel.parentElement.style.display='none'; controls.lock(); reset(); if (musicChoice === 'suno') { playSuno(); } else { music.start(); } };
-retryBtn.onclick = ()=>{ panel.parentElement.style.display='none'; controls.lock(); reset(); if (musicChoice === 'suno') { playSuno(); } else { music.start(); } };
+function startGame(){
+  if (isMobile) {
+    const el = document.documentElement;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    try { if (req) req.call(el); } catch(_) {}
+  } else {
+    controls.lock();
+  }
+  panel.parentElement.style.display = 'none';
+  reset();
+  if (musicChoice === 'suno') { playSuno(); } else { music.start(); }
+}
+
+playBtn.onclick = startGame;
+retryBtn.onclick = startGame;
 
 // Quality preset buttons: update URL params and reload
 const qLow = document.getElementById('qLow');
