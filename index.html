@@ -109,6 +109,7 @@
           <button id="btnFire">🔥</button>
           <button id="btnJump">⤴️</button>
           <button id="btnReload">🔄</button>
+          <button id="btnSprint">🏃</button>
         </div>`;
       document.body.appendChild(m);
       const help = document.getElementById('desktopHelp');
@@ -118,12 +119,12 @@
         const row = document.createElement('div');
         row.className = 'row';
         row.style.justifyContent = 'flex-end';
-        row.innerHTML = '<div class="pill tiny" id="mobileHelp">Move: joystick • Shoot: 🔥 • Jump: ⤴️</div>';
+        row.innerHTML = '<div class="pill tiny" id="mobileHelp">Move: joystick • Shoot: 🔥 • Jump: ⤴️ • Sprint: 🏃</div>';
         hud.appendChild(row);
         const hideHelp = () => document.getElementById('mobileHelp')?.remove();
         setTimeout(hideHelp, 5000);
-        ['joystick','btnFire','btnJump','btnReload'].forEach(id=>{
-          document.getElementById(id)?.addEventListener('touchstart', hideHelp, {once:true});
+        ['joystick','btnFire','btnJump','btnReload','btnSprint'].forEach(id=>{
+          document.getElementById(id)?.addEventListener('pointerdown', hideHelp, {once:true});
         });
       }
     }

@@ -5,7 +5,7 @@
 - Aim: mouse
 - Shoot: left click
 - Reload: `R`
-- Sprint: `Shift`
+- Sprint: `Shift` (tap 🏃 on mobile to lock or unlock sprint)
 - Crouch: `Ctrl`
 - Jump: `Space`
 - Pause: `P`
@@ -89,6 +89,7 @@ Small, frequent bonuses awarded at combo tier‑ups and periodic milestones to k
 
 ### Stamina
 - Sprint and jump consume stamina; stamina regenerates when not sprinting/jumping.
+- On mobile, sprinting is toggled via an on-screen 🏃 button that locks sprint until tapped again.
 - Baseline: 100 stamina. Sprint cost ~12/s; Jump cost ~15; Regen 18/s after 0.5s delay.
 - Low‑stamina penalties: reduced sprint speed; cannot jump below 15 stamina.
 

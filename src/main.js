@@ -461,6 +461,8 @@ if (!isMobile){
   const fireBtn = document.getElementById('btnFire');
   const reloadBtn = document.getElementById('btnReload');
   const jumpBtn = document.getElementById('btnJump');
+  const sprintBtn = document.getElementById('btnSprint');
+  let sprinting = false;
   if (fireBtn){
     fireBtn.addEventListener('touchstart', e=>{ e.preventDefault(); e.stopPropagation(); weaponSystem.triggerDown(); }, {passive:false});
     const end = ()=> weaponSystem.triggerUp();
@@ -474,6 +476,19 @@ if (!isMobile){
   if (jumpBtn){
     jumpBtn.addEventListener('touchstart', e=>{ e.preventDefault(); e.stopPropagation(); }, {passive:false});
     jumpBtn.addEventListener('touchend', ()=>{ player.jump(); });
+  }
+  if (sprintBtn){
+    sprintBtn.addEventListener('touchstart', e=>{ e.preventDefault(); e.stopPropagation(); }, {passive:false});
+    sprintBtn.addEventListener('touchend', e=>{
+      e.preventDefault(); e.stopPropagation();
+      sprinting = !sprinting;
+      if (sprinting){
+        player.keys.add('ShiftLeft');
+      } else {
+        player.keys.delete('ShiftLeft');
+      }
+      sprintBtn.classList.toggle('active', sprinting);
+    });
   }
 }
 

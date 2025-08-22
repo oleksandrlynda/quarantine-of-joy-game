@@ -54,6 +54,8 @@ Faction/style: Bureau of Blandness Compliance unit. Monochrome, municipal-minima
 - **WASD** to move, **Space** to jump
 - **Shift** to sprint, **Ctrl** to crouch
 - **Left Mouse** to fire your weapon
+- On mobile: use the on‑screen joystick to move and buttons to Shoot 🔥, Jump ⤴️, Reload 🔄
+- Tap 🏃 to lock or unlock sprint on mobile
 
 ## Running locally
 
