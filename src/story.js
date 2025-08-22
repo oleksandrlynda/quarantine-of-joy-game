@@ -97,6 +97,11 @@ export class StoryManager {
 
   onBossStart(wave){
     if (!this.enabled) return;
+    try {
+      if (typeof window !== 'undefined' && window._HUD && typeof window._HUD.clearTicker === 'function') {
+        window._HUD.clearTicker();
+      }
+    } catch(_) {}
     this._bossActive = true;
     this._enqueueBeat(`boss_${wave}_start`);
     this._enqueueBeat(`boss_${wave}_ticker`);
@@ -105,6 +110,11 @@ export class StoryManager {
 
   onBossDeath(wave){
     if (!this.enabled) return;
+    try {
+      if (typeof window !== 'undefined' && window._HUD && typeof window._HUD.clearTicker === 'function') {
+        window._HUD.clearTicker();
+      }
+    } catch(_) {}
     this._enqueueBeat(`boss_${wave}_down`);
     this._enqueueBeat(`boss_${wave}_ticker`);
     if (wave === 5) this._enqueueBeat('boss_5_report');
@@ -173,7 +183,9 @@ export class StoryManager {
       if (ticker) ticker(beat.text, repeat, interval);
       if (beat.id) this._markSeen(beat.id, beat.persistOnce);
       const now = performance.now ? performance.now() : Date.now();
-      this._lastShownAt = now + repeat * (interval + 240);
+      this._lastShownAt = (beat.id && beat.id.startsWith('boss_'))
+        ? now
+        : now + repeat * (interval + 240);
       if (this.queue.length > 0) setTimeout(()=> this._maybeShow(), 50);
       return;
     }

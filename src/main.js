@@ -259,6 +259,16 @@ const toastsEl = document.getElementById('toasts');
 const tickerEl = document.getElementById('newsTicker');
 let tickerQueue = Promise.resolve();
 
+function clearTicker(){
+  tickerQueue = Promise.resolve();
+  if (!tickerEl) return;
+  try {
+    while (tickerEl.firstChild) {
+      tickerEl.removeChild(tickerEl.firstChild);
+    }
+  } catch(_){}
+}
+
 // Best score persistence
 const BEST_KEY = 'bs3d_best_score';
 try {
@@ -978,7 +988,13 @@ function showToast(text){
   setTimeout(()=>{ el.classList.add('out'); setTimeout(()=>{ try{ toastsEl.removeChild(el);}catch(_){ } }, 240); }, 1200);
 }
 
-try { if (window && window._HUD) { window._HUD.toast = (t)=> showToast(t); window._HUD.ticker = (t,r,i)=> showTicker(t,r,i); } } catch(_) {}
+try {
+  if (window && window._HUD) {
+    window._HUD.toast = (t)=> showToast(t);
+    window._HUD.ticker = (t,r,i)=> showTicker(t,r,i);
+    window._HUD.clearTicker = ()=> clearTicker();
+  }
+} catch(_) {}
 
 // Boss music transitions
 if (enemyManager && enemyManager.bossManager) {
