@@ -146,6 +146,7 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
         arenaRadius = 40;
         const floor = new THREE.Mesh(new THREE.CircleGeometry(arenaRadius, 32), mats.floor);
         floor.rotation.x = -Math.PI/2; floor.position.y = -0.01; floor.receiveShadow = !!enableShadows; scene.add(floor);
+        objects.push(floor);
         const wallShape = new THREE.Shape();
         wallShape.absarc(0, 0, arenaRadius + wallT/2, 0, Math.PI * 2, false);
         const holePath = new THREE.Path();
