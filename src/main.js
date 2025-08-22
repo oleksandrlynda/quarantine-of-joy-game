@@ -251,6 +251,7 @@ const bossNameEl = document.getElementById('bossName');
 const bossHpBarEl = document.getElementById('bossHpBar');
 const toastsEl = document.getElementById('toasts');
 const tickerEl = document.getElementById('newsTicker');
+let tickerQueue = Promise.resolve();
 
 // Best score persistence
 const BEST_KEY = 'bs3d_best_score';
@@ -511,7 +512,7 @@ weaponSystem = new WeaponSystem({
 // Set initial weapon view
 try { weaponView.setWeapon(weaponSystem.getPrimaryName()); } catch(_) {}
 progression = new Progression({ weaponSystem, documentRef: document, onPause: (lock)=>{ offerActive = !!lock; paused = !!lock; }, controls });
-story = storyDisabled ? null : new StoryManager({ documentRef: document, onPause: (lock)=>{ paused = !!lock; }, controls, toastFn: (t)=> showToast(t), tickerFn: (t)=> showTicker(t), beatsUrl: 'assets/story/beats.json' });
+story = storyDisabled ? null : new StoryManager({ documentRef: document, onPause: (lock)=>{ paused = !!lock; }, controls, toastFn: (t)=> showToast(t), tickerFn: (t,r,i)=> showTicker(t,r,i), beatsUrl: 'assets/story/beats.json' });
 
 
 
@@ -931,11 +932,36 @@ function showHitmarker(){
 try { window._HUD = { showHitmarker }; } catch(_) {}
 
 // Ticker system
-function showTicker(text){
+function showTicker(text, repeat = 1, interval = 8000){
   if (!tickerEl) return;
-  const el = document.createElement('div'); el.className = 'ticker'; el.textContent = text;
-  tickerEl.appendChild(el);
-  setTimeout(()=>{ el.classList.add('out'); setTimeout(()=>{ try{ tickerEl.removeChild(el);}catch(_){ } }, 240); }, 2400);
+  const cycles = Math.max(1, repeat | 0);
+  for (let i = 0; i < cycles; i++){
+    tickerQueue = tickerQueue.then(() => new Promise(resolve => {
+      const track = document.createElement('div');
+      track.className = 'ticker-track';
+
+      const item = document.createElement('span');
+      item.className = 'ticker-item';
+      item.textContent = text;
+      track.appendChild(item);
+      tickerEl.appendChild(track);
+
+      const containerWidth = tickerEl.offsetWidth || window.innerWidth;
+      while (track.offsetWidth < containerWidth * 2){
+        track.appendChild(item.cloneNode(true));
+      }
+
+      const distance = track.offsetWidth + containerWidth;
+      const baseSpeed = containerWidth / (interval/1000);
+      const duration = distance / baseSpeed;
+      track.style.animation = `tickerScroll ${duration}s linear`;
+
+      track.addEventListener('animationend', () => {
+        try { tickerEl.removeChild(track); } catch(_){}
+        resolve();
+      }, { once: true });
+    }));
+  }
 }
 
 // Toast system
@@ -946,7 +972,7 @@ function showToast(text){
   setTimeout(()=>{ el.classList.add('out'); setTimeout(()=>{ try{ toastsEl.removeChild(el);}catch(_){ } }, 240); }, 1200);
 }
 
-try { if (window && window._HUD) { window._HUD.toast = (t)=> showToast(t); window._HUD.ticker = (t)=> showTicker(t); } } catch(_) {}
+try { if (window && window._HUD) { window._HUD.toast = (t)=> showToast(t); window._HUD.ticker = (t,r,i)=> showTicker(t,r,i); } } catch(_) {}
 
 // Boss music transitions
 if (enemyManager && enemyManager.bossManager) {

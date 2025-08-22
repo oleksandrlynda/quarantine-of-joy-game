@@ -20,6 +20,7 @@ export class StoryManager {
     this._seen = this._loadSeen();
     this._currentBeat = null;
     this._tickerShown = false;
+    this._bossActive = false;
   }
 
   _bindUI(){
@@ -35,11 +36,13 @@ export class StoryManager {
     this.enabled = false;
     if (this.container) this.container.style.display = 'none';
     this._tickerShown = false;
+    this._bossActive = false;
   }
 
   startRun(){
     this.enabled = true;
     this._tickerShown = false;
+    this._bossActive = false;
     // Optionally load external beats for easy authoring
     if (this._beatsUrl) {
       try {
@@ -71,7 +74,7 @@ export class StoryManager {
     if (wave === 10) this._enqueueBeat('midRun');
     if (wave === 20) this._enqueueBeat('lateRun');
     // Drop a ticker snippet the first time we get past wave 1, then occasionally
-    if (this.ticker && wave > 1) {
+    if (this.ticker && wave > 1 && !this._bossActive) {
       const tickers = Object.keys(this._beats).filter(id => this._beats[id].mode === 'ticker');
       const remaining = tickers.filter(id => !this._beatsFired.has(id));
       if (remaining.length > 0) {
@@ -88,14 +91,21 @@ export class StoryManager {
 
   onBossStart(wave){
     if (!this.enabled) return;
+    this._bossActive = true;
     this._enqueueBeat(`boss_${wave}_start`);
+    this._enqueueBeat(`boss_${wave}_ticker`);
     this._maybeShow();
   }
 
   onBossDeath(wave){
     if (!this.enabled) return;
     this._enqueueBeat(`boss_${wave}_down`);
+    this._enqueueBeat(`boss_${wave}_ticker`);
     if (wave === 5) this._enqueueBeat('boss_5_report');
+    const beat = this._beats[`boss_${wave}_ticker`];
+    const repeat = typeof beat?.repeat === 'number' ? beat.repeat : 3;
+    const interval = typeof beat?.interval === 'number' ? beat.interval : 8000;
+    setTimeout(()=>{ this._bossActive = false; }, repeat * (interval + 240));
     this._maybeShow();
   }
 
@@ -152,9 +162,12 @@ export class StoryManager {
     // Ticker-mode beats show in bottom news feed, also non-blocking
     if (beat && beat.mode === 'ticker'){
       const ticker = this.ticker || (typeof window !== 'undefined' && window._HUD && typeof window._HUD.ticker === 'function' ? window._HUD.ticker : null);
-      if (ticker) ticker(beat.text);
+      const repeat = typeof beat.repeat === 'number' ? beat.repeat : 3;
+      const interval = typeof beat.interval === 'number' ? beat.interval : 8000;
+      if (ticker) ticker(beat.text, repeat, interval);
       if (beat.id) this._markSeen(beat.id, beat.persistOnce);
-      this._lastShownAt = performance.now ? performance.now() : Date.now();
+      const now = performance.now ? performance.now() : Date.now();
+      this._lastShownAt = now + repeat * (interval + 240);
       if (this.queue.length > 0) setTimeout(()=> this._maybeShow(), 50);
       return;
     }
@@ -219,43 +232,50 @@ export class StoryManager {
 
 // Simple data-driven beats. Expand freely.
 const NARRATIVE_BEATS = {
-  intro: { id:'intro', text: 'Courier, BoB sealed this block. Hijack the relay and spark the first laugh. #intro_01' },
-  firstWave: { id:'firstWave', text: 'BoB scouts inbound. Tag them and keep the hype climbing. #firstWave_01', mode: 'toast', persistOnce: true },
-  bossIncoming: { id:'bossIncoming', text: 'BoB signature spike—boss inbound. Save some punchlines for the crowd. #bossIncoming_01' },
-  midRun: { id:'midRun', text: 'Memes are flowing. BoB is adapting; stay unpredictable. #midRun_01', mode: 'toast', persistOnce: true },
-  lateRun: { id:'lateRun', text: 'Deep in BoB turf. Elites deploying—keep the feed loud. #lateRun_01', mode: 'toast', persistOnce: true },
-  lowHp: { id:'lowHp', text: 'Signal fading! Break line of sight and grab a medkit. #lowHp_01', mode: 'toast', persistOnce: true },
-  firstMed: { id:'firstMed', text: 'Medkit secured. Echo City’s watching—keep moving. #firstMed_01', mode: 'toast', persistOnce: true },
-  ticker_gossip1: { id:'ticker_gossip1', text: 'Newsflash: lab coffee machine may be sentient. #ticker_gossip1_01', mode: 'ticker' },
-  ticker_gossip2: { id:'ticker_gossip2', text: 'Rumor: maintenance drones plan a union vote. #ticker_gossip2_01', mode: 'ticker' },
-  ticker_gossip3: { id:'ticker_gossip3', text: "Fun fact: drones still can't appreciate jazz. #ticker_gossip3_01", mode: 'ticker' },
-  ticker_gossip4: { id:'ticker_gossip4', text: 'Alert: vending machines now accept emotional support coins. @nt #ticker_gossip4_01', mode: 'ticker' },
-  ticker_gossip5: { id:'ticker_gossip5', text: 'Insider: test drones spotted debating optimal pathfinding routes. #ticker_gossip5_01', mode: 'ticker' },
-  ticker_gossip6: { id:'ticker_gossip6', text: 'Reminder: update reflex implants before prime-time waves. #ticker_gossip6_01', mode: 'ticker' },
-  ticker_gossip7: { id:'ticker_gossip7', text: 'Breaking: scientists teach drones to high-five — results mixed. #ticker_gossip7_01', mode: 'ticker' },
-  ticker_gossip8: { id:'ticker_gossip8', text: 'Bulletin: cafeteria introduces mystery-flavor nutrient bars. #ticker_gossip8_01', mode: 'ticker' },
-  ticker_gossip9: { id:'ticker_gossip9', text: 'Whisper: someone replaced ammo crates with party poppers. Investigating... #ticker_gossip9_01', mode: 'ticker' },
-  ticker_gossip10: { id:'ticker_gossip10', text: 'Report: arena floor requests a day off to recharge its tiles. @nt #ticker_gossip10_01', mode: 'ticker' },
-  ticker_gossip11: { id:'ticker_gossip11', text: 'Leak: AI curator secretly writes poetry during off cycles. #ticker_gossip11_01', mode: 'ticker' },
-  ticker_gossip12: { id:'ticker_gossip12', text: 'FYI: vents rumored to host micro-society of dust bunnies. #ticker_gossip12_01', mode: 'ticker' },
-  ticker_gossip13: { id:'ticker_gossip13', text: 'Memo: please stop naming your turrets; recycling gets awkward. #ticker_gossip13_01', mode: 'ticker' },
-  ticker_gossip14: { id:'ticker_gossip14', text: 'Rumor: hidden achievement for complimenting a drone before disabling it. #ticker_gossip14_01', mode: 'ticker' },
-  ticker_gossip15: { id:'ticker_gossip15', text: 'Alert: rogue trainee spotted speed-running safety briefings. #ticker_gossip15_01', mode: 'ticker' },
-  ticker_gossip16: { id:'ticker_gossip16', text: 'Fun fact: reloading to the beat increases accuracy by 0%. Still fun. #ticker_gossip16_01', mode: 'ticker' },
+  intro: { id:'intro', text: 'Operator, welcome to Block Strike. Your objective: survive the test arena and gather data.' },
+  firstWave: { id:'firstWave', text: 'Wave one: expect light drones. Test your aim. Headshots recommended.', mode: 'toast', persistOnce: true },
+  bossIncoming: { id:'bossIncoming', text: 'Boss signatures detected. Brace and conserve ammo between phases.' },
+  midRun: { id:'midRun', text: 'Telemetry clean. Enemy patterns increasing in complexity. Keep moving.', mode: 'toast', persistOnce: true },
+  lateRun: { id:'lateRun', text: 'You are deep in. Adversaries deploying elites. Prioritize targets and use cover.', mode: 'toast', persistOnce: true },
+  lowHp: { id:'lowHp', text: 'Critical health! Break line of sight and use cover or medkits.', mode: 'toast', persistOnce: true },
+  firstMed: { id:'firstMed', text: 'Medkit collected. Stay mobile and top up when safe.', mode: 'toast', persistOnce: true },
+  ticker_gossip1: { id:'ticker_gossip1', text: 'Newsflash: lab coffee machine may be sentient.', mode: 'ticker', repeat: 2 },
+  ticker_gossip2: { id:'ticker_gossip2', text: 'Rumor: maintenance drones plan a union vote.', mode: 'ticker' },
+  ticker_gossip3: { id:'ticker_gossip3', text: "Fun fact: drones still can't appreciate jazz.", mode: 'ticker' },
+  ticker_gossip4: { id:'ticker_gossip4', text: 'Alert: vending machines now accept emotional support coins.', mode: 'ticker' },
+  ticker_gossip5: { id:'ticker_gossip5', text: 'Insider: test drones spotted debating optimal pathfinding routes.', mode: 'ticker' },
+  ticker_gossip6: { id:'ticker_gossip6', text: 'Reminder: update reflex implants before prime-time waves.', mode: 'ticker' },
+  ticker_gossip7: { id:'ticker_gossip7', text: 'Breaking: scientists teach drones to high-five — results mixed.', mode: 'ticker' },
+  ticker_gossip8: { id:'ticker_gossip8', text: 'Bulletin: cafeteria introduces mystery-flavor nutrient bars.', mode: 'ticker' },
+  ticker_gossip9: { id:'ticker_gossip9', text: 'Whisper: someone replaced ammo crates with party poppers. Investigating...', mode: 'ticker' },
+  ticker_gossip10: { id:'ticker_gossip10', text: 'Report: arena floor requests a day off to recharge its tiles.', mode: 'ticker' },
+  ticker_gossip11: { id:'ticker_gossip11', text: 'Leak: AI curator secretly writes poetry during off cycles.', mode: 'ticker' },
+  ticker_gossip12: { id:'ticker_gossip12', text: 'FYI: vents rumored to host micro-society of dust bunnies.', mode: 'ticker' },
+  ticker_gossip13: { id:'ticker_gossip13', text: 'Memo: please stop naming your turrets; recycling gets awkward.', mode: 'ticker' },
+  ticker_gossip14: { id:'ticker_gossip14', text: 'Rumor: hidden achievement for complimenting a drone before disabling it.', mode: 'ticker' },
+  ticker_gossip15: { id:'ticker_gossip15', text: 'Alert: rogue trainee spotted speed-running safety briefings.', mode: 'ticker' },
+  ticker_gossip16: { id:'ticker_gossip16', text: 'Fun fact: reloading to the beat increases accuracy by 0%. Still fun.', mode: 'ticker' },
   // Boss-specific hooks; generic fallback copy is fine
-  'boss_5_start': { id:'boss_5_start', text: 'Broodmaker spawns incoming. Eliminate pods to thin the swarm. #boss_5_start_01' },
-  'boss_5_down': { id:'boss_5_down', text: 'MOD: Broodmaker down. Swarm quieting. Scoop supplies and reset your lane. #boss_5_down_01' },
-  boss_5_report: { id:'boss_5_report', text: 'MOD: Uplink clean. The block’s laughing again. BoB will counter—eyes up. #boss_5_report_01', mode: 'toast', persistOnce: true },
-  'boss_10_start': { id:'boss_10_start', text: 'MOD: Commissioner Sanitizer’s spire team online. Area denial and beams—strafe clean. #boss_10_start_01' },
-  'boss_10_down': { id:'boss_10_down', text: 'MOD: Sanitizer silenced. Broadcast reached the block. Armory channels are opening. #boss_10_down_01' },
-  'boss_15_start': { id:'boss_15_start', text: 'MOD: Influencer Militia Captain with Ad Zeppelin support. Cancel sponsorship pods to break the shield. #boss_15_start_01' },
-  'boss_15_down': { id:'boss_15_down', text: 'MOD: Captain dropped. Formation broken; sponsors ghosted. #boss_15_down_01' },
-  'boss_20_start': { id:'boss_20_start', text: 'GLITCHCAT: Algorithm Shard Avatar manifesting. Watch emissive tells; play off‑beat. #boss_20_start_01' },
-  'boss_20_down': { id:'boss_20_down', text: 'GLITCHCAT: Shard reconciled. Signal variance restored. #boss_20_down_01' },
-  'boss_25_start': { id:'boss_25_start', text: 'Broodmaker returns, reinforced. Spread the damage, clear eggs fast. #boss_25_start_01' },
-  'boss_25_down': { id:'boss_25_down', text: 'Heavy Broodmaker down. You are becoming the problem. #boss_25_down_01' },
-  'boss_30_start': { id:'boss_30_start', text: 'Hydraclone detected. Eliminate clones quickly to prevent overwhelming numbers. #boss_30_start_01' },
-  'boss_30_down': { id:'boss_30_down', text: 'Hydraclone neutralized. The field quiets—for now. #boss_30_down_01' },
-  'boss_35_start': { id:'boss_35_start', text: 'Strike Adjudicator enters. Expect precision strikes and punish windows—stay moving. #boss_35_start_01' },
-  'boss_35_down': { id:'boss_35_down', text: 'Adjudicator down. You have exceeded projections. #boss_35_down_01' }
+  'boss_5_ticker': { id:'boss_5_ticker', text: 'Alert: Broodmaker active—clear pods to stem the swarm.', mode: 'ticker', repeat: 4 },
+  'boss_5_start': { id:'boss_5_start', text: 'Broodmaker spawns incoming. Eliminate pods to thin the swarm.' },
+  'boss_5_down': { id:'boss_5_down', text: 'MOD: Broodmaker down. Swarm quieting. Scoop supplies and reset your lane.' },
+  boss_5_report: { id:'boss_5_report', text: 'MOD: Uplink clean. The block’s laughing again. BoB will counter—eyes up.', mode: 'toast', persistOnce: true },
+  'boss_10_ticker': { id:'boss_10_ticker', text: 'Alert: Commissioner Sanitizer broadcasting—strafe to dodge beams.', mode: 'ticker', repeat: 4 },
+  'boss_10_start': { id:'boss_10_start', text: 'MOD: Commissioner Sanitizer’s spire team online. Area denial and beams—strafe clean.' },
+  'boss_10_down': { id:'boss_10_down', text: 'MOD: Sanitizer silenced. Broadcast reached the block. Armory channels are opening.' },
+  'boss_15_ticker': { id:'boss_15_ticker', text: 'Alert: Influencer Captain streaming—pop sponsor pods to break shield.', mode: 'ticker', repeat: 4 },
+  'boss_15_start': { id:'boss_15_start', text: 'MOD: Influencer Militia Captain with Ad Zeppelin support. Cancel sponsorship pods to break the shield.' },
+  'boss_15_down': { id:'boss_15_down', text: 'MOD: Captain dropped. Formation broken; sponsors ghosted.' },
+  'boss_20_ticker': { id:'boss_20_ticker', text: 'Alert: Algorithm Shard Avatar distorting field—stay off-beat.', mode: 'ticker', repeat: 4 },
+  'boss_20_start': { id:'boss_20_start', text: 'GLITCHCAT: Algorithm Shard Avatar manifesting. Watch emissive tells; play off‑beat.' },
+  'boss_20_down': { id:'boss_20_down', text: 'GLITCHCAT: Shard reconciled. Signal variance restored.' },
+  'boss_25_ticker': { id:'boss_25_ticker', text: 'Alert: Broodmaker returns heavier—spread damage and smash eggs.', mode: 'ticker', repeat: 4 },
+  'boss_25_start': { id:'boss_25_start', text: 'Broodmaker returns, reinforced. Spread the damage, clear eggs fast.' },
+  'boss_25_down': { id:'boss_25_down', text: 'Heavy Broodmaker down. You are becoming the problem.' },
+  'boss_30_ticker': { id:'boss_30_ticker', text: 'Alert: Hydraclone divides under fire—erase clones quickly.', mode: 'ticker', repeat: 4 },
+  'boss_30_start': { id:'boss_30_start', text: 'Hydraclone detected. Eliminate clones quickly to prevent overwhelming numbers.'},
+  'boss_30_down': { id:'boss_30_down', text: 'Hydraclone neutralized. The field quiets—for now.' },
+  'boss_35_ticker': { id:'boss_35_ticker', text: 'Alert: Strike Adjudicator deployed—expect precision retaliation.', mode: 'ticker', repeat: 4 },
+  'boss_35_start': { id:'boss_35_start', text: 'Strike Adjudicator enters. Expect precision strikes and punish windows—stay moving.' },
+  'boss_35_down': { id:'boss_35_down', text: 'Adjudicator down. You have exceeded projections.' }
 };
