@@ -18,6 +18,7 @@
     <div class="pill" id="combo"><span id="comboLabel"></span><div id="comboBar"></div></div>
     <div class="pill" id="wavePill"><span data-i18n="hud.wave">Wave</span>: <span id="wave">1</span> <span id="remainingWrap" class="tiny" style="margin-left:6px">(<span id="remaining">0</span> <span data-i18n="hud.left">left</span>)</span> <span id="hydraWrap" class="tiny" style="margin-left:6px; display:none">(<span data-i18n="hud.hydra">Hydra</span> <span id="hydraCount">0/0</span>)</span><div id="waveBar"></div></div>
     <div class="pill" id="stamina"><span data-i18n="hud.stamina">Stamina</span><div id="staminaBar"></div></div>
+    <div style="display: none !important">
     <div class="pill tiny" id="seedPill"><span data-i18n="hud.seed">Seed</span>: <span id="seed"></span>
       <button class="mini" id="copySeed" data-i18n="hud.copy" data-i18n-title="hud.copyTitle">Copy</button>
       <button class="mini" id="newSeed" data-i18n="hud.new" data-i18n-title="hud.newTitle">New</button>
@@ -81,7 +82,8 @@
 <div id="center"><div id="panel">
   <h1>Quarantine of <span>Joy</span></h1>
   <div data-i18n="start.tagline">Meme-fueled shooter. Hijack feeds, raise hype, roast the Bureau.</div>
-  <div style="display:flex; gap:10px; justify-content:center; margin:12px 0; flex-wrap:wrap">
+  <!-- <div style="display:flex; gap:10px; justify-content:center; margin:12px 0; flex-wrap:wrap"> -->
+  <div style="display: none !important">
     <div class="pill" data-i18n="feature.waves">Waves of bots</div>
     <div class="pill" data-i18n="feature.hitscan">Hitscan rifle + tracers</div>
     <div class="pill" data-i18n="feature.headshot">Headshot bonus</div>
@@ -104,20 +106,17 @@
       <option value="uk" data-i18n="lang.ukrainian">Ukrainian</option>
     </select>
   </div>
-  <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap">
-    <button class="primary" id="play" data-i18n="start.play">▶️ Play</button>
-    <button class="secondary" id="retry" style="display:none" data-i18n="start.retry">🔁 Retry</button>
-  </div>
-  <div class="tiny" style="margin-top:10px; text-align:center" data-i18n="start.qualityLabel">Quality presets</div>
   <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:6px">
     <button class="secondary" id="qLow" data-i18n="quality.low" data-i18n-title="quality.lowTitle" title="aa=off, shadows=off, auto DPR">Low</button>
     <button class="secondary" id="qMed" data-i18n="quality.medium" data-i18n-title="quality.medTitle" title="aa=off, shadows=off, auto DPR + ACES">Medium</button>
     <button class="secondary" id="qHigh" data-i18n="quality.high" data-i18n-title="quality.highTitle" title="aa=on, shadows=on">High</button>
     <button class="secondary" id="qUltra" data-i18n="quality.ultra" data-i18n-title="quality.ultraTitle" title="aa=on, shadows=on (max)" >Ultra</button>
   </div>
+  <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap">
+    <button class="primary" id="play" data-i18n="start.play">▶️ Play</button>
+    <button class="secondary" id="retry" style="display:none" data-i18n="start.retry">🔁 Retry</button>
+  </div>
   <div class="tiny" style="margin-top:8px" id="startTip" data-i18n="start.tipDesktop">Click Play, then click to lock the mouse.</div>
-</div></div>
-
 <!-- Loading overlay from performance branch -->
 <div id="loading" style="position:fixed; inset:0; display:grid; place-items:center; background:#0b1220; color:#fff; z-index:9999">
   <div style="width:min(92%,520px); text-align:center">
@@ -158,8 +157,12 @@
         <button id="btnReload">🔄</button>
       </div>`;
     document.body.appendChild(m);
+    // fade help 
     const help = document.getElementById('desktopHelp');
-    if (help) help.style.display = 'none';
+    if (help) {
+      help.style.opacity = '0';
+      setTimeout(() => help.style.display = 'none', 5000);
+    }
     const hud = document.getElementById('hud');
     if (hud) {
       const row = document.createElement('div');
