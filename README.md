@@ -52,7 +52,7 @@ Faction/style: Bureau of Blandness Compliance unit. Monochrome, municipal-minima
 
 - Click to lock the mouse and look around
 - **WASD** to move, **Space** to jump
-- **Shift** to sprint, **Ctrl** to crouch
+- **Shift** to sprint, **C** to crouch
 - **Left Mouse** to fire your weapon
 
 ## Running locally

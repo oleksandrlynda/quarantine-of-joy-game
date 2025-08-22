@@ -101,11 +101,11 @@ export class PlayerController {
       window.addEventListener('keydown', (e)=>{
         this.keys.add(e.code);
         if(e.code === 'Space') this.jump();
-        if(e.code==='ControlLeft' || e.code==='ControlRight') this.crouching = true;
+        if(e.code==='KeyC') this.crouching = true;
       });
       window.addEventListener('keyup', (e)=>{
         this.keys.delete(e.code);
-        if(e.code==='ControlLeft' || e.code==='ControlRight') this.crouching = false;
+        if(e.code==='KeyC') this.crouching = false;
       });
     } else {
       // Virtual joystick for movement
