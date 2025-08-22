@@ -26,34 +26,40 @@
     <div class="pill" id="mute">🔊</div>
   </div>
   <div class="row" style="justify-content:flex-end">
-    <div class="pill tiny">WASD move • Mouse aim • Click shoot • R reload • Shift sprint • Ctrl crouch • Space jump • P pause</div>
+    <div class="pill tiny" id="desktopHelp">WASD move • Mouse aim • Click shoot • R reload • Shift sprint • Ctrl crouch • Space jump • P pause</div>
   </div>
+</div>
+
+<div id="crosshair">
+  <div class="seg top"></div>
+  <div class="seg bottom"></div>
+  <div class="seg left"></div>
+  <div class="seg right"></div>
+</div>
+<div id="hitmarker"></div>
+
+<div id="bossHud" style="display:none">
+  <div id="bossName" class="tiny"></div>
+  <div class="bossBar"><div id="bossHpBar"></div></div>
+</div>
+
+<div id="toasts"></div>
+
+<div id="story" style="display:none">
+  <div class="card">
+    <div id="storyText" class="storyText"></div>
+    <div class="actions"><button class="primary" id="storyNext">Continue</button></div>
   </div>
-  <div id="crosshair">
-   <div class="seg top"></div>
-   <div class="seg bottom"></div>
-   <div class="seg left"></div>
-   <div class="seg right"></div>
- </div>
-  <div id="hitmarker"></div>
-  <div id="bossHud" style="display:none">
-    <div id="bossName" class="tiny"></div>
-    <div class="bossBar"><div id="bossHpBar"></div></div>
-  </div>
-  <div id="toasts"></div>
-  <div id="story" style="display:none">
-    <div class="card">
-      <div id="storyText" class="storyText"></div>
-      <div class="actions"><button class="primary" id="storyNext">Continue</button></div>
-    </div>
-    <style>
-      #story{ position:fixed; inset:0; display:grid; place-items:center; background:rgba(0,0,0,0.35); pointer-events:auto; z-index:5; }
-      #story .card{ background:#ffffffee; border-radius:18px; padding:16px; width:min(92%,520px); box-shadow:0 20px 70px #00000055; }
-      #story .storyText{ font-weight:700; line-height:1.4; margin-bottom:12px; }
-      #story .actions{ display:flex; justify-content:flex-end; }
-    </style>
-  </div>
+  <style>
+    #story{ position:fixed; inset:0; display:grid; place-items:center; background:rgba(0,0,0,0.35); pointer-events:auto; z-index:5; }
+    #story .card{ background:#ffffffee; border-radius:18px; padding:16px; width:min(92%,520px); box-shadow:0 20px 70px #00000055; }
+    #story .storyText{ font-weight:700; line-height:1.4; margin-bottom:12px; }
+    #story .actions{ display:flex; justify-content:flex-end; }
+  </style>
+</div>
+
 <div id="promoPulse"></div>
+
 <div id="offer" style="display:none">
   <div class="card">
     <h3>Armory Offer</h3>
@@ -69,9 +75,10 @@
     .wicon{ width:16px; height:16px; vertical-align:middle; margin-right:4px }
   </style>
 </div>
+
 <div id="center"><div id="panel">
   <h1>Block <span>Strike</span> 3D</h1>
-  <div>Fast‑paced FPS. Waves of bots, crisp gunplay, quick rounds.</div>
+  <div>Fast-paced FPS. Waves of bots, crisp gunplay, quick rounds.</div>
   <div style="display:flex; gap:10px; justify-content:center; margin:12px 0; flex-wrap:wrap">
     <div class="pill">Waves of bots</div>
     <div class="pill">Hitscan rifle + tracers</div>
@@ -104,18 +111,53 @@
     <button class="secondary" id="qHigh" title="aa=on, shadows=on">High</button>
     <button class="secondary" id="qUltra" title="aa=on, shadows=on (max)" >Ultra</button>
   </div>
-  <div class="tiny" style="margin-top:8px">Click Play, then click to lock the mouse.
-  </div>
+  <div class="tiny" style="margin-top:8px" id="startTip">Click Play, then click to lock the mouse.</div>
 </div></div>
+
+<!-- Loading overlay from performance branch -->
 <div id="loading" style="position:fixed; inset:0; display:grid; place-items:center; background:#0b1220; color:#fff; z-index:9999">
   <div style="width:min(92%,520px); text-align:center">
-    <div style="font-weight:700; margin-bottom:10px">Loading shaders & assets…</div>
+    <div style="font-weight:700; margin-bottom:10px">Loading shaders &amp; assets…</div>
     <div id="loadingBarWrap" style="height:10px; background:#222; border-radius:8px; overflow:hidden">
       <div id="loadingBar" style="height:100%; width:0%; background:#22c55e; transition:width 0.15s ease"></div>
     </div>
     <div id="loadingText" class="tiny" style="margin-top:8px; opacity:0.85">0%</div>
   </div>
 </div>
-  <script type="module" src="src/main.js?v=4"></script>
-  </body>
-  </html>
+
+<!-- Mobile controls from main branch -->
+<script>
+  window.IS_MOBILE = window.matchMedia('(pointer:coarse)').matches;
+  if (window.IS_MOBILE) {
+    const m = document.createElement('div');
+    m.id = 'mobileControls';
+    m.innerHTML = `
+      <div id="joystick" class="joy"><div class="base"></div><div class="knob"></div></div>
+      <div id="actionButtons">
+        <button id="btnFire">🔥</button>
+        <button id="btnJump">⤴️</button>
+        <button id="btnReload">🔄</button>
+      </div>`;
+    document.body.appendChild(m);
+    const help = document.getElementById('desktopHelp');
+    if (help) help.style.display = 'none';
+    const hud = document.getElementById('hud');
+    if (hud) {
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.style.justifyContent = 'flex-end';
+      row.innerHTML = '<div class="pill tiny" id="mobileHelp">Move: joystick • Shoot: 🔥 • Jump: ⤴️</div>';
+      hud.appendChild(row);
+      const hideHelp = () => document.getElementById('mobileHelp')?.remove();
+      setTimeout(hideHelp, 5000);
+      ['joystick','btnFire','btnJump','btnReload'].forEach(id=>{
+        document.getElementById(id)?.addEventListener('touchstart', hideHelp, {once:true});
+      });
+    }
+  }
+</script>
+
+<!-- Use the versioned entry from performance branch -->
+<script type="module" src="src/main.js?v=4"></script>
+</body>
+</html>
