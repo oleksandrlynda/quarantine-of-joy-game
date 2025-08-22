@@ -1,26 +1,23 @@
 ## Overview
 
-**High concept**: Fast, readable, low-friction first-person shooter for the browser. Fight waves of simple "block bots" in a compact arena. The focus is on kinetic movement, immediate feedback, and sessions that start instantly.
+**High concept**: A fast, satirical memetic FPS for the browser. Play as the Courier sprinting through Echo City to steal memefragments and beam them to the crowd while Bureau of Blandness censors and corporate influencers hunt you. Color and music flow back into the streets as your combo climbs.
 
 **Pillars**
-- **Clarity first**: Clean shapes, bold colors, obvious feedback (tracers, sparks, HUD).
-- **Always moving**: Sprint, jump, subtle head‑bob; no heavy inventories or menus.
-- **Instant action**: Pointer lock → enemies already spawning → go.
-- **Replayable waves**: Simple scaling keeps sessions short and repeatable.
+- **Laughter Is Power**: Meme energy fuels abilities and literally re-saturates the world.
+- **Always Moving**: Momentum-focused movement—sprint, slide, and dash to stay ahead of BoB patrols.
+- **Remix the City**: Collected fragments unlock punchlines that remix weapons, billboards, and enemy behaviors.
+- **Roast the Tyrant**: Bosses and drones crack under targeted ridicule and exposed hypocrisy.
 
-**Genre**: Arcade FPS (single‑player, wave survival)
+**Genre**: Single-player arcade FPS / action roguelite.
 
 **Platform**: Desktop web (modern browsers). Controls target keyboard + mouse.
 
-**Session length**: 3–10 minutes per run.
+**Session length**: 3–10 minute runs through quarantined zones.
 
 **Highlights**
-- Enemy variety (melee, ranged, tanks, flyers) with boss waves every 5 levels
-- Semi‑auto rifle baseline; future weapon variants for distinct playstyles
-- Dynamic weather and lightweight affixes that change tactics
-- Player expression via advanced movement (stamina, dash, slide, air‑control)
-- Between‑wave choices (modifiers) and daily seeded challenges for replayability
- - Reactive audio/music layers synced to streaks and weather
- - Hype Meter (Combo)‑driven micro‑rewards that lightly heal, reload, or refresh ammo to sustain momentum
-
-
+- Fight Bureau of Blandness squads, Brandfather influencers, and Algorithmic anomalies.
+- Harvest memefragments to craft builds and escalate the Hype Meter combo for micro-rewards.
+- Dynamic world saturation, crowd emotes, and AR signage respond to your performance.
+- Boss encounters such as Commissioner Sanitizer and the Echo Hydraclone.
+- Daily seeded runs and between-mission modifiers keep districts replayable.
+- Lean audiovisual style ensures instant load and broad accessibility.

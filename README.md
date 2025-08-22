@@ -2,7 +2,7 @@
 
 ![Title screenshot](https://github.com/user-attachments/assets/759d695c-c3f8-4088-82f0-63cf7da63673)
 
-An experimental browser shooter built with an in-browser music editor.
+Quarantine of Joy is an experimental browser shooter built with an in-browser music editor.
 
 ## Table of Contents
 

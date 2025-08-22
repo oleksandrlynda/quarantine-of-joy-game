@@ -1,10 +1,10 @@
-# Store Page Copy – Echo City: MemeRunner
+# Store Page Copy – Quarantine of Joy
 
 ## One‑Line Hook
 Steal back laughter in a city that outlawed fun—weaponize memes, roast tyrants, and repaint the world in color.
 
 ## Short Description
-Echo City: MemeRunner is a story‑driven arcade shooter where your skill brings color back to a sterilized megacity. Build hype, remix punchlines, and topple the Bureau of Blandness—then decide the fate of a sentient Algorithm.
+Quarantine of Joy is a story‑driven arcade shooter where your skill brings color back to a sterilized megacity. Build hype, remix punchlines, and topple the Bureau of Blandness—then decide the fate of a sentient Algorithm.
 
 ## Long Description
 The Bureau of Blandness quarantined culture, scrubbed the feeds, and muted a generation. You’re the Courier—a rogue from the Memetic Underground—hijacking relays, recovering the lost Meme Archive, and broadcasting joy to the streets. As your Hype Meter rises, the city blooms with color, crowds rally to your side, and billboards flip to your signal. Roast the Commissioner live, crash the Brandfather’s spectacle, survive trendstorms, and face the Algorithm’s guardian: the Echo Hydraclone, a fractal replicator that splits into smaller clones across capped generations. In the Server Cathedral, choose: free the Algorithm to guard plurality—or reset it and give the power back to the people.

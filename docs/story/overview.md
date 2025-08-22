@@ -27,6 +27,10 @@ The Courier hunts fragments of the Great Meme Archive, topples censorship towers
 - Systemic narrative: World saturation, billboard content, and crowd emotes react to your combo and mission outcomes.
 - Boss roster highlight: Commissioner Sanitizer, Influencer Militia Captain (with Ad Zeppelin), Broodmaker, Algorithm Shard Avatar, and Echo Hydraclone. New crackdown force: Strike Adjudicator of the Content Court.
 
-## Open Questions
-- How many memefragment sets to craft the Omega Meme without pacing drag?
-- Which late‑game twist best serves player agency: destroy vs redeem the Algorithm?
+## Demo Scope Decisions
+- **Memefragment Sets:** The demo uses three memefragment sets to assemble a prototype Omega Meme, keeping pacing brisk.
+- **Algorithm Confrontation:** The demo culminates in freeing a shackled Algorithm shard; choosing to redeem or dismantle the core AI is deferred.
+
+## Changelog for Later Acts
+- Expand memefragment collection beyond three sets for deeper crafting in Act II+.
+- Decide whether the full game branches into destroying or redeeming the Algorithm.
