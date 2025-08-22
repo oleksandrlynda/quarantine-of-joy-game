@@ -10,8 +10,8 @@ const _enemyAssetCache = {
 
 // --- Melee attack definitions ---
 const GRUNT_ATTACKS = [
-  { name: 'jab',  hand: 'lead', windup: 0.22, active: 0.09, recover: 0.45, damage: 10, reach: 2.2, knockback: 0.25 },
-  { name: 'hook', hand: 'rear', windup: 0.32, active: 0.10, recover: 0.60, damage: 16, reach: 2.3, knockback: 0.35 }
+  { name: 'jab',  hand: 'lead', windup: 0.22, active: 0.09, recover: 0.45, damage: 8, reach: 2.2, knockback: 0.25 },
+  { name: 'hook', hand: 'rear', windup: 0.32, active: 0.10, recover: 0.60, damage: 14, reach: 2.3, knockback: 0.35 }
 ];
 
 // Tank only. 'slam' radius is computed from the model size at runtime.

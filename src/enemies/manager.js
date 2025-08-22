@@ -1002,12 +1002,12 @@ export class EnemyManager {
     const types = new Array(total).fill('grunt');
 
     // Desired proportions as wave scales
-    const pctRusher  = wave >= 3 ? 0.15 : 0.0;
+    const pctRusher  = wave >= 6 ? 0.15 : 0.0;
     // Shooters appear starting wave 2 at a lower proportion
     const pctShooter = wave >= 2 ? 0.08 : 0.0;
     // Flyers now appear starting at wave 1 with a gentle ramp
     const pctFlyer   = Math.min(0.6, 0.10 + 0.05 * (wave - 1));
-    const pctTank    = wave >= 6 ? 0.10 : 0.0;
+    const pctTank    = wave >= 3 ? 0.10 : 0.0;
     const pctHealer  = wave >= 7 ? 0.08 : 0.0;
     const pctSniper  = wave >= 8 ? 0.05 : 0.0;
     const pctWarden  = wave >= 20 ? 0.04 : 0.0;
