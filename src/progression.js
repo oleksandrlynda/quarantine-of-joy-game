@@ -31,7 +31,7 @@ export class Progression {
     if (wave === 1) { return; }
     if (wave === 2) {
       // Force Shotgun as the first primary
-      const pool = this.ws.getUnlockedPrimaries({ shotgun:true, smg:true, rifle:true, dmr:true });
+      const pool = this.ws.getUnlockedPrimaries({ shotgun:true, smg:true, rifle:true, dmr:true, beamsaber:true, minigun:true });
       const sg = pool.find(x => x.name === 'Shotgun');
       if (sg) this.ws.swapPrimary(sg.make);
       return;
@@ -130,7 +130,7 @@ export class Progression {
 
   _presentSidearmOffer(){
     if (!this.offerEl || !this.choicesEl) return;
-    const sidearms = this.ws.getSidearms ? this.ws.getSidearms() : [];
+    const sidearms = this.ws.getSidearms ? this.ws.getSidearms() : ['Pistol', 'Grenade', 'BeamSaber'];
     if (!sidearms.length) return;
     this.choicesEl.innerHTML = '';
     for (const p of sidearms){
