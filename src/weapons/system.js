@@ -108,6 +108,16 @@ export class WeaponSystem {
 
   triggerUp() { this.current?.triggerUp(); }
 
+  triggerAltDown() {
+    const w = this.current; if (!w) return;
+    if (typeof w.altTriggerDown === 'function') w.altTriggerDown(this.context());
+  }
+
+  triggerAltUp() {
+    const w = this.current; if (!w) return;
+    if (typeof w.altTriggerUp === 'function') w.altTriggerUp(this.context());
+  }
+
   reload() {
     const ok = this.current?.reload(() => this.S?.reload?.());
     if (ok) {
@@ -132,6 +142,11 @@ export class WeaponSystem {
   switchSlot(slotIndex1Based) {
     const idx = (slotIndex1Based | 0) - 1;
     if (idx >= 0 && idx < this.inventory.length) {
+      const old = this.current;
+      if (old) {
+        old.triggerUp();
+        if (typeof old.altTriggerCancel === 'function') old.altTriggerCancel(this.context());
+      }
       this.currentIndex = idx;
       this.updateHUD?.();
     }
@@ -140,6 +155,10 @@ export class WeaponSystem {
   // Swap primary to a new weapon instance and convert reserve from old
   swapPrimary(makeWeaponFn) {
     const old = this.current;
+    if (old) {
+      old.triggerUp();
+      if (typeof old.altTriggerCancel === 'function') old.altTriggerCancel(this.context());
+    }
     const carry = Math.floor(Math.max(0, (old?.reserveAmmo || 0)) * 0.5);
     const newW = makeWeaponFn();
     newW.reset();

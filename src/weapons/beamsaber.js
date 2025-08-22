@@ -9,13 +9,16 @@ export class BeamSaber extends Weapon {
       magSize: 1,
       reserve: 0
     });
+    this._charging = false;
+    this._chargeStart = 0;
+    this._chargeSound = null;
   }
 
-  onFire(ctx) {
+  _slash(ctx, damage, heavy=false) {
     const { THREE, camera, raycaster, enemyManager, effects, S, pickups, addScore, addComboAction, applyKnockback, objects } = ctx;
     const origin = camera.getWorldPosition(new THREE.Vector3());
     const dir = camera.getWorldDirection(new THREE.Vector3()).normalize();
-    const range = 5;
+    const range = heavy ? 6 : 5;
     const end = origin.clone().add(dir.clone().multiplyScalar(range));
 
     raycaster.set(origin, dir);
@@ -24,7 +27,8 @@ export class BeamSaber extends Weapon {
     const hits = candidates.length ? raycaster.intersectObjects(candidates, true) : [];
     const handled = new Set();
 
-    ctx.weaponView?.startSlash?.();
+    if (heavy) ctx.weaponView?.startSlash?.({ dur:0.3, angle:1.8 });
+    else ctx.weaponView?.startSlash?.();
     if (S?.saberSwing) S.saberSwing();
     effects?.spawnSaberSlash?.(origin, end);
 
@@ -36,8 +40,9 @@ export class BeamSaber extends Weapon {
       handled.add(obj);
 
       try { window._HUD && window._HUD.showHitmarker && window._HUD.showHitmarker(); } catch(_) {}
-      obj.userData.hp -= 40;
-      applyKnockback?.(obj, dir.clone().multiplyScalar(0.25));
+      obj.userData.hp -= damage;
+      const kb = heavy ? 0.4 : 0.25;
+      applyKnockback?.(obj, dir.clone().multiplyScalar(kb));
       if (S?.saberHit) S.saberHit();
       if (S && S.impactFlesh) S.impactFlesh();
       if (S && S.enemyPain) S.enemyPain(obj?.userData?.type || 'grunt');
@@ -71,6 +76,47 @@ export class BeamSaber extends Weapon {
 
     this.ammoInMag = 1;
     ctx.updateHUD?.();
+  }
+
+  onFire(ctx) {
+    this._slash(ctx, 40, false);
+  }
+
+  altTriggerDown(ctx) {
+    const now = performance.now();
+    if (!this.canFire(now)) return;
+    this._charging = true;
+    this._chargeStart = now;
+    this._nextFireAtMs = Infinity;
+    ctx.weaponView?.startCharge?.();
+    if (ctx.S?.saberCharge) this._chargeSound = ctx.S.saberCharge();
+  }
+
+  altTriggerUp(ctx) {
+    if (!this._charging) return;
+    this._charging = false;
+    ctx.weaponView?.endCharge?.();
+    if (this._chargeSound && typeof this._chargeSound.stop === 'function') {
+      this._chargeSound.stop();
+      this._chargeSound = null;
+    }
+    const now = performance.now();
+    const held = now - this._chargeStart;
+    const ratio = Math.min(1, held / 2500);
+    const damage = 20 + 60 * ratio;
+    this._nextFireAtMs = now + (this.cfg.fireDelayMs || 0);
+    this._slash(ctx, damage, true);
+  }
+
+  altTriggerCancel(ctx) {
+    if (!this._charging) return;
+    this._charging = false;
+    this._nextFireAtMs = 0;
+    ctx.weaponView?.endCharge?.();
+    if (this._chargeSound && typeof this._chargeSound.stop === 'function') {
+      this._chargeSound.stop();
+      this._chargeSound = null;
+    }
   }
 }
 

@@ -194,6 +194,25 @@ export class SFX {
     o.start(t0); o.stop(envO.endTime + 0.02);
   }
 
+  saberCharge(){
+    if (this.isMuted) return null; this.ensure();
+    const a = this.ctx; const t0 = a.currentTime + 0.001;
+    const o = a.createOscillator(); o.type = 'sawtooth';
+    o.frequency.setValueAtTime(220, t0);
+    const g = a.createGain(); g.gain.setValueAtTime(0.0001, t0);
+    o.connect(g).connect(this.master); this._tapFx(g, 0.05);
+    g.gain.linearRampToValueAtTime(0.25, t0 + 0.1);
+    o.start(t0);
+    return {
+      stop: ()=>{
+        const now = a.currentTime;
+        g.gain.cancelScheduledValues(now);
+        g.gain.linearRampToValueAtTime(0.0001, now + 0.05);
+        try { o.stop(now + 0.06); } catch(_) {}
+      }
+    };
+  }
+
   reload() {
     if (this.isMuted) return; this.ensure();
     const a = this.ctx; const t0 = a.currentTime + 0.001;
