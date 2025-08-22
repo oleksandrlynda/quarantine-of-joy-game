@@ -1,11 +1,12 @@
 // Minimal narrative system: modal story beats + queued messages
 
 export class StoryManager {
-  constructor({ documentRef, onPause, controls, toastFn, beatsUrl = null, minGapMs = 2200 }){
+  constructor({ documentRef, onPause, controls, toastFn, tickerFn, beatsUrl = null, minGapMs = 2200 }){
     this.doc = documentRef || document;
     this.onPause = onPause || (()=>{});
     this.controls = controls || null;
     this.toast = typeof toastFn === 'function' ? toastFn : null;
+    this.ticker = typeof tickerFn === 'function' ? tickerFn : null;
     this.queue = [];
     this.active = false;
     this.enabled = false;
@@ -60,6 +61,15 @@ export class StoryManager {
     if (wave === 5) this._enqueueBeat('bossIncoming');
     if (wave === 10) this._enqueueBeat('midRun');
     if (wave === 20) this._enqueueBeat('lateRun');
+    // Occasionally drop a fun ticker snippet mid-run
+    if (this.ticker && wave > 1 && Math.random() < 0.3) {
+      const tickers = Object.keys(this._beats).filter(id => this._beats[id].mode === 'ticker');
+      const remaining = tickers.filter(id => !this._beatsFired.has(id));
+      if (remaining.length > 0) {
+        const pick = remaining[Math.floor(Math.random() * remaining.length)];
+        this._enqueueBeat(pick);
+      }
+    }
     this._maybeShow();
   }
 
@@ -93,6 +103,7 @@ export class StoryManager {
     const beat = this._beats[id];
     if (!beat) return;
     if (beat.persistOnce && this._seen[id]) return;
+    if (beat.mode === 'ticker' && !this.ticker && !(typeof window !== 'undefined' && window._HUD && typeof window._HUD.ticker === 'function')) return;
     this._beatsFired.add(id);
     this.queue.push(beat);
   }
@@ -121,6 +132,15 @@ export class StoryManager {
       if (beat.id) this._markSeen(beat.id, beat.persistOnce);
       this._lastShownAt = performance.now ? performance.now() : Date.now();
       // chain next if any
+      if (this.queue.length > 0) setTimeout(()=> this._maybeShow(), 50);
+      return;
+    }
+    // Ticker-mode beats show in bottom news feed, also non-blocking
+    if (beat && beat.mode === 'ticker'){
+      const ticker = this.ticker || (typeof window !== 'undefined' && window._HUD && typeof window._HUD.ticker === 'function' ? window._HUD.ticker : null);
+      if (ticker) ticker(beat.text);
+      if (beat.id) this._markSeen(beat.id, beat.persistOnce);
+      this._lastShownAt = performance.now ? performance.now() : Date.now();
       if (this.queue.length > 0) setTimeout(()=> this._maybeShow(), 50);
       return;
     }
@@ -185,6 +205,22 @@ const NARRATIVE_BEATS = {
   lateRun: { id:'lateRun', text: 'You are deep in. Adversaries deploying elites. Prioritize targets and use cover.', mode: 'toast', persistOnce: true },
   lowHp: { id:'lowHp', text: 'Critical health! Break line of sight and use cover or medkits.', mode: 'toast', persistOnce: true },
   firstMed: { id:'firstMed', text: 'Medkit collected. Stay mobile and top up when safe.', mode: 'toast', persistOnce: true },
+  ticker_gossip1: { id:'ticker_gossip1', text: 'Newsflash: lab coffee machine may be sentient.', mode: 'ticker' },
+  ticker_gossip2: { id:'ticker_gossip2', text: 'Rumor: maintenance drones plan a union vote.', mode: 'ticker' },
+  ticker_gossip3: { id:'ticker_gossip3', text: "Fun fact: drones still can't appreciate jazz.", mode: 'ticker' },
+  ticker_gossip4: { id:'ticker_gossip4', text: 'Alert: vending machines now accept emotional support coins.', mode: 'ticker' },
+  ticker_gossip5: { id:'ticker_gossip5', text: 'Insider: test drones spotted debating optimal pathfinding routes.', mode: 'ticker' },
+  ticker_gossip6: { id:'ticker_gossip6', text: 'Reminder: update reflex implants before prime-time waves.', mode: 'ticker' },
+  ticker_gossip7: { id:'ticker_gossip7', text: 'Breaking: scientists teach drones to high-five — results mixed.', mode: 'ticker' },
+  ticker_gossip8: { id:'ticker_gossip8', text: 'Bulletin: cafeteria introduces mystery-flavor nutrient bars.', mode: 'ticker' },
+  ticker_gossip9: { id:'ticker_gossip9', text: 'Whisper: someone replaced ammo crates with party poppers. Investigating...', mode: 'ticker' },
+  ticker_gossip10: { id:'ticker_gossip10', text: 'Report: arena floor requests a day off to recharge its tiles.', mode: 'ticker' },
+  ticker_gossip11: { id:'ticker_gossip11', text: 'Leak: AI curator secretly writes poetry during off cycles.', mode: 'ticker' },
+  ticker_gossip12: { id:'ticker_gossip12', text: 'FYI: vents rumored to host micro-society of dust bunnies.', mode: 'ticker' },
+  ticker_gossip13: { id:'ticker_gossip13', text: 'Memo: please stop naming your turrets; recycling gets awkward.', mode: 'ticker' },
+  ticker_gossip14: { id:'ticker_gossip14', text: 'Rumor: hidden achievement for complimenting a drone before disabling it.', mode: 'ticker' },
+  ticker_gossip15: { id:'ticker_gossip15', text: 'Alert: rogue trainee spotted speed-running safety briefings.', mode: 'ticker' },
+  ticker_gossip16: { id:'ticker_gossip16', text: 'Fun fact: reloading to the beat increases accuracy by 0%. Still fun.', mode: 'ticker' },
   // Boss-specific hooks; generic fallback copy is fine
   'boss_5_start': { id:'boss_5_start', text: 'Broodmaker spawns incoming. Eliminate pods to thin the swarm.' },
   'boss_5_down': { id:'boss_5_down', text: 'Broodmaker neutralized. Collect supplies and prepare for escalation.' },

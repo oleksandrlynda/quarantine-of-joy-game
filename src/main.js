@@ -203,6 +203,7 @@ const bossHudEl = document.getElementById('bossHud');
 const bossNameEl = document.getElementById('bossName');
 const bossHpBarEl = document.getElementById('bossHpBar');
 const toastsEl = document.getElementById('toasts');
+const tickerEl = document.getElementById('newsTicker');
 
 // Best score persistence
 const BEST_KEY = 'bs3d_best_score';
@@ -442,7 +443,7 @@ weaponSystem = new WeaponSystem({
 // Set initial weapon view
 try { weaponView.setWeapon(weaponSystem.getPrimaryName()); } catch(_) {}
 progression = new Progression({ weaponSystem, documentRef: document, onPause: (lock)=>{ offerActive = !!lock; paused = !!lock; }, controls });
-story = storyDisabled ? null : new StoryManager({ documentRef: document, onPause: (lock)=>{ paused = !!lock; }, controls, toastFn: (t)=> showToast(t), beatsUrl: 'assets/story/beats.json' });
+story = storyDisabled ? null : new StoryManager({ documentRef: document, onPause: (lock)=>{ paused = !!lock; }, controls, toastFn: (t)=> showToast(t), tickerFn: (t)=> showTicker(t), beatsUrl: 'assets/story/beats.json' });
 
 if (!isMobile){
   window.addEventListener('mousedown', e=>{ if(!controls.isLocked || paused) return; weaponSystem.triggerDown(); });
@@ -830,6 +831,14 @@ function showHitmarker(){
 // Expose small API for weapons to indicate hit/kill/headshot if desired later
 try { window._HUD = { showHitmarker }; } catch(_) {}
 
+// Ticker system
+function showTicker(text){
+  if (!tickerEl) return;
+  const el = document.createElement('div'); el.className = 'ticker'; el.textContent = text;
+  tickerEl.appendChild(el);
+  setTimeout(()=>{ el.classList.add('out'); setTimeout(()=>{ try{ tickerEl.removeChild(el);}catch(_){ } }, 240); }, 2400);
+}
+
 // Toast system
 function showToast(text){
   if (!toastsEl) return;
@@ -837,7 +846,8 @@ function showToast(text){
   toastsEl.appendChild(el);
   setTimeout(()=>{ el.classList.add('out'); setTimeout(()=>{ try{ toastsEl.removeChild(el);}catch(_){ } }, 240); }, 1200);
 }
-try { if (window && window._HUD) { window._HUD.toast = (t)=> showToast(t); } } catch(_) {}
+
+try { if (window && window._HUD) { window._HUD.toast = (t)=> showToast(t); window._HUD.ticker = (t)=> showTicker(t); } } catch(_) {}
 
 // Boss music transitions
 if (enemyManager && enemyManager.bossManager) {
