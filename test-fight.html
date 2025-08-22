@@ -73,7 +73,7 @@
       const pos = controls.getObject().position.clone();
       const f = new THREE.Vector3(); camera.getWorldDirection(f); f.y=0; f.normalize();
       return { position: pos, forward: f };
-    });
+    }, arenaRadius);
     // Test harness mode: no waves
     enemyManager.suspendWaves = true;
 

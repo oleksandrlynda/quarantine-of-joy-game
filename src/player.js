@@ -55,7 +55,7 @@ export class PlayerController {
 
     // Collision helpers (skip extruded walls)
     this.objectBBs = this.objects
-      .filter(o => o.geometry?.type !== 'ExtrudeGeometry')
+      .filter(o => !o.geometry?.isExtrudeGeometry)
       .map(o => new THREE.Box3().setFromObject(o));
     this.colliderHalf = new THREE.Vector3(0.35, 0.9, 0.35); // approx capsule half extents
     this.fullHeight = this.colliderHalf.y * 2; // ~1.8m
@@ -187,7 +187,7 @@ export class PlayerController {
     const THREE = this.THREE;
     this.objects = objects;
     this.objectBBs = this.objects
-      .filter(o => o.geometry?.type !== 'ExtrudeGeometry')
+      .filter(o => !o.geometry?.isExtrudeGeometry)
       .map(o => new THREE.Box3().setFromObject(o));
   }
 
