@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Export Assets to GLB</title>
+  <style>
+    body{ margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, "Apple Color Emoji","Segoe UI Emoji"; background:#0b1220; color:#fff }
+    #ui{ padding:16px; max-width:1000px; margin:0 auto }
+    .row{ display:flex; gap:8px; flex-wrap:wrap; align-items:center }
+    .pill{ padding:8px 12px; border-radius:12px; background:#111827; border:1px solid #243244 }
+    button{ padding:8px 12px; border-radius:10px; border:1px solid #243244; background:#1f2937; color:#fff; cursor:pointer }
+    button.primary{ background:#22c55e; color:#0b1220; border-color:#16a34a }
+    table{ width:100%; border-collapse:collapse; margin-top:12px }
+    th, td{ padding:8px; border-bottom:1px solid #1f2937; text-align:left; font-size:14px }
+    #log{ white-space:pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size:12px; background:#0f172a; padding:10px; border-radius:8px; margin-top:10px }
+  </style>
+</head>
+<body>
+  <div id="ui">
+    <h2>Export Procedural Assets → GLB</h2>
+    <div class="row">
+      <button id="scan" class="pill">Scan Assets</button>
+      <button id="exportAll" class="primary">Export All</button>
+      <a id="downloadAll" class="pill" href="#" download style="display:none">Download last GLB</a>
+    </div>
+    <table id="assets"><thead><tr><th>Name</th><th>Factory</th><th>Action</th></tr></thead><tbody></tbody></table>
+    <div id="log" class="pill"></div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'https://unpkg.com/three@0.159.0/build/three.module.js';
+    import { GLTFExporter } from 'https://unpkg.com/three@0.159.0/examples/jsm/exporters/GLTFExporter.js?module';
+
+    // Import our procedural factories (add more as needed)
+    import { createGruntBot } from './src/assets/gruntbot.js';
+    import { createShooterBot } from './src/assets/shooter_bot.js';
+    import { createRunnerBot } from './src/assets/runnerbot.js';
+    import { createBlockBot } from './src/assets/blockbot.js';
+    import { createWingedDrone } from './src/assets/winged_drone.js';
+    import { createBroodmakerAsset } from './src/assets/boss_broodmaker.js';
+    import { createSanitizerAsset } from './src/assets/boss_sanitizer.js';
+    import { createHydracloneAsset } from './src/assets/boss_hydraclone.js';
+    import { createInfluencerCaptainAsset } from './src/assets/boss_captain.js';
+    import { createShardAvatarAsset } from './src/assets/boss_shard_avatar.js';
+    import { createHealerBot } from './src/assets/healer_bot.js';
+    import { createSniperBot } from './src/assets/sniper_bot.js';
+    import { createSwarmWarden } from './src/assets/swarm_warden.js';
+    import { createStrikeAdjudicatorAsset } from './src/assets/boss_adjudicator.js';
+
+    const mats = { head: new THREE.MeshLambertMaterial({ color: 0x111827 }) };
+
+    const registry = [
+      { key:'gruntbot',      factory: () => createGruntBot({ THREE, mats, scale: 1.0 }) },
+      { key:'shooterbot',    factory: () => createShooterBot({ THREE, mats, scale: 1.0 }) },
+      { key:'runnerbot',     factory: () => createRunnerBot({ THREE, mats, scale: 1.0 }) },
+      { key:'blockbot',      factory: () => createBlockBot({ THREE, mats, scale: 1.0 }) },
+      { key:'winged_drone',  factory: () => createWingedDrone({ THREE, mats, scale: 1.0 }) },
+      { key:'healer_bot',    factory: () => createHealerBot({ THREE, mats, scale: 1.0 }) },
+      { key:'sniper_bot',    factory: () => createSniperBot({ THREE, mats, scale: 1.0 }) },
+      { key:'swarm_warden',  factory: () => createSwarmWarden({ THREE, mats, scale: 1.0 }) },
+      { key:'boss_broodmaker', factory: () => createBroodmakerAsset({ THREE, mats, scale: 1.0 }) },
+      { key:'boss_sanitizer', factory: () => createSanitizerAsset({ THREE, mats, scale: 1.0 }) },
+      { key:'boss_hydraclone', factory: () => createHydracloneAsset({ THREE, mats, scale: 1.0 }) },
+      { key:'boss_captain', factory: () => createInfluencerCaptainAsset({ THREE, mats, scale: 1.0 }) },
+      { key:'boss_shard_avatar', factory: () => createShardAvatarAsset({ THREE, mats, scale: 1.0 }) },
+      { key:'boss_adjudicator', factory: () => createStrikeAdjudicatorAsset({ THREE, mats, scale: 1.0 }) },
+    ];
+
+    const tbody = document.querySelector('#assets tbody');
+    const logEl = document.getElementById('log');
+    const exporter = new GLTFExporter();
+
+    function log(msg){ logEl.textContent += `\n${msg}`; logEl.scrollTop = logEl.scrollHeight; }
+
+    function buildRow(item){
+      const tr = document.createElement('tr');
+      const tdName = document.createElement('td'); tdName.textContent = item.key; tr.appendChild(tdName);
+      const tdFact = document.createElement('td'); tdFact.textContent = 'factory()'; tr.appendChild(tdFact);
+      const tdAct = document.createElement('td');
+      const btn = document.createElement('button'); btn.textContent = 'Export';
+      btn.onclick = async () => { await exportOne(item); };
+      tdAct.appendChild(btn); tr.appendChild(tdAct);
+      tbody.appendChild(tr);
+    }
+
+    function scan(){ tbody.innerHTML=''; registry.forEach(buildRow); log('Scanned asset factories.'); }
+
+    async function exportOne(item){
+      try {
+        const built = item.factory();
+        const root = built.root || built;
+        // center and freeze transforms
+        root.updateMatrixWorld?.(true);
+        const options = { binary: true, includeCustomExtensions: false, onlyVisible: true, trs: false };
+        await new Promise((resolve, reject) => {
+          exporter.parse(root, (glb) => {
+            const blob = new Blob([glb], { type: 'model/gltf-binary' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = `${item.key}.glb`;
+            a.click();
+            URL.revokeObjectURL(a.href);
+            log(`Exported ${item.key}.glb`);
+            resolve();
+          }, (err)=>{ reject(err); }, options);
+        });
+      } catch(e) { console.error(e); log(`Failed ${item.key}: ${e?.message || e}`); }
+    }
+
+    async function exportAll(){
+      for (const it of registry) { await exportOne(it); }
+      log('All exports finished.');
+    }
+
+    document.getElementById('scan').onclick = scan;
+    document.getElementById('exportAll').onclick = exportAll;
+    scan();
+  </script>
+</body>
+</html>
+
+

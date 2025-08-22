@@ -158,6 +158,61 @@ export class SFX {
     body.start(t0); body.stop(envB.endTime + 0.02);
   }
 
+  saberSwing(opts = {}) {
+    if (this.isMuted) return; this.ensure();
+    const a = this.ctx; const t0 = a.currentTime + 0.001;
+    const pan = this._makePan(opts.pan);
+    const vol = opts.volume != null ? opts.volume : 1;
+    const o = a.createOscillator(); o.type = 'sawtooth';
+    o.frequency.setValueAtTime(280, t0);
+    o.frequency.exponentialRampToValueAtTime(160, t0 + 0.25);
+    const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 260; bp.Q.value = 1.8;
+    const e = this._env({ a: 0.02, d: 0.25, g: 0.35 * vol, t0 });
+    o.connect(bp).connect(e.node).connect(pan).connect(this.master);
+    this._tapFx(e.node, 0.08);
+    o.start(t0); o.stop(e.endTime + 0.02);
+  }
+
+  saberHit(opts = {}) {
+    if (this.isMuted) return; this.ensure();
+    const a = this.ctx; const t0 = a.currentTime + 0.001;
+    const pan = this._makePan(opts.pan);
+    const vol = opts.volume != null ? opts.volume : 1;
+    const nd = 0.04; const nb = a.createBuffer(1, (nd * a.sampleRate) | 0, a.sampleRate);
+    const ch = nb.getChannelData(0); for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
+    const n = a.createBufferSource(); n.buffer = nb; n.playbackRate.value = this._rv(0.98, 1.02);
+    const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 900; bp.Q.value = 0.9;
+    const envN = this._env({ a: 0.001, d: 0.12, g: 0.6 * vol, t0 });
+    n.connect(bp).connect(envN.node).connect(pan).connect(this.master);
+    this._tapFx(envN.node, 0.12);
+    const o = a.createOscillator(); o.type = 'square';
+    o.frequency.setValueAtTime(620, t0); o.frequency.exponentialRampToValueAtTime(200, t0 + 0.1);
+    const envO = this._env({ a: 0.001, d: 0.08, g: 0.24 * vol, t0 });
+    o.connect(envO.node).connect(pan).connect(this.master);
+    this._tapFx(envO.node, 0.05);
+    n.start(t0); n.stop(envN.endTime + 0.01);
+    o.start(t0); o.stop(envO.endTime + 0.02);
+  }
+
+  saberCharge(){
+    if (this.isMuted) return null; this.ensure();
+    const a = this.ctx; const t0 = a.currentTime + 0.001;
+    const o = a.createOscillator(); o.type = 'sawtooth';
+    o.frequency.setValueAtTime(220, t0);
+    const g = a.createGain(); g.gain.setValueAtTime(0.0001, t0);
+    o.connect(g).connect(this.master); this._tapFx(g, 0.05);
+    g.gain.linearRampToValueAtTime(0.25, t0 + 0.1);
+    o.start(t0);
+    return {
+      stop: ()=>{
+        const now = a.currentTime;
+        g.gain.cancelScheduledValues(now);
+        g.gain.linearRampToValueAtTime(0.0001, now + 0.05);
+        try { o.stop(now + 0.06); } catch(_) {}
+      }
+    };
+  }
+
   reload() {
     if (this.isMuted) return; this.ensure();
     const a = this.ctx; const t0 = a.currentTime + 0.001;

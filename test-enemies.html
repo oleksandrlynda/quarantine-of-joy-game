@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Block Strike 3D — Enemy/Boss Testbed</title>
+  <link rel="stylesheet" href="styles/styles.css" />
+  <style>
+    body{ margin:0; overflow:hidden; }
+    #hudLite{ position:fixed; left:8px; top:8px; z-index:10; display:flex; gap:8px; flex-wrap:wrap; align-items:center }
+    #hudLite .pill{ background:#ffffffcc; border-radius:12px; padding:6px 10px; font: 12px/1.2 system-ui, sans-serif; box-shadow:0 8px 24px #00000022; }
+    #loading{ position:fixed; inset:0; display:grid; place-items:center; background:#0b1220; color:#fff; z-index:9999 }
+  </style>
+  <link rel="icon" href="assets/icons/favicon.svg" type="image/svg+xml" />
+  <meta name="theme-color" content="#0b1220" />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta http-equiv="Cache-Control" content="no-store" />
+</head>
+<body>
+  <div id="hudLite">
+    <div class="pill">Enemy/Boss Testbed</div>
+    <div class="pill">WASD move • Mouse orbit/pan • Q/E elevate • Shift sprint</div>
+    <div class="pill">Entities: <span id="count">0</span></div>
+    <div class="pill">HP: <span id="hpLite">100</span></div>
+    <div class="pill" id="directorPill">Director: Auto <b>On</b> — Next [T], Toggle [G]</div>
+    <div class="pill" id="modePill">Mode:
+      <select id="modeSel"><option value="dummies">Dummies</option><option value="duel">1v1</option></select>
+      A: <select id="typeA"></select> x <input id="countA" type="number" min="1" max="8" value="1" style="width:44px"> 
+      B: <select id="typeB"></select> x <input id="countB" type="number" min="1" max="8" value="1" style="width:44px">
+      <button class="mini" id="startScenario">Start</button>
+      <label style="margin-left:8px; display:inline-flex; align-items:center; gap:4px"><input type="checkbox" id="autoRespawn" checked> Auto respawn loser</label>
+    </div>
+    <div class="pill" id="duelPill" style="display:none">A <span id="nameA">A</span>: <b id="hpA">0</b> vs B <span id="nameB">B</span>: <b id="hpB">0</b></div>
+  </div>
+  <div id="loading">
+    <div style="width:min(92%,520px); text-align:center">
+      <div style="font-weight:700; margin-bottom:10px">Loading models & warming shaders…</div>
+      <div id="loadingBarWrap" style="height:10px; background:#222; border-radius:8px; overflow:hidden">
+        <div id="loadingBar" style="height:100%; width:0%; background:#22c55e; transition:width 0.15s ease"></div>
+      </div>
+      <div id="loadingText" class="tiny" style="margin-top:8px; opacity:0.85">0%</div>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'https://unpkg.com/three@0.159.0/build/three.module.js';
+    import { OrbitControls } from 'https://unpkg.com/three@0.159.0/examples/jsm/controls/OrbitControls.js?module';
+    import { createWorld } from './src/world.js';
+    import { EnemyManager } from './src/enemies.js';
+    import { loadAllModels, prewarmAllShaders } from './loader.js';
+    import { createGruntBot } from './src/assets/gruntbot.js';
+
+    // Boss classes
+    import { Broodmaker } from './src/bosses/broodmaker.js';
+    import { Sanitizer } from './src/bosses/sanitizer.js';
+    import { Captain } from './src/bosses/captain.js';
+    import { ShardAvatar } from './src/bosses/shard.js';
+    import { Hydraclone } from './src/bosses/hydraclone.js';
+    import { StrikeAdjudicator } from './src/bosses/adjudicator.js';
+
+    const loadingEl = document.getElementById('loading');
+    const loadingBar = document.getElementById('loadingBar');
+    const loadingText = document.getElementById('loadingText');
+    function setLoading(pct, label){
+      const v = Math.max(0, Math.min(1, pct||0));
+      if (loadingBar) loadingBar.style.width = `${(v*100).toFixed(0)}%`;
+      if (loadingText) loadingText.textContent = `${(v*100).toFixed(0)}%${label?` — ${label}`:''}`;
+    }
+
+    // World
+    const { renderer, scene, camera, skyMat, hemi, dir, mats, objects } = createWorld(THREE, Math.random);
+    camera.position.set(0, 18, 36);
+    camera.lookAt(0, 1.6, 0);
+
+    // Lightweight AI target (no weapons/hud), updated by a simple "director" and by WASD if desired
+    const player = new THREE.Object3D();
+    player.position.set(0, 1.7, 8);
+    scene.add(player);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(0, 1.6, 0);
+    controls.enableDamping = true;
+    controls.enablePan = true;
+    controls.dampingFactor = 0.08;
+    controls.minDistance = 2; controls.maxDistance = 80;
+
+    // Director: moves the AI target around different waypoints so enemies/bosses change goals/attacks
+    const params = new URL(window.location.href).searchParams;
+    const director = {
+      auto: params.get('director') !== '0',
+      period: 20,
+      timer: 0,
+      speed: 6.0,
+      forward: new THREE.Vector3(0,0,1),
+      waypoints: [],
+      index: 0,
+      goal: new THREE.Vector3(0,1.7,8)
+    };
+    // Build ring of waypoints around arena
+    (function buildWaypoints(){
+      const radius = 26;
+      const n = 16;
+      for (let i=0;i<n;i++){
+        const a = (i/n)*Math.PI*2;
+        director.waypoints.push(new THREE.Vector3(Math.cos(a)*radius, 1.7, Math.sin(a)*radius));
+      }
+      director.goal.copy(director.waypoints[0]);
+      player.position.copy(director.goal);
+    })();
+    function setDirectorGoal(i){
+      director.index = (i + director.waypoints.length) % director.waypoints.length;
+      director.timer = 0;
+      const pill = document.getElementById('directorPill');
+      if (pill) pill.innerHTML = `Director: Auto <b>${director.auto?'On':'Off'}</b> — Next [T], Toggle [G] — WP ${director.index+1}/${director.waypoints.length}`;
+    }
+    function directorNext(){
+      setDirectorGoal(director.index + 1);
+      for (const d of decoys){ d.goalIndex = (d.goalIndex + 1) % director.waypoints.length; d.timer = 0; }
+    }
+    setDirectorGoal(0);
+
+    // Multiple independent managers/targets so each unit can pursue a different goal
+    const managers = [];
+    const targets = [];
+    const hpArr = [];
+    const decoys = []; // { obj, phase, goalIndex, forward }
+
+    // Helper to create a manager bound to a decoy target
+    function createManagerFor(decoy){
+      const getPlayer = () => ({ position: decoy.obj.position, forward: decoy.forward });
+      const m = new EnemyManager(THREE, scene, mats, objects, getPlayer);
+      managers.push(m);
+      return m;
+    }
+
+    // Preload GLBs + warm shaders
+    try {
+      setLoading(0.02, 'Loading models');
+      const progress = (done, total)=>{ setLoading(0.02 + 0.48*(done/Math.max(1,total)), `Loading models ${done}/${total}`); };
+      const { registry } = await loadAllModels({ renderer, onProgress: progress });
+      setLoading(0.55, 'Compiling shaders');
+      await prewarmAllShaders(renderer, { registry, includeShadows: renderer.shadowMap?.enabled, includeDepthVariants: true, extras: [] });
+      setLoading(1.0, 'Ready');
+      if (loadingEl) loadingEl.style.display = 'none';
+    } catch (e) {
+      console.warn('Warmup failed', e);
+      if (loadingEl) loadingEl.style.display = 'none';
+    }
+
+    // Spawn helpers
+    function v3(x,y,z){ return new THREE.Vector3(x,y,z); }
+
+    // Enemies: one of each core type
+    const enemySpawns = [
+      { t:'grunt',   p:v3(-10,0.8,  0) },
+      { t:'rusher',  p:v3(-14,0.8, -8) },
+      { t:'shooter', p:v3(-14,0.8,  8) },
+      { t:'sniper',  p:v3(-22,0.8, -10) },
+      { t:'tank',    p:v3( 10,0.8,  0) },
+      { t:'flyer',   p:v3( 14,3.0,  8) },
+      { t:'healer',  p:v3( 14,0.8, -8) },
+      { t:'warden',  p:v3( 22,0.8, 10) }
+    ];
+    const ALL_ENEMY_TYPES = ['grunt','rusher','shooter','sniper','tank','flyer','healer','warden'];
+    const ALL_BOSS_TYPES = ['boss:broodmaker','boss:sanitizer','boss:captain','boss:shard','boss:hydraclone','boss:adjudicator'];
+    
+    // Bosses: one of each (light positions around the perimeter)
+    const bossSpecs = [
+      { name: 'Broodmaker', make: (spawnPos, enemyManager)=> new Broodmaker({ THREE, mats, spawnPos, enemyManager, mode: 'light' }) },
+      { name: 'Sanitizer',  make: (spawnPos, enemyManager)=> new Sanitizer ({ THREE, mats, spawnPos, enemyManager }) },
+      { name: 'Captain',    make: (spawnPos, enemyManager)=> new Captain   ({ THREE, mats, spawnPos, enemyManager }) },
+      { name: 'Shard',      make: (spawnPos, enemyManager)=> new ShardAvatar({ THREE, mats, spawnPos, enemyManager }) },
+      { name: 'Hydraclone', make: (spawnPos, enemyManager)=> new Hydraclone({ THREE, mats, spawnPos, enemyManager, generation: 0 }) },
+      { name: 'Adjudicator',make: (spawnPos, enemyManager)=> new StrikeAdjudicator({ THREE, mats, spawnPos, enemyManager }) }
+    ];
+
+    // Create one decoy per entity to give everybody a unique goal
+    const totalEntities = enemySpawns.length + bossSpecs.length;
+    for (let i=0;i<totalEntities;i++){
+      const obj = new THREE.Object3D(); obj.position.copy(director.waypoints[i % director.waypoints.length]).setY(1.7);
+      scene.add(obj);
+      const d = {
+        obj,
+        forward: new THREE.Vector3(0,0,1),
+        goalIndex: i % director.waypoints.length,
+        timer: 0,
+        period: 12 + Math.random()*12,
+        speed: 4.5 + Math.random()*3.5,
+        viz: null,
+        ring: null
+      };
+      decoys.push(d);
+      // each decoy gets its own manager
+      const mgr = createManagerFor(d);
+      targets.push({ decoy: d, manager: mgr });
+      hpArr.push(100);
+    }
+
+    // Visualize decoy targets with green-glow GruntBots and a ground ring
+    (function buildDecoyVisuals(){
+      for (const d of decoys){
+        try {
+          const gb = createGruntBot({ THREE, mats, scale: 0.85, palette: { glow: 0x22c55e, armor: 0x28c50e } });
+          gb.root.position.set(0, -1.7, 0); // anchor to ground under the decoy (player-height offset)
+          d.obj.add(gb.root);
+          d.viz = gb.root;
+          const ring = new THREE.Mesh(
+            new THREE.RingGeometry(0.45, 0.78, 28),
+            new THREE.MeshBasicMaterial({ color: 0x22c55e, transparent: true, opacity: 0.6, side: THREE.DoubleSide })
+          );
+          ring.rotation.x = -Math.PI/2;
+          ring.position.set(0, -1.65, 0);
+          d.obj.add(ring);
+          d.ring = ring;
+        } catch(_) {}
+      }
+    })();
+
+    // Round-robin assign spawns to managers
+    for (let i=0;i<enemySpawns.length;i++){
+      const s = enemySpawns[i];
+      const { manager } = targets[i % targets.length];
+      try { manager.spawnAt(s.t, s.p, { countsTowardAlive: false }); } catch(_){ }
+    }
+
+    const bossPositions = [ v3(0,0.8,-26), v3(24,0.8,24), v3(-24,0.8,24), v3(26,0.8,-6), v3(-26,0.8,-12), v3(0,0.8,28) ];
+    for (let i=0;i<bossSpecs.length;i++){
+      const b = bossSpecs[i];
+      const pos = bossPositions[i % bossPositions.length];
+      const { manager } = targets[(enemySpawns.length + i) % targets.length];
+      try {
+        const inst = b.make(pos, manager);
+        manager.registerExternalEnemy(inst, { countsTowardAlive: false });
+      } catch(e){ console.warn('Boss spawn failed:', b.name, e); }
+    }
+
+    // Minimal movement inputs for player proxy
+    const keys = new Set();
+    window.addEventListener('keydown', (e)=>{
+      keys.add(e.code);
+      if (e.code === 'KeyT') { directorNext(); }
+      if (e.code === 'KeyG') {
+        director.auto = !director.auto;
+        const pill = document.getElementById('directorPill');
+        if (pill) pill.innerHTML = `Director: Auto <b>${director.auto?'On':'Off'}</b> — Next [T], Toggle [G] — WP ${director.index+1}/${director.waypoints.length}`;
+      }
+    });
+    window.addEventListener('keyup',   (e)=>{ keys.delete(e.code); });
+
+    let hp = 100;
+    const hpEl = document.getElementById('hpLite');
+    const countEl = document.getElementById('count');
+    function updateHud(){
+      if (hpEl) hpEl.textContent = String(Math.max(0, hp|0));
+      if (countEl) {
+        let count = 0; for (const m of managers){ count += (m?.enemies?.size || 0); }
+        countEl.textContent = String(count);
+      }
+    }
+    updateHud();
+
+    // ---- Scenario controls (Dummies vs Duel 1v1) ----
+    const modeSel = document.getElementById('modeSel');
+    const typeASel = document.getElementById('typeA');
+    const typeBSel = document.getElementById('typeB');
+    const startBtn = document.getElementById('startScenario');
+    function populateSelectors(){
+      const options = [...ALL_ENEMY_TYPES, ...ALL_BOSS_TYPES];
+      const nice = (k)=> k.startsWith('boss:') ? ('Boss: ' + k.replace('boss:','').replace(/\b\w/g,c=>c.toUpperCase())) : k.charAt(0).toUpperCase()+k.slice(1);
+      for (const s of [typeASel, typeBSel]){
+        s.innerHTML='';
+        for (const k of options){ const opt=document.createElement('option'); opt.value=k; opt.textContent=nice(k); s.appendChild(opt); }
+      }
+      try { typeASel.value = 'grunt'; typeBSel.value = 'grunt'; } catch(_) {}
+    }
+    populateSelectors();
+
+    function teardownScenario(){
+      // remove all current enemies and decoys
+      for (const m of managers){
+        for (const root of Array.from(m.enemies || [])){ try{ scene.remove(root); }catch(_){} }
+        try { m.enemies.clear(); m.instances.clear(); } catch(_) {}
+      }
+      managers.length = 0; targets.length = 0;
+      for (const d of decoys){ try { scene.remove(d.obj); } catch(_) {} }
+      decoys.length = 0;
+    }
+
+    function spawnLabel(label, manager, pos){
+      if (label && label.startsWith('boss:')){
+        const map = {
+          'boss:broodmaker': (p)=> bossSpecs[0].make(p, manager),
+          'boss:sanitizer':  (p)=> bossSpecs[1].make(p, manager),
+          'boss:captain':    (p)=> bossSpecs[2].make(p, manager),
+          'boss:shard':      (p)=> bossSpecs[3].make(p, manager),
+          'boss:hydraclone': (p)=> bossSpecs[4].make(p, manager),
+          'boss:adjudicator':(p)=> bossSpecs[5].make(p, manager)
+        };
+        const inst = (map[label] ? map[label](pos) : null);
+        if (inst) { manager.registerExternalEnemy(inst, { countsTowardAlive: true }); return inst.root; }
+        return null;
+      }
+      return manager.spawnAt(label, pos, { countsTowardAlive: true });
+    }
+
+    const duel = { active: false, a: null, b: null };
+    function startDuel(labelA, labelB, nA = 1, nB = 1){
+      teardownScenario();
+      // helpers
+      const firstAlive = (arr)=> (arr||[]).find(r=>r && r.parent) || null;
+      const avgPos = (arr)=>{ let x=0,y=0,z=0,c=0; for(const r of (arr||[])){ if(r&&r.parent){ x+=r.position.x; y+=r.position.y; z+=r.position.z; c++; } } return new THREE.Vector3(x/(c||1), y/(c||1), z/(c||1)); };
+
+      // create two dynamic managers whose "player" is the opposing formation center
+      const state = { a: { roots: [] }, b: { roots: [] } };
+      const getA = ()=>({ position: avgPos(state.b.roots), forward: new THREE.Vector3(0,0,1) });
+      const getB = ()=>({ position: avgPos(state.a.roots), forward: new THREE.Vector3(0,0,1) });
+      const mgrA = new EnemyManager(THREE, scene, mats, objects, getA); mgrA.wave = 0; mgrA.startWave = ()=>{};
+      const mgrB = new EnemyManager(THREE, scene, mats, objects, getB); mgrB.wave = 0; mgrB.startWave = ()=>{};
+      managers.push(mgrA, mgrB);
+
+      // Patch bullet pools to also check vs opponent fighters (segment distance)
+      const patchBullet = (manager, getOppList)=>{
+        const orig = manager._updateBulletPools?.bind(manager); if(!orig) return;
+        manager._updateBulletPools = function(dt, ctx){
+          orig(dt, ctx);
+          const list = getOppList()||[]; if(!list.length) return;
+          // segment-sphere check using per-opponent bounding radius (cached)
+          const getRadius = (root)=>{
+            if (!root) return 0.9;
+            if (root.userData && root.userData._duelRadius) return root.userData._duelRadius;
+            try {
+              const box = new THREE.Box3().setFromObject(root);
+              const sph = new THREE.Sphere(); box.getBoundingSphere(sph);
+              const r = Math.max(0.6, Math.min(1.4, sph.radius * 0.55));
+              if (root.userData) root.userData._duelRadius = r; return r;
+            } catch(_) { return 0.9; }
+          };
+          const sweep = (pool)=>{
+            if(!pool||pool.count<=0) return; let write=pool.count;
+            for(let i=pool.count-1;i>=0;i--){ const b=pool.items[i]; if(!b) continue;
+              // segment from prev->curr in XZ
+              const ax=b.px - b.vx*dt, ay=b.py - b.vy*dt, az=b.pz - b.vz*dt; const bx=b.px, by=b.py, bz=b.pz;
+              for(const opp of list){ if(!opp||!opp.parent) continue; const c=opp.position; const r=getRadius(opp);
+                // closest point on 3D segment to center
+                const abx=bx-ax, aby=by-ay, abz=bz-az; const acx=c.x-ax, acy=1.4 - ay, acz=c.z-az; // aim chest (~1.4m)
+                const denom = Math.max(1e-6, abx*abx + aby*aby + abz*abz);
+                const t = Math.max(0, Math.min(1, (abx*acx + aby*acy + abz*acz) / denom));
+                const qx = ax + abx*t, qy = ay + aby*t, qz = az + abz*t; const dx = qx - c.x, dy = qy - 1.4, dz = qz - c.z;
+                if ((dx*dx + dy*dy + dz*dz) <= (r*r)) { ctx.onPlayerDamage?.(b.damage); pool.items[i] = pool.items[write-1]; pool.items[write-1]=undefined; write--; break; }
+              }
+            }
+            if(write!==pool.count){ pool.count=write; pool.mesh.count=write; pool.mesh.instanceMatrix.needsUpdate=true; }
+          };
+          sweep(this._bulletPools?.shooter); sweep(this._bulletPools?.sniper);
+        };
+      };
+      patchBullet(mgrA, ()=>state.b.roots);
+      patchBullet(mgrB, ()=>state.a.roots);
+
+      // spawn formations
+      const posOnRing = (side, i, total, r=3)=>{ const ang=(i/Math.max(1,total))*Math.PI*2; const cx= side<0?-10:10, cz=0; return v3(cx+Math.cos(ang)*r,0.8,cz+Math.sin(ang)*r); };
+      for(let i=0;i<nA;i++){ const root=spawnLabel(labelA, mgrA, posOnRing(-1,i,nA)); if(root) state.a.roots.push(root); }
+      for(let i=0;i<nB;i++){ const root=spawnLabel(labelB, mgrB, posOnRing(1,i,nB)); if(root) state.b.roots.push(root); }
+      duel.active = true; duel.a = { manager:mgrA, roots: state.a.roots, label: labelA }; duel.b = { manager:mgrB, roots: state.b.roots, label: labelB };
+
+      // colored rings from first alive
+      const pickAccent=(root,fallback)=>{ let best=null,score=-1; root?.traverse?.(o=>{ const m=o.material; const arr=Array.isArray(m)?m:[m]; for(const mm of arr){ if(!mm) continue; let s=-1, hex=null; if(mm.emissive && (mm.emissive.r+mm.emissive.g+mm.emissive.b)>0.01){ s=3+mm.emissive.r+mm.emissive.g+mm.emissive.b; hex=mm.emissive.getHex?.(); } else if(mm.color){ const c=mm.color; const v=Math.max(c.r,c.g,c.b); const sat=v-Math.min(c.r,c.g,c.b); s=v+sat; hex=c.getHex?.(); } if(s>score && hex!=null){ score=s; best=hex; } } }); return best||fallback; };
+      const mkRing=(color)=> new THREE.Mesh(new THREE.RingGeometry(0.5,0.9,28), new THREE.MeshBasicMaterial({color,transparent:true,opacity:0.6,side:THREE.DoubleSide}));
+      const fa=firstAlive(state.a.roots), fb=firstAlive(state.b.roots);
+      if(fa){ const ca=pickAccent(fa,0x60a5fa); const ra=mkRing(ca); ra.rotation.x=-Math.PI/2; ra.position.set(fa.position.x,0.05,fa.position.z); scene.add(ra); duel.a.ring=ra; }
+      if(fb){ const cb=pickAccent(fb,0xef4444); const rb=mkRing(cb); rb.rotation.x=-Math.PI/2; rb.position.set(fb.position.x,0.05,fb.position.z); scene.add(rb); duel.b.ring=rb; }
+
+      const removeRoot = (manager, root)=>{ try{ manager.remove(root); }catch(_){} };
+      const damageSide = (sideList, manager, dmg)=>{ const target = firstAlive(sideList); if(!target) return; target.userData.hp = Math.max(0, (target.userData.hp||0) - dmg); if (target.userData.hp<=0){ removeRoot(manager, target); }
+      };
+      function endDuel(){
+        // check alive counts
+        const aliveA = (duel.a.roots||[]).filter(r=>r&&r.parent).length;
+        const aliveB = (duel.b.roots||[]).filter(r=>r&&r.parent).length;
+        if (aliveA>0 && aliveB>0) return; // still ongoing
+        duel.active=false;
+        try{ if(duel.a.ring){ scene.remove(duel.a.ring); duel.a.ring=null; } }catch(_){ }
+        try{ if(duel.b.ring){ scene.remove(duel.b.ring); duel.b.ring=null; } }catch(_){ }
+        // respawn losing side with selected counts
+        const auto = !!document.getElementById('autoRespawn')?.checked;
+        if (!auto) return;
+        setTimeout(()=>{
+          if (aliveA>0 && aliveB===0){
+            duel.b.roots = [];
+            const count = Math.max(1, Math.min(8, Number(document.getElementById('countB')?.value||1)));
+            for(let i=0;i<count;i++){ const r=spawnLabel(duel.b.label, duel.b.manager, posOnRing(1,i,count)); if(r) duel.b.roots.push(r); }
+            duel.active=true;
+          } else if (aliveB>0 && aliveA===0){
+            duel.a.roots = [];
+            const count = Math.max(1, Math.min(8, Number(document.getElementById('countA')?.value||1)));
+            for(let i=0;i<count;i++){ const r=spawnLabel(duel.a.label, duel.a.manager, posOnRing(-1,i,count)); if(r) duel.a.roots.push(r); }
+            duel.active=true;
+          }
+        }, 900);
+      }
+
+      // duel damage routers
+      duel._damageA = (dmg)=>{ damageSide(duel.b.roots, duel.b.manager, dmg); endDuel(); };
+      duel._damageB = (dmg)=>{ damageSide(duel.a.roots, duel.a.manager, dmg); endDuel(); };
+
+      // enable HUD for duel
+      try { document.getElementById('duelPill').style.display=''; document.getElementById('nameA').textContent = `${labelA} x${nA}`; document.getElementById('nameB').textContent = `${labelB} x${nB}`; } catch(_) {}
+    }
+
+    startBtn.onclick = ()=>{
+      const mode = modeSel.value;
+      if (mode === 'duel'){
+        const a = typeASel.value; const b = typeBSel.value;
+        const nA = Math.max(1, Math.min(8, Number(document.getElementById('countA')?.value||1)));
+        const nB = Math.max(1, Math.min(8, Number(document.getElementById('countB')?.value||1)));
+        startDuel(a, b, nA, nB);
+      } else {
+        // simplest: reload to default dummies scenario
+        window.location.href = window.location.pathname + '?';
+      }
+    };
+
+    // Game loop
+    const clock = new THREE.Clock();
+    function loop(){
+      const dt = Math.min(0.033, clock.getDelta());
+
+      // Update decoys (per-entity goals). Each has its own cadence & speed.
+      for (const d of decoys){
+        d.timer += dt;
+        if (director.auto && d.timer >= d.period){ d.timer = 0; d.goalIndex = (d.goalIndex + 1 + Math.floor(Math.random()*3)) % director.waypoints.length; }
+        const goal = director.waypoints[d.goalIndex];
+        const to = goal.clone().sub(d.obj.position);
+        if (to.lengthSq()>1e-4){
+          const step = Math.min(d.speed * dt, to.length());
+          d.obj.position.add(to.normalize().multiplyScalar(step));
+        }
+        // pulse ground ring for visibility
+        if (d.ring){
+          d.ring.userData = d.ring.userData || { t: 0 };
+          d.ring.userData.t += dt;
+          const s = 1.0 + Math.sin(d.ring.userData.t * 8) * 0.06;
+          d.ring.scale.set(s, s, s);
+          if (d.ring.material && d.ring.material.opacity !== undefined) {
+            d.ring.material.opacity = 0.45 + 0.25 * Math.sin(d.ring.userData.t * 3.2);
+          }
+        }
+        // update per-decoy forward to generally face center
+        const toCenter = new THREE.Vector3(0,0,0).sub(d.obj.position).setY(0);
+        if (toCenter.lengthSq()>0) d.forward.copy(toCenter.normalize());
+        // clamp arena
+        d.obj.position.x = Math.max(-39, Math.min(39, d.obj.position.x));
+        d.obj.position.z = Math.max(-39, Math.min(39, d.obj.position.z));
+      }
+      // Manual override: WASD on ground plane; Q/E raise/lower; Shift sprint moves the global camera focus helper only
+      const speed = (keys.has('ShiftLeft')||keys.has('ShiftRight')) ? 9.0 : 5.0;
+      const move = new THREE.Vector3();
+      const fwd = new THREE.Vector3(); camera.getWorldDirection(fwd); fwd.y = 0; if (fwd.lengthSq()>0) fwd.normalize();
+      const right = new THREE.Vector3(-fwd.z, 0, fwd.x);
+      if (keys.has('KeyW')) move.add(fwd);
+      if (keys.has('KeyS')) move.add(fwd.clone().multiplyScalar(-1));
+      if (keys.has('KeyD')) move.add(right);
+      if (keys.has('KeyA')) move.add(right.clone().multiplyScalar(-1));
+      if (move.lengthSq() > 0) move.normalize().multiplyScalar(speed * dt);
+      if (keys.has('KeyQ')) player.position.y += 3.0 * dt;
+      if (keys.has('KeyE')) player.position.y -= 3.0 * dt;
+      player.position.add(move);
+      // Keep in arena bounds (XZ)
+      player.position.x = Math.max(-39, Math.min(39, player.position.x));
+      player.position.z = Math.max(-39, Math.min(39, player.position.z));
+      if (player.position.y < 1.0) player.position.y = 1.0;
+      if (player.position.y > 6.0) player.position.y = 6.0;
+      controls.target.copy(player.position);
+      controls.update();
+
+      // Enemy AI update for all managers, using their bound decoy targets
+      for (const m of managers){
+        // If this manager belongs to a duel participant, route damage to the opponent instead of the global HP
+        if (duel.active && duel.a && duel.b){
+          const isA = (m === (duel.a.manager));
+          const onDmg = isA ? (d)=> duel._damageA(d) : (d)=> duel._damageB(d);
+          m.tickAI(m.getPlayer ? m.getPlayer() : { position: player.position }, dt, onDmg);
+        } else {
+          m.tickAI(m.getPlayer ? m.getPlayer() : { position: player.position }, dt, (damage)=>{ hp = Math.max(0, hp - damage); updateHud(); });
+        }
+      }
+
+      // Update duel HUD HP values
+      try {
+        if (duel && duel.active && duel.a && duel.b){
+          const sumHp = (arr)=> arr.reduce((s,r)=> s + Math.max(0,(r?.userData?.hp||0)), 0);
+          document.getElementById('hpA').textContent = String(sumHp(duel.a.roots||[])|0);
+          document.getElementById('hpB').textContent = String(sumHp(duel.b.roots||[])|0);
+          const firstAlive = (arr)=> (arr||[]).find(r=>r&&r.parent) || null;
+          const ra = firstAlive(duel.a.roots||[]); const rb = firstAlive(duel.b.roots||[]);
+          if (duel.a.ring && ra) duel.a.ring.position.set(ra.position.x, 0.05, ra.position.z);
+          if (duel.b.ring && rb) duel.b.ring.position.set(rb.position.x, 0.05, rb.position.z);
+        }
+      } catch(_) {}
+
+      // Subtle sky motion
+      skyMat.uniforms.time.value += dt;
+
+      renderer.render(scene, camera);
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
+
+

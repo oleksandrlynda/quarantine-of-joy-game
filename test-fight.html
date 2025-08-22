@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Block Strike 3D — Fight Test (1v1)</title>
+  <link rel="stylesheet" href="styles/styles.css" />
+  <style>
+    body{ margin:0; overflow:hidden; }
+    #toolbar{ position:fixed; left:8px; top:8px; z-index:10; display:flex; align-items:center; gap:8px; background:#ffffffcc; border-radius:12px; padding:6px 10px; box-shadow:0 8px 24px #00000022; font: 12px/1.2 system-ui, sans-serif; }
+    #name{ font-weight:700 }
+    #hint{ position:fixed; right:8px; top:8px; z-index:10; background:#ffffffcc; border-radius:12px; padding:6px 10px; box-shadow:0 8px 24px #00000022; font:12px/1.2 system-ui,sans-serif }
+  </style>
+</head>
+<body>
+  <div id="toolbar">
+    <span>Enemy:</span>
+    <select id="enemySel"></select>
+    <button id="prev">◀ Prev</button>
+    <button id="spawn">Spawn</button>
+    <button id="next">Next ▶</button>
+    <label style="display:inline-flex; align-items:center; gap:4px"><input id="infAmmo" type="checkbox" checked /> Infinite ammo</label>
+    <span id="name"></span>
+  </div>
+  <div id="hint">Click Play then click to lock pointer. WASD move • Mouse aim • Click shoot • R reload • Shift sprint • Space jump</div>
+
+  <script type="module">
+    import * as THREE from 'https://unpkg.com/three@0.159.0/build/three.module.js';
+    import { createWorld } from './src/world.js';
+    import { EnemyManager } from './src/enemies.js';
+    import { PlayerController } from './src/player.js';
+    import { Effects } from './src/effects.js';
+    import { Pickups } from './src/pickups.js';
+    import { ObstacleManager } from './src/obstacles/manager.js';
+    import { SFX } from './src/sfx.js';
+    import { WeaponSystem } from './src/weapons/system.js';
+    import { WeaponView } from './src/weapons/view.js';
+    import { loadAllModels, prewarmAllShaders } from './loader.js';
+    // Boss classes
+    import { Broodmaker } from './src/bosses/broodmaker.js';
+    import { Sanitizer } from './src/bosses/sanitizer.js';
+    import { Captain } from './src/bosses/captain.js';
+    import { ShardAvatar } from './src/bosses/shard.js';
+    import { Hydraclone } from './src/bosses/hydraclone.js';
+    import { StrikeAdjudicator } from './src/bosses/adjudicator.js';
+
+    // World
+    const { renderer, scene, camera, skyMat, mats, objects } = createWorld(THREE, Math.random);
+    camera.position.set(0, 1.7, 8);
+
+    // Preload assets and warm shaders
+    try {
+      const { registry } = await loadAllModels({ renderer });
+      await prewarmAllShaders(renderer, { registry, includeShadows: false, includeDepthVariants: true });
+    } catch(_) {}
+
+    // Simple arena obstacles (optional): none, world already includes floor and walls
+    const obstacleManager = new ObstacleManager(THREE, scene, mats);
+    obstacleManager.generate('fight', objects);
+
+    // Effects + SFX
+    const effects = new Effects(THREE, scene, camera);
+    effects.muzzleEnabled = true;
+    const musicShim = { getContext(){ return new (window.AudioContext||window.webkitAudioContext)(); }, getFxBus(){ return null; } };
+    const S = new SFX({ audioContextProvider: ()=>musicShim.getContext(), fxBusProvider: ()=>musicShim.getFxBus() });
+
+    // Player
+    const player = new PlayerController(THREE, camera, document.body, objects);
+    scene.add(player.controls.getObject());
+    const controls = player.controls;
+
+    // Enemy manager
+    const enemyManager = new EnemyManager(THREE, scene, mats, objects, ()=>{
+      const pos = controls.getObject().position.clone();
+      const f = new THREE.Vector3(); camera.getWorldDirection(f); f.y=0; f.normalize();
+      return { position: pos, forward: f };
+    });
+    // Test harness mode: no waves
+    enemyManager.suspendWaves = true;
+
+    // Weapon system
+    const raycaster = new THREE.Raycaster();
+    const weaponView = new WeaponView(THREE, camera);
+    const pickups = new Pickups(THREE, scene);
+    const weaponSystem = new WeaponSystem({ THREE, camera, raycaster, enemyManager, objects, effects, obstacleManager, pickups, S, updateHUD: ()=>{}, addScore: ()=>{}, addComboAction: ()=>{}, combo:{multiplier:1}, addTracer: null, applyRecoil: (r)=> player.applyRecoil?.(r), weaponView });
+    // Force Rifle as current and set large ammo
+    weaponSystem.currentIndex = weaponSystem.inventory.findIndex(w => w?.name==='Rifle');
+    if (weaponSystem.currentIndex < 0) weaponSystem.currentIndex = 0;
+    const rifle = weaponSystem.current;
+    rifle.ammoInMag = 1e9; rifle.reserveAmmo = 1e9; rifle.reload = ()=>false;
+
+    // Input
+    window.addEventListener('mousedown', e=>{ if(!controls.isLocked) { controls.lock(); return; } weaponSystem.triggerDown(); });
+    window.addEventListener('mouseup', ()=> weaponSystem.triggerUp());
+    window.addEventListener('keydown', e=>{ if(e.code==='KeyR'){ weaponSystem.reload(); } });
+
+    // UI enemy list (core + bosses)
+    const enemyTypes = ['grunt','rusher','shooter','sniper','tank','flyer','healer','warden','boss:broodmaker','boss:sanitizer','boss:captain','boss:shard','boss:hydraclone','boss:adjudicator'];
+    const enemySel = document.getElementById('enemySel');
+    for (const t of enemyTypes){ const opt=document.createElement('option'); opt.value=t; opt.textContent=t; enemySel.appendChild(opt); }
+
+    const bossFactory = (label, spawnPos)=>{
+      const map = {
+        'boss:broodmaker': ()=> new Broodmaker({ THREE, mats, spawnPos, enemyManager, mode:'light' }),
+        'boss:sanitizer' : ()=> new Sanitizer({ THREE, mats, spawnPos, enemyManager }),
+        'boss:captain'   : ()=> new Captain  ({ THREE, mats, spawnPos, enemyManager }),
+        'boss:shard'     : ()=> new ShardAvatar({ THREE, mats, spawnPos, enemyManager }),
+        'boss:hydraclone': ()=> new Hydraclone({ THREE, mats, spawnPos, enemyManager, generation: 0 }),
+        'boss:adjudicator':()=> new StrikeAdjudicator({ THREE, mats, spawnPos, enemyManager }),
+      };
+      const f = map[label]; if(!f) return null; const inst = f(); enemyManager.registerExternalEnemy(inst, { countsTowardAlive: true }); return inst.root;
+    };
+
+    let _suppressAuto = false;
+    function spawnOne(label){
+      // clear previous
+      _suppressAuto = true;
+      for (const r of Array.from(enemyManager.enemies||[])){ enemyManager.remove(r); }
+      enemyManager.alive = 0;
+      // also purge any lingering projectiles/VFX/pickups
+      try { enemyManager.clearProjectiles?.(); } catch(_) {}
+      try { effects.clearAll?.(); } catch(_) {}
+      try { pickups.resetAll?.(); } catch(_) {}
+      let root = null;
+      const p = new THREE.Vector3(0,0.8,-18);
+      if (label.startsWith('boss:')) root = bossFactory(label, p);
+      else root = enemyManager.spawnAt(label, p, { countsTowardAlive: true });
+      document.getElementById('name').textContent = `— ${label}`;
+      _suppressAuto = false;
+      return root;
+    }
+
+    let currentIdx = 0; let currentRoot = null;
+    const nameEl = document.getElementById('name');
+    function refresh(){ enemySel.value = enemyTypes[currentIdx]; nameEl.textContent = `— ${enemySel.value}`; }
+    refresh();
+    currentRoot = spawnOne(enemyTypes[currentIdx]);
+
+    // Auto-advance to next enemy on kill, with short delay and VFX cleanup
+    enemyManager.onRemaining = (n)=>{
+      if (_suppressAuto) return;
+      if (n <= 0){
+        setTimeout(()=>{
+          try { enemyManager.clearProjectiles?.(); } catch(_) {}
+          try { effects.clearAll?.(); } catch(_) {}
+          try { pickups.resetAll?.(); } catch(_) {}
+          currentIdx = (currentIdx+1)%enemyTypes.length; refresh();
+          currentRoot = spawnOne(enemyTypes[currentIdx]);
+        }, 250);
+      }
+    };
+
+    document.getElementById('spawn').onclick = ()=>{ currentRoot = spawnOne(enemySel.value); currentIdx = enemyTypes.indexOf(enemySel.value); };
+    document.getElementById('next').onclick = ()=>{ currentIdx = (currentIdx+1)%enemyTypes.length; refresh(); currentRoot = spawnOne(enemyTypes[currentIdx]); };
+    document.getElementById('prev').onclick = ()=>{ currentIdx = (currentIdx-1+enemyTypes.length)%enemyTypes.length; refresh(); currentRoot = spawnOne(enemyTypes[currentIdx]); };
+    document.getElementById('infAmmo').onchange = (e)=>{
+      if (e.target.checked){ rifle.ammoInMag=1e9; rifle.reserveAmmo=1e9; rifle.reload=()=>false; }
+      else { rifle.ammoInMag = 30; rifle.reserveAmmo = 120; rifle.reload = WeaponSystem.prototype.reload; }
+    };
+
+    // Loop
+    const clock = new THREE.Clock();
+    function loop(){
+      const dt = Math.min(0.033, clock.getDelta());
+      // Player + weapon + VFX
+      if (controls.isLocked){ player.update(dt); weaponView.update?.(dt); weaponSystem.update(dt); }
+      effects.update(dt);
+      // Enemies
+      enemyManager.tickAI(controls.getObject(), dt, (damage)=>{ /* ignore player damage in test */ });
+      skyMat.uniforms.time.value += dt;
+      renderer.render(scene, camera);
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>
+
+

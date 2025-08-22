@@ -16,7 +16,7 @@
     <div class="pill">Score: <span id="score">0</span></div>
     <div class="pill">Best: <span id="best">0</span></div>
     <div class="pill" id="combo"><span id="comboLabel">Combo: x1.0</span><div id="comboBar"></div></div>
-    <div class="pill" id="wavePill">Wave: <span id="wave">1</span> <span id="remainingWrap" class="tiny" style="margin-left:6px">(<span id="remaining">0</span> left)</span><div id="waveBar"></div></div>
+    <div class="pill" id="wavePill">Wave: <span id="wave">1</span> <span id="remainingWrap" class="tiny" style="margin-left:6px">(<span id="remaining">0</span> left)</span> <span id="hydraWrap" class="tiny" style="margin-left:6px; display:none">(Hydra <span id="hydraCount">0/0</span>)</span><div id="waveBar"></div></div>
     <div class="pill" id="stamina">Stamina<div id="staminaBar"></div></div>
     <div class="pill tiny" id="seedPill">Seed: <span id="seed"></span>
       <button class="mini" id="copySeed" title="Copy share URL">Copy</button>
@@ -28,6 +28,27 @@
   <div class="row" style="justify-content:flex-end">
     <div class="pill tiny" id="desktopHelp">WASD move • Mouse aim • Click shoot • R reload • Shift sprint • Ctrl crouch • Space jump • P pause</div>
   </div>
+</div>
+
+<div id="crosshair">
+  <div class="seg top"></div>
+  <div class="seg bottom"></div>
+  <div class="seg left"></div>
+  <div class="seg right"></div>
+</div>
+<div id="hitmarker"></div>
+
+<div id="bossHud" style="display:none">
+  <div id="bossName" class="tiny"></div>
+  <div class="bossBar"><div id="bossHpBar"></div></div>
+</div>
+
+<div id="toasts"></div>
+
+<div id="story" style="display:none">
+  <div class="card">
+    <div id="storyText" class="storyText"></div>
+    <div class="actions"><button class="primary" id="storyNext">Continue</button></div>
   </div>
   <div id="crosshair">
    <div class="seg top"></div>
@@ -55,6 +76,7 @@
     </style>
   </div>
 <div id="promoPulse"></div>
+
 <div id="offer" style="display:none">
   <div class="card">
     <h3>Armory Offer</h3>
@@ -70,9 +92,10 @@
     .wicon{ width:16px; height:16px; vertical-align:middle; margin-right:4px }
   </style>
 </div>
+
 <div id="center"><div id="panel">
   <h1>Block <span>Strike</span> 3D</h1>
-  <div>Fast‑paced FPS. Waves of bots, crisp gunplay, quick rounds.</div>
+  <div>Fast-paced FPS. Waves of bots, crisp gunplay, quick rounds.</div>
   <div style="display:flex; gap:10px; justify-content:center; margin:12px 0; flex-wrap:wrap">
     <div class="pill">Waves of bots</div>
     <div class="pill">Hitscan rifle + tracers</div>
@@ -83,6 +106,15 @@
     <select id="musicSelect" class="secondary" style="cursor:pointer; border:0; border-radius:14px; padding:12px 16px; font-weight:900; box-shadow:0 12px 36px #0000002a;">
       <option value="library">chatGPT 5 music</option>
       <option value="suno">Suno Remix</option>
+    </select>
+  </div>
+  <div style="display:flex; justify-content:center; margin:12px 0">
+    <select id="arenaShape" class="secondary" style="cursor:pointer; border:0; border-radius:14px; padding:12px 16px; font-weight:900; box-shadow:0 12px 36px #0000002a;">
+      <option value="box">Box Arena</option>
+      <option value="circle">Circle Arena</option>
+      <option value="diamond">Diamond Arena</option>
+      <option value="triangle">Triangle Arena</option>
+      <option value="pi">П Arena</option>
     </select>
   </div>
   <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap">
@@ -96,34 +128,53 @@
     <button class="secondary" id="qHigh" title="aa=on, shadows=on">High</button>
     <button class="secondary" id="qUltra" title="aa=on, shadows=on (max)" >Ultra</button>
   </div>
-    <div class="tiny" style="margin-top:8px" id="startTip">Click Play, then click to lock the mouse.
+  <div class="tiny" style="margin-top:8px" id="startTip">Click Play, then click to lock the mouse.</div>
+</div></div>
+
+<!-- Loading overlay from performance branch -->
+<div id="loading" style="position:fixed; inset:0; display:grid; place-items:center; background:#0b1220; color:#fff; z-index:9999">
+  <div style="width:min(92%,520px); text-align:center">
+    <div style="font-weight:700; margin-bottom:10px">Loading shaders &amp; assets…</div>
+    <div id="loadingBarWrap" style="height:10px; background:#222; border-radius:8px; overflow:hidden">
+      <div id="loadingBar" style="height:100%; width:0%; background:#22c55e; transition:width 0.15s ease"></div>
     </div>
-  </div></div>
-  <script>
-    window.IS_MOBILE = window.matchMedia('(pointer:coarse)').matches;
-    if (window.IS_MOBILE) {
-      const m = document.createElement('div');
-      m.id = 'mobileControls';
-      m.innerHTML = `
-        <div id="joystick" class="joy"><div class="base"></div><div class="knob"></div></div>
-        <div id="actionButtons">
-          <button id="btnFire">🔥</button>
-          <button id="btnJump">⤴️</button>
-          <button id="btnReload">🔄</button>
-        </div>`;
-      document.body.appendChild(m);
-      const help = document.getElementById('desktopHelp');
-      if (help) help.style.display = 'none';
-      const hud = document.getElementById('hud');
-      if (hud) {
-        const row = document.createElement('div');
-        row.className = 'row';
-        row.style.justifyContent = 'flex-end';
-        row.innerHTML = '<div class="pill tiny">Move: joystick • Shoot: 🔥 • Jump: ⤴️</div>';
-        hud.appendChild(row);
-      }
+    <div id="loadingText" class="tiny" style="margin-top:8px; opacity:0.85">0%</div>
+  </div>
+</div>
+
+<!-- Mobile controls from main branch -->
+<script>
+  window.IS_MOBILE = window.matchMedia('(pointer:coarse)').matches;
+  if (window.IS_MOBILE) {
+    const m = document.createElement('div');
+    m.id = 'mobileControls';
+    m.innerHTML = `
+      <div id="joystick" class="joy"><div class="base"></div><div class="knob"></div></div>
+      <div id="actionButtons">
+        <button id="btnFire">🔥</button>
+        <button id="btnJump">⤴️</button>
+        <button id="btnReload">🔄</button>
+      </div>`;
+    document.body.appendChild(m);
+    const help = document.getElementById('desktopHelp');
+    if (help) help.style.display = 'none';
+    const hud = document.getElementById('hud');
+    if (hud) {
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.style.justifyContent = 'flex-end';
+      row.innerHTML = '<div class="pill tiny" id="mobileHelp">Move: joystick • Shoot: 🔥 • Jump: ⤴️</div>';
+      hud.appendChild(row);
+      const hideHelp = () => document.getElementById('mobileHelp')?.remove();
+      setTimeout(hideHelp, 5000);
+      ['joystick','btnFire','btnJump','btnReload'].forEach(id=>{
+        document.getElementById(id)?.addEventListener('touchstart', hideHelp, {once:true});
+      });
     }
-  </script>
-  <script type="module" src="src/main.js"></script>
-  </body>
-  </html>
+  }
+</script>
+
+<!-- Use the versioned entry from performance branch -->
+<script type="module" src="src/main.js?v=4"></script>
+</body>
+</html>

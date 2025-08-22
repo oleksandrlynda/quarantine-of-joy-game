@@ -21,12 +21,12 @@ class HydraGlobal {
   static queueStep = 0.25;
 
   // lineage data keyed by bossId
-  // { alive: number, descendants: number, started: true }
+  // { alive: number, descendants: number, started: true, nextSlot: number }
   static lineages = new Map();
 
   static ensureLineage(bossId) {
     if (!HydraGlobal.lineages.has(bossId)) {
-      HydraGlobal.lineages.set(bossId, { alive: 0, descendants: 0, started: true });
+      HydraGlobal.lineages.set(bossId, { alive: 0, descendants: 0, started: true, nextSlot: 0 });
     }
     return HydraGlobal.lineages.get(bossId);
   }
@@ -34,8 +34,10 @@ class HydraGlobal {
   static registerSpawn(bossId) {
     HydraGlobal.active++;
     const L = HydraGlobal.ensureLineage(bossId);
+    const slot = L.nextSlot++;
     L.alive++;
     L.descendants = Math.max(0, L.alive - 1); // show "Descendants: xN" (exclude the original)
+    return slot;
   }
   static registerDeath(bossId) {
     HydraGlobal.active = Math.max(0, HydraGlobal.active - 1);
@@ -79,7 +81,7 @@ export class Hydraclone {
 
     // Establish lineage id (the very first/gen0 becomes its own bossId)
     this.bossId = bossId || `hydra_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`;
-    HydraGlobal.registerSpawn(this.bossId);
+    this._slot = HydraGlobal.registerSpawn(this.bossId);
 
     // Build asset
     const built = createHydracloneAsset({
@@ -119,17 +121,68 @@ export class Hydraclone {
 
     // For small contact cooldown so DPS doesn’t explode at low FPS
     this._contactAcc = 0;
+
+    // Record player path for mirror clones
+    this._playerPath = [];
+    this._pathRecordAcc = 0;
+
+    // Mirror path clone ability
+    this._mirrorClones = [];
+    this._mirrorCooldown = 4 + Math.random() * 2;
   }
 
   // --- Manager/scene registration helper (used by global queue spawns) ---
   static registerInstance(inst, ctx) {
     if (inst.enemyManager && typeof inst.enemyManager.registerExternalEnemy === 'function') {
+      // Ensure waveStartingAlive is a number before tracking additional spawns
+      if (typeof inst.enemyManager.waveStartingAlive !== 'number') {
+        inst.enemyManager.waveStartingAlive = inst.enemyManager.alive || 0;
+      }
       inst.enemyManager.registerExternalEnemy(inst, { countsTowardAlive: true });
+      inst.enemyManager.waveStartingAlive++;
       return inst;
     }
     // Fallback if no manager helper available
     ctx?.scene?.add?.(inst.root);
     return inst;
+  }
+
+  static hasPending() {
+    return HydraGlobal.active + HydraGlobal.queue.length > 0;
+  }
+
+  // --- Temporary mirror clones that retrace recent player path ---
+  _spawnMirrorClones(ctx) {
+    if (this._playerPath.length < 2) return;
+    const path = this._playerPath.map(p => p.clone().setY(0.8));
+    const count = 2;
+    for (let i = 0; i < count; i++) {
+      const built = createHydracloneAsset({
+        THREE: this.THREE,
+        mats: this.mats,
+        generation: Math.min(this.gen + 1, 3),
+        scale: 0.4,
+      });
+      const root = built.root;
+      root.traverse(obj => {
+        if (obj.material) {
+          obj.material = obj.material.clone();
+          obj.material.transparent = true;
+          obj.material.opacity = 0.35;
+        }
+      });
+      root.position.copy(path[0]);
+      ctx.scene.add(root);
+      try { window?._EFFECTS?.ring?.(path[0].clone(), 0.7, 0x22e3ef); } catch (_) {}
+      this._mirrorClones.push({
+        root,
+        path,
+        idx: 0,
+        state: 'telegraph',
+        t: 0,
+        didDamage: false,
+      });
+    }
   }
 
   // --- Runtime split after death ---
@@ -194,10 +247,19 @@ export class Hydraclone {
     const pfwd = (ctx.blackboard?.playerForward || toPlayer.clone().multiplyScalar(-1)).setY(0).normalize();
     const right = new this.THREE.Vector3(-pfwd.z, 0, pfwd.x);
 
-    this._arcAngle += (0.9 + this.gen * 0.12) * this._arcSign * dt; // slow drift
-    const dir = pfwd.clone().multiplyScalar(Math.cos(this._arcAngle))
-      .add(right.clone().multiplyScalar(Math.sin(this._arcAngle))).normalize();
-    const anchor = player.clone().add(dir.multiplyScalar(this._preferRadius));
+    const L = HydraGlobal.ensureLineage(this.bossId);
+    let anchor;
+    if (L.alive > 3) {
+      const angle = (Math.PI * 2 / L.alive) * (this._slot % L.alive);
+      const dir = pfwd.clone().multiplyScalar(Math.cos(angle))
+        .add(right.clone().multiplyScalar(Math.sin(angle))).normalize();
+      anchor = player.clone().add(dir.multiplyScalar(this._preferRadius));
+    } else {
+      this._arcAngle += (0.9 + this.gen * 0.12) * this._arcSign * dt; // slow drift
+      const dir = pfwd.clone().multiplyScalar(Math.cos(this._arcAngle))
+        .add(right.clone().multiplyScalar(Math.sin(this._arcAngle))).normalize();
+      anchor = player.clone().add(dir.multiplyScalar(this._preferRadius));
+    }
 
     // vector toward anchor with a pinch of direct pursuit if far
     const toAnchor = anchor.sub(e.position); toAnchor.y = 0;
@@ -222,6 +284,14 @@ export class Hydraclone {
       ctx.blackboard.hydraLineages[this.bossId] = { alive: L.alive, descendants: L.descendants };
     }
 
+    // Record player path
+    this._pathRecordAcc += dt;
+    if (this._pathRecordAcc >= 0.1) {
+      this._pathRecordAcc = 0;
+      this._playerPath.push(ctx.player.position.clone());
+      if (this._playerPath.length > 60) this._playerPath.shift();
+    }
+
     // Death/split check (engine usually decrements hp externally)
     if (this.root.userData.hp <= 0) {
       if (!this._didSplit) {
@@ -230,8 +300,65 @@ export class Hydraclone {
       }
       HydraGlobal.registerDeath(this.bossId);
       this._didRegisterDeath = true;
+      for (const c of this._mirrorClones) { ctx.scene.remove(c.root); }
+      this._mirrorClones.length = 0;
+      const pos = this.root.position.clone();
+      if (ctx.pickups) {
+        if (this.gen === 0) {
+          ctx.pickups.dropMultiple('med', pos, 1);
+          ctx.pickups.dropMultiple('ammo', pos, 4);
+        } else {
+          ctx.pickups.dropMultiple('random', pos, 1);
+        }
+      }
       // removal is handled by EnemyManager; nothing else to do here
       return;
+    }
+
+    // Ability: spawn & update mirror clones
+    if (this._mirrorCooldown > 0) {
+      this._mirrorCooldown -= dt;
+      if (L.alive > 3) this._mirrorCooldown -= dt; // faster when many are alive
+    }
+    if (this._mirrorCooldown <= 0) {
+      this._mirrorCooldown = 6 + Math.random() * 2;
+      this._spawnMirrorClones(ctx);
+    }
+    for (let i = this._mirrorClones.length - 1; i >= 0; i--) {
+      const c = this._mirrorClones[i];
+      if (c.state === 'telegraph') {
+        c.t += dt;
+        if (c.t >= 0.4) c.state = 'dash';
+      } else {
+        const speed = 20;
+        let remaining = speed * dt;
+        while (remaining > 0 && c.idx < c.path.length - 1) {
+          const curr = c.root.position;
+          const next = c.path[c.idx + 1];
+          const seg = next.clone().sub(curr);
+          const segLen = seg.length();
+          if (segLen <= remaining) {
+            c.root.position.copy(next);
+            c.idx++;
+            remaining -= segLen;
+          } else {
+            c.root.position.add(seg.normalize().multiplyScalar(remaining));
+            remaining = 0;
+          }
+        }
+        const p = ctx.player.position;
+        const dx = c.root.position.x - p.x;
+        const dz = c.root.position.z - p.z;
+        if (!c.didDamage && Math.hypot(dx, dz) < 1.0) {
+          ctx.onPlayerDamage?.(12, 'melee');
+          c.didDamage = true;
+        }
+        if (c.idx >= c.path.length - 1) {
+          ctx.scene.remove(c.root);
+          this._mirrorClones.splice(i, 1);
+          continue;
+        }
+      }
     }
 
     // Movement
@@ -283,6 +410,8 @@ export class Hydraclone {
 
   // Called by EnemyManager on remove
   onRemoved(scene) {
+    for (const c of this._mirrorClones) { scene.remove(c.root); }
+    this._mirrorClones.length = 0;
     // If death removal happened before update could split, do it here with a minimal ctx
     if (!this._didSplit && (this.root?.userData?.hp || 0) <= 0) {
       const ctx = {

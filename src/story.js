@@ -18,6 +18,7 @@ export class StoryManager {
     this._minGapMs = minGapMs;
     this.SEEN_KEY = 'bs3d_story_seen';
     this._seen = this._loadSeen();
+    this._currentBeat = null;
   }
 
   _bindUI(){
@@ -45,11 +46,15 @@ export class StoryManager {
             this._beats = { ...this._beats, ...data.beats };
           }
           this._enqueueBeat('intro');
+          this._enqueueBeat('intro2');
+          this._enqueueBeat('controlsTip');
           this._maybeShow();
         }).catch(()=>{ this._enqueueBeat('intro'); this._maybeShow(); });
       } catch(_) { this._enqueueBeat('intro'); this._maybeShow(); }
     } else {
       this._enqueueBeat('intro');
+      this._enqueueBeat('intro2');
+      this._enqueueBeat('controlsTip');
       this._maybeShow();
     }
   }
@@ -58,6 +63,7 @@ export class StoryManager {
     if (!this.enabled) return;
     // Gate a few milestone beats
     if (wave === 1) this._enqueueBeat('firstWave');
+    if (wave === 2) this._enqueueBeat('act1_brief');
     if (wave === 5) this._enqueueBeat('bossIncoming');
     if (wave === 10) this._enqueueBeat('midRun');
     if (wave === 20) this._enqueueBeat('lateRun');
@@ -82,6 +88,7 @@ export class StoryManager {
   onBossDeath(wave){
     if (!this.enabled) return;
     this._enqueueBeat(`boss_${wave}_down`);
+    if (wave === 5) this._enqueueBeat('boss_5_report');
     this._maybeShow();
   }
 
@@ -146,6 +153,7 @@ export class StoryManager {
     }
     if (!this.container || !this.textEl) return;
     this.active = true;
+    this._currentBeat = beat;
     this.textEl.textContent = beat.text;
     this.container.style.display = '';
     this.onPause(true);
@@ -157,6 +165,13 @@ export class StoryManager {
     if (!this.container) return;
     this.container.style.display = 'none';
     this.active = false;
+    // Mark seen for persist-once beats when modal is acknowledged
+    try {
+      if (this._currentBeat && this._currentBeat.id) {
+        this._markSeen(this._currentBeat.id, this._currentBeat.persistOnce);
+      }
+    } catch(_) {}
+    this._currentBeat = null;
     // If an armory offer is up, keep game paused and do NOT relock pointer
     if (!this._isOfferOpen()) {
       this.onPause(false);
@@ -164,7 +179,6 @@ export class StoryManager {
       // This is triggered from a click/keypress, so it's a valid user gesture
       try { this.controls?.lock?.(); } catch {}
     }
-    // Attempt to re-lock pointer immediately on user gesture
     this._lastShownAt = performance.now ? performance.now() : Date.now();
     // Show next queued beat if any
     if (this.queue.length > 0) {
@@ -223,13 +237,14 @@ const NARRATIVE_BEATS = {
   ticker_gossip16: { id:'ticker_gossip16', text: 'Fun fact: reloading to the beat increases accuracy by 0%. Still fun.', mode: 'ticker' },
   // Boss-specific hooks; generic fallback copy is fine
   'boss_5_start': { id:'boss_5_start', text: 'Broodmaker spawns incoming. Eliminate pods to thin the swarm.' },
-  'boss_5_down': { id:'boss_5_down', text: 'Broodmaker neutralized. Collect supplies and prepare for escalation.' },
-  'boss_10_start': { id:'boss_10_start', text: 'Sanitizer online. Expect area denial and beams. Keep lateral movement.' },
-  'boss_10_down': { id:'boss_10_down', text: 'Sanitizer down. Data uplink stable. New armory options unlocked.' },
-  'boss_15_start': { id:'boss_15_start', text: 'Captain drone detected. Coordinating assaults. Break the formation.' },
-  'boss_15_down': { id:'boss_15_down', text: 'Captain down. Their chain of command is fractured.' },
-  'boss_20_start': { id:'boss_20_start', text: 'Shard Avatar materializes. Watch for clones and shards.' },
-  'boss_20_down': { id:'boss_20_down', text: 'Shard Avatar shattered. Stay sharp.' },
+  'boss_5_down': { id:'boss_5_down', text: 'MOD: Broodmaker down. Swarm quieting. Scoop supplies and reset your lane.' },
+  boss_5_report: { id:'boss_5_report', text: 'MOD: Uplink clean. The block’s laughing again. BoB will counter—eyes up.', mode: 'toast', persistOnce: true },
+  'boss_10_start': { id:'boss_10_start', text: 'MOD: Commissioner Sanitizer’s spire team online. Area denial and beams—strafe clean.' },
+  'boss_10_down': { id:'boss_10_down', text: 'MOD: Sanitizer silenced. Broadcast reached the block. Armory channels are opening.' },
+  'boss_15_start': { id:'boss_15_start', text: 'MOD: Influencer Militia Captain with Ad Zeppelin support. Cancel sponsorship pods to break the shield.' },
+  'boss_15_down': { id:'boss_15_down', text: 'MOD: Captain dropped. Formation broken; sponsors ghosted.' },
+  'boss_20_start': { id:'boss_20_start', text: 'GLITCHCAT: Algorithm Shard Avatar manifesting. Watch emissive tells; play off‑beat.' },
+  'boss_20_down': { id:'boss_20_down', text: 'GLITCHCAT: Shard reconciled. Signal variance restored.' },
   'boss_25_start': { id:'boss_25_start', text: 'Broodmaker returns, reinforced. Spread the damage, clear eggs fast.' },
   'boss_25_down': { id:'boss_25_down', text: 'Heavy Broodmaker down. You are becoming the problem.' }
   ,

@@ -41,6 +41,8 @@ export class ObstacleManager {
 
     // Merged static mesh cache
     this._mergedStatic = null; // { mesh, byMaterial: Map }
+    // Deferred additions to shared collider list (for post-merge push)
+    this._deferred = [];
   }
 
   generate(seed, objects) {
@@ -129,6 +131,9 @@ export class ObstacleManager {
       });
       for (const m of platformMeshes) { this.scene.add(m); this.obstacles.add(m); if (this.objects) this.objects.push(m); }
     }
+
+    // Ensure deferred destructibles are registered as colliders in one batch and notify listeners
+    this._flushDeferred();
   }
 
   // Load a deterministic map from JSON and place obstacles exactly as specified.
@@ -253,6 +258,7 @@ export class ObstacleManager {
     }
     this.obstacles.clear();
     this.rootToDestructible = new WeakMap();
+    this._deferred = [];
     // clear maze
     if (this.maze) this.maze.clear(this.scene);
     this._mazeMeshes = [];
@@ -335,8 +341,12 @@ export class ObstacleManager {
     this.scene.add(inst.root);
     this.obstacles.add(inst.root);
     this.rootToDestructible.set(inst.root, inst);
-    if (!defer && this.objects) this.objects.push(inst.root);
-    if (!defer) this._notifyCollidersChanged();
+    if (defer) {
+      this._deferred.push(inst.root);
+    } else {
+      if (this.objects) this.objects.push(inst.root);
+      this._notifyCollidersChanged();
+    }
   }
 
   _mergeStaticByMaterial(){
@@ -348,6 +358,20 @@ export class ObstacleManager {
       // Instead: merge only editor/level static meshes (currently none here). Leaving hook for future.
     }
     // Currently a no-op to avoid altering destructible behavior; the hook is ready for static groups.
+  }
+
+  // Push deferred roots to shared collider list and notify once
+  _flushDeferred(){
+    try {
+      if (!this.objects) { this._deferred = []; this._notifyCollidersChanged(); return; }
+      if (this._deferred && this._deferred.length) {
+        for (const root of this._deferred) {
+          if (this.objects.indexOf(root) === -1) this.objects.push(root);
+        }
+        this._deferred.length = 0;
+      }
+      this._notifyCollidersChanged();
+    } catch(_) { /* ignore flush errors */ }
   }
 
   handleHit(hitObject, damage) {

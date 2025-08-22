@@ -57,6 +57,30 @@ export class PlayerController {
     this.colliderHalf = new THREE.Vector3(0.35, 0.9, 0.35); // approx capsule half extents
     this.fullHeight = this.colliderHalf.y * 2; // ~1.8m
     this._groundRaycaster = new THREE.Raycaster();
+    this._forwardRaycaster = new THREE.Raycaster();
+
+    // Scratch temporaries to avoid per-frame allocations
+    this._tmp = {
+      fwd: new THREE.Vector3(),
+      right: new THREE.Vector3(),
+      wish: new THREE.Vector3(),
+      step: new THREE.Vector3(),
+      pos: new THREE.Vector3(),
+      min: new THREE.Vector3(),
+      max: new THREE.Vector3(),
+      pbb: new THREE.Box3(),
+      up: new THREE.Vector3(0,1,0),
+      down: new THREE.Vector3(0,-1,0),
+    };
+
+    // Ground cache and thresholds
+    this._groundCache = { x: Infinity, z: Infinity, y: 0 };
+    this._groundXZThresh = 0.25;
+
+    // Timers / throttles
+    this._time = 0;
+    this._fovEps = 0.01;
+    this._fovCooldown = 0;
 
     // Input helpers
     this.isMobile = window.matchMedia('(pointer:coarse)').matches;
@@ -86,13 +110,16 @@ export class PlayerController {
         if (dx > threshold) this.keys.add('KeyD');
       };
       if (joyEl){
-        let active = false;
+        let active = false, joyId = null;
         joyEl.addEventListener('touchstart', e=>{
+          const t = e.changedTouches[0];
+          joyId = t.identifier;
           active = true; e.preventDefault();
         });
         joyEl.addEventListener('touchmove', e=>{
           if(!active) return; e.preventDefault();
-          const t = e.touches[0];
+          const t = Array.from(e.touches).find(tt=>tt.identifier===joyId);
+          if(!t) return;
           const rect = joyEl.getBoundingClientRect();
           const r = rect.width/2;
           const x = t.clientX - (rect.left + r);
@@ -105,12 +132,16 @@ export class PlayerController {
           updateFromVector(dx, dy);
         }, {passive:false});
         const reset = ()=>{
-          active = false;
+          active = false; joyId = null;
           if (knob) knob.style.transform = 'translate(0,0)';
           updateFromVector(0,0);
         };
-        joyEl.addEventListener('touchend', reset);
-        joyEl.addEventListener('touchcancel', reset);
+        joyEl.addEventListener('touchend', e=>{
+          if(Array.from(e.changedTouches).some(t=>t.identifier===joyId)) reset();
+        });
+        joyEl.addEventListener('touchcancel', e=>{
+          if(Array.from(e.changedTouches).some(t=>t.identifier===joyId)) reset();
+        });
       }
         // Look controls on right side
         let lookId = null, lx=0, ly=0;
@@ -167,15 +198,18 @@ export class PlayerController {
   update(dt){
     const THREE = this.THREE;
     const o = this.controls.getObject();
+    const t = this._tmp;
+    this._time += dt;
     // Use base yaw (not camera) for movement so recoil never influences movement direction
-    const forward = new THREE.Vector3(0,0,-1).applyQuaternion(this.yawObject.quaternion); forward.y = 0; forward.normalize();
-    const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0,1,0)).normalize();
+    t.fwd.set(0,0,-1).applyQuaternion(this.yawObject.quaternion); t.fwd.y = 0; t.fwd.normalize();
+    t.right.crossVectors(t.fwd, t.up).normalize();
 
-    const wish = new THREE.Vector3();
-    if (this.keys.has('KeyW')) wish.add(forward);
-    if (this.keys.has('KeyS')) wish.add(forward.clone().multiplyScalar(-1));
-    if (this.keys.has('KeyA')) wish.add(right.clone().multiplyScalar(-1));
-    if (this.keys.has('KeyD')) wish.add(right);
+    t.wish.set(0,0,0);
+    if (this.keys.has('KeyW')) t.wish.add(t.fwd);
+    if (this.keys.has('KeyS')) t.wish.addScaledVector(t.fwd, -1);
+    if (this.keys.has('KeyA')) t.wish.addScaledVector(t.right, -1);
+    if (this.keys.has('KeyD')) t.wish.add(t.right);
+    const wishLenSq0 = t.wish.lengthSq();
 
     const wantsSprint = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
     const hasStaminaForSprint = this.stamina > 0.5; // allow minor underflow guard
@@ -184,10 +218,10 @@ export class PlayerController {
     const sprintMultiplier = effectiveSprint ? ((this.stamina <= this.lowStaminaThreshold) ? 1.2 : 1.6) : 1.0;
     const targetSpeed = this.moveSpeed * sprintMultiplier * (this.crouching ? 0.55 : 1.0);
 
-    if (wish.lengthSq() > 0) {
-      wish.normalize().multiplyScalar(targetSpeed);
-      const toAdd = wish.clone().sub(this.velXZ).clampLength(0, this.accel * dt);
-      this.velXZ.add(toAdd);
+    if (wishLenSq0 > 0) {
+      t.wish.normalize().multiplyScalar(targetSpeed);
+      t.step.copy(t.wish).sub(this.velXZ).clampLength(0, this.accel * dt);
+      this.velXZ.add(t.step);
     } else {
       const damp = Math.max(0, 1 - this.damping * dt);
       this.velXZ.multiplyScalar(damp);
@@ -195,7 +229,7 @@ export class PlayerController {
 
     // Stamina drain/regeneration
     // Drain only while actively sprinting and actually trying to move
-    if (wantsSprint && wish.lengthSq() > 0 && this.velXZ.lengthSq() > 0.0001) {
+    if (wantsSprint && wishLenSq0 > 0 && this.velXZ.lengthSq() > 0.0001) {
       const drain = this.staminaSprintCostPerSec * dt;
       this._spendStamina(drain);
     } else {
@@ -226,32 +260,36 @@ export class PlayerController {
     const desiredFovBase = effectiveSprint ? this.sprintFov : this.baseFov;
     // No recoil FOV kick by default; ensure sprint FOV is preserved
     const desiredFov = desiredFovBase;
-    this.camera.fov += (desiredFov - this.camera.fov) * 0.18; this.camera.updateProjectionMatrix();
+    const prevFov = this.camera.fov;
+    this.camera.fov += (desiredFov - this.camera.fov) * 0.18;
+    this._fovCooldown -= dt;
+    if (this._fovCooldown <= 0 && Math.abs(this.camera.fov - prevFov) > this._fovEps) {
+      this.camera.updateProjectionMatrix();
+      this._fovCooldown = 1/60;
+    }
 
     // Attempt move with collision (axis-separated slide)
-    const step = this.velXZ.clone().multiplyScalar(dt);
-    const pos = o.position.clone();
+    const step = t.step.copy(this.velXZ).multiplyScalar(dt);
+    const pos = t.pos.copy(o.position);
     // Cache ground at start and thresholds for step/jump assist
     const groundAt = this._groundHeightAt(pos.x, pos.z);
-    const stepUpMax = 0.12 * this.fullHeight;  // ≤12%: auto step
+    // Track the resolved ground used later for gravity snap so we don't
+    // instantly "teleport" up to tall wall tops when merely touching them
+    let resolvedGround = groundAt;
+    // Tighten step-up to reduce unintended wall climbing
+    const stepUpMax = 0.08 * this.fullHeight;  // ≤8%: auto step (~14cm)
     const jumpAssistMax = 0.30 * this.fullHeight; // ≤30%: auto jump
     const tryAxis = (dx, dz)=>{
       const nx = pos.x + dx, nz = pos.z + dz;
       // Compute player's current feet Y based on eye height (supports mid-air jump movement)
       const eye = this.crouching ? 1.25 : 1.7;
       const feetY = (o.position.y - eye);
-      const min = new THREE.Vector3(nx - this.colliderHalf.x, Math.max(0.0, feetY + 0.05), nz - this.colliderHalf.z);
-      const max = new THREE.Vector3(nx + this.colliderHalf.x, feetY + this.fullHeight, nz + this.colliderHalf.z);
-      const pbb = new THREE.Box3(min, max);
+      t.min.set(nx - this.colliderHalf.x, Math.max(0.0, feetY + 0.05), nz - this.colliderHalf.z);
+      t.max.set(nx + this.colliderHalf.x, feetY + this.fullHeight,  nz + this.colliderHalf.z);
+      t.pbb.min.copy(t.min); t.pbb.max.copy(t.max);
       for(const obb of this.objectBBs){
-        if(pbb.intersectsBox(obb)){
-          // Collision at current eye height; allow attempt to step if target ground is only slightly higher
-          const newGround = this._groundHeightAt(nx, nz);
-          const rise = Math.max(0, newGround - groundAt);
-          if (rise > 0 && rise <= jumpAssistMax + 1e-3) {
-            // Tentatively allow horizontal move; vertical resolution will be handled below
-            pos.x = nx; pos.z = nz; return true;
-          }
+        if(t.pbb.intersectsBox(obb)){
+          // Collision detected - completely block this axis movement
           return false;
         }
       }
@@ -259,39 +297,56 @@ export class PlayerController {
     };
     tryAxis(step.x, 0);
     tryAxis(0, step.z);
-    // Step-up assist: if the ground height increased by a small step, climb it; otherwise auto-jump for medium ledges
-    const newGround = this._groundHeightAt(pos.x, pos.z);
-    const rise = Math.max(0, newGround - groundAt);
-    if (rise > 0) {
-      if (rise <= stepUpMax + 1e-3) {
-        // Snap onto the higher ground while preserving eye offset
-        o.position.x = pos.x; o.position.z = pos.z;
-        const eye = this.crouching ? 1.25 : 1.7;
-        o.position.y = newGround + eye;
-        this.velocityY = 0; this.canJump = true;
-      } else if (rise <= jumpAssistMax + 1e-3) {
-        // Auto-jump if we can; helps climb short ledges without pressing Space
-        if (this.canJump && this.stamina >= this.staminaJumpCost) {
+    // Step-up assist: only works when we successfully moved horizontally (no collisions)
+    // Check if we actually moved from where we started
+    const actuallyMoved = (Math.abs(pos.x - o.position.x) > 1e-6 || Math.abs(pos.z - o.position.z) > 1e-6);
+    if (actuallyMoved) {
+      const newGround = this._groundHeightAt(pos.x, pos.z, true);
+      const rise = Math.max(0, newGround - groundAt);
+      if (rise > 0) {
+        if (rise <= stepUpMax + 1e-3) {
+          // Small step-up onto accessible surface
           o.position.x = pos.x; o.position.z = pos.z;
-          this.velocityY = 7; this.canJump = false; this._spendStamina(this.staminaJumpCost);
-        } else { /* if cannot jump now, still allow horizontal position and gravity will handle */
+          const eye = this.crouching ? 1.25 : 1.7;
+          o.position.y = newGround + eye;
+          this.velocityY = 0; this.canJump = true;
+          resolvedGround = newGround;
+        } else if (rise <= jumpAssistMax + 1e-3) {
+          // Auto-jump for medium ledges (only if we have stamina and can jump)
+          if (this.canJump && this.stamina >= this.staminaJumpCost) {
+            o.position.x = pos.x; o.position.z = pos.z;
+            this.velocityY = 7; this.canJump = false; this._spendStamina(this.staminaJumpCost);
+            resolvedGround = groundAt;
+          } else {
+            // Can't jump - don't move horizontally, stay where we are
+            o.position.x = pos.x; o.position.z = pos.z;
+            resolvedGround = groundAt;
+          }
+        } else {
+          // Too high - just move horizontally, don't snap up
           o.position.x = pos.x; o.position.z = pos.z;
+          resolvedGround = groundAt;
         }
       } else {
+        // Normal movement to same or lower ground
         o.position.x = pos.x; o.position.z = pos.z;
+        resolvedGround = newGround;
       }
     } else {
-      o.position.x = pos.x; o.position.z = pos.z;
+      // Didn't move due to collisions - don't change position or ground reference
+      resolvedGround = groundAt;
     }
 
     // Gravity, ground, head-bob
     const eyeHeight = this.crouching ? 1.25 : 1.7;
-    const groundNow = this._groundHeightAt(o.position.x, o.position.z);
+    // Use the ground we resolved during the step/jump phase to avoid
+    // snapping up to nearby tall walls just because our footprint overlaps them
+    const groundNow = resolvedGround;
     const desiredEyeY = groundNow + eyeHeight;
     this.velocityY -= this.gravity * dt; o.position.y += this.velocityY * dt;
     if (o.position.y <= desiredEyeY) { o.position.y = desiredEyeY; this.velocityY = 0; this.canJump = true; }
-    const speed2D = this.velXZ.length();
-    if (this.canJump && speed2D > 0.2) { o.position.y += Math.sin(performance.now()*0.02) * 0.03; }
+    const speed2D = this.velXZ.lengthSq();
+    if (this.canJump && speed2D > 0.04) { o.position.y += Math.sin(this._time*6.0) * 0.03; }
   }
 
   // External API for weapons: vertical-only kick (applied as a velocity impulse)
@@ -313,10 +368,11 @@ export class PlayerController {
   _isPositionFree(x, y, z){
     const THREE = this.THREE;
     const half = this.colliderHalf;
-    const min = new THREE.Vector3(x - half.x, 0.2, z - half.z);
-    const max = new THREE.Vector3(x + half.x, 1.9, z + half.z);
-    const pbb = new THREE.Box3(min, max);
-    for (const obb of this.objectBBs) { if (pbb.intersectsBox(obb)) return false; }
+    const t = this._tmp;
+    t.min.set(x - half.x, 0.2, z - half.z);
+    t.max.set(x + half.x, 1.9, z + half.z);
+    t.pbb.min.copy(t.min); t.pbb.max.copy(t.max);
+    for (const obb of this.objectBBs) { if (t.pbb.intersectsBox(obb)) return false; }
     return true;
   }
 
@@ -324,7 +380,7 @@ export class PlayerController {
     const THREE = this.THREE;
     const baseY = y != null ? y : 1.7;
     // Quick accept
-    if (this._isPositionFree(x, baseY, z)) return new THREE.Vector3(x, baseY, z);
+    if (this._isPositionFree(x, baseY, z)) { this._tmp.pos.set(x, baseY, z); return this._tmp.pos; }
     // Clamp search inside arena inner margin
     const min = -38 + this.colliderHalf.x;
     const max =  38 - this.colliderHalf.x;
@@ -341,32 +397,49 @@ export class PlayerController {
       for (const d of directions){
         const nx = clamp(x + d.dx * r);
         const nz = clamp(z + d.dz * r);
-        if (this._isPositionFree(nx, baseY, nz)) return new THREE.Vector3(nx, baseY, nz);
+        if (this._isPositionFree(nx, baseY, nz)) { this._tmp.pos.set(nx, baseY, nz); return this._tmp.pos; }
       }
     }
     // Fallback to center front if everything else fails
     const fx = 0, fz = 8;
-    if (this._isPositionFree(fx, baseY, fz)) return new THREE.Vector3(fx, baseY, fz);
-    return new THREE.Vector3(x, baseY, z);
+    if (this._isPositionFree(fx, baseY, fz)) { this._tmp.pos.set(fx, baseY, fz); return this._tmp.pos; }
+    this._tmp.pos.set(x, baseY, z); return this._tmp.pos;
   }
 
   // Compute supporting ground height at XZ using AABBs (top faces). Returns world Y of ground top.
-  _groundHeightAt(x, z){
+  _groundHeightAt(x, z, forcePrecise = false){
     const THREE = this.THREE;
-    // First try precise raycast downward from above player footprint center
-    const origin = new THREE.Vector3(x, 10.0, z);
-    const dir = new THREE.Vector3(0,-1,0);
+    const cache = this._groundCache;
+    const o = this.controls.getObject();
+    const eye = this.crouching ? 1.25 : 1.7;
+    // Decide whether to skip raycast based on movement and airborne state
+    let movedXZ = true;
+    if (cache.x !== Infinity) {
+      const dx = x - cache.x, dz = z - cache.z;
+      movedXZ = Math.hypot(dx, dz) > this._groundXZThresh;
+      const desiredEyeY = cache.y + eye;
+      const airborne = (o.position.y - desiredEyeY) > 0.6;
+      if (!forcePrecise) {
+        if (airborne) return cache.y;
+        if (!movedXZ) return cache.y;
+      }
+    }
+
+    // Precise raycast downward from above player footprint center
+    const t = this._tmp;
+    t.pos.set(x, 10.0, z);
     try {
-      this._groundRaycaster.set(origin, dir);
+      this._groundRaycaster.set(t.pos, t.down);
       this._groundRaycaster.far = 20;
       const hits = this._groundRaycaster.intersectObjects(this.objects, false);
       if (hits && hits.length) {
-        // pick highest hit below origin
         let top = 0;
         for (const h of hits) { if (h.point && h.point.y > top) top = h.point.y; }
-        if (top != null) return top;
+        cache.x = x; cache.z = z; cache.y = top;
+        return top;
       }
     } catch(_) {}
+
     // Fallback to AABB sampling of footprint
     const half = this.colliderHalf;
     const probeMinX = x - half.x;
@@ -380,6 +453,7 @@ export class PlayerController {
       const top = obb.max.y;
       if (top > maxTop) maxTop = top;
     }
+    cache.x = x; cache.z = z; cache.y = maxTop;
     return maxTop;
   }
 }

@@ -1,0 +1,12 @@
+{
+  "name": "quarantine-of-joy-game",
+  "version": "1.0.0",
+  "description": "Quarantine of Joy web game",
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}

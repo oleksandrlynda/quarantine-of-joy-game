@@ -4,6 +4,8 @@ import { Shotgun } from './shotgun.js';
 import { DMR } from './dmr.js';
 import { Pistol } from './pistol.js';
 import { GrenadePistol } from './grenadepistol.js';
+import { Minigun } from './minigun.js';
+import { BeamSaber } from './beamsaber.js';
 
 // WeaponSystem orchestrates current weapon, input mapping, and HUD sync
 export class WeaponSystem {
@@ -42,13 +44,15 @@ export class WeaponSystem {
   // Crosshair profile for current weapon
   getCrosshairProfile(){
     const w = this.current;
-    const def = { baseScale: 0.9, minAlpha: 0.65, k: 0.7, thickPx: 2, gapPx: 5, lenPx: 6 };
+    const def = { baseScale: 0.9, minAlpha: 0.65, k: 0.7, thickPx: 2, gapPx: 5, lenPx: 6, rotDeg: 0 };
     const name = w?.name || '';
     if (name === 'Pistol') return { baseScale: 0.85, minAlpha: 0.75, k: 0.5, thickPx: 2, gapPx: 5, lenPx: 5 };
     if (name === 'Rifle') return { baseScale: 0.9, minAlpha: 0.65, k: 0.7, thickPx: 2, gapPx: 6, lenPx: 6 };
     if (name === 'SMG') return { baseScale: 0.95, minAlpha: 0.6, k: 0.9, thickPx: 2, gapPx: 7, lenPx: 7 };
+    if (name === 'Minigun') return { baseScale: 1.0, minAlpha: 0.55, k: 1.0, thickPx: 2, gapPx: 8, lenPx: 8 };
     if (name === 'DMR') return { baseScale: 0.8, minAlpha: 0.78, k: 0.45, thickPx: 2, gapPx: 4, lenPx: 4 };
     if (name === 'Shotgun') return { baseScale: 1.2, minAlpha: 0.65, k: 1.2, thickPx: 2, gapPx: 20, lenPx: 8 };
+    if (name === 'BeamSaber') return { baseScale: 0.7, minAlpha: 0.8, k: 0.4, thickPx: 2, gapPx: 3, lenPx: 3, rotDeg: 45 };
     return def;
   }
 
@@ -104,6 +108,16 @@ export class WeaponSystem {
 
   triggerUp() { this.current?.triggerUp(); }
 
+  triggerAltDown() {
+    const w = this.current; if (!w) return;
+    if (typeof w.altTriggerDown === 'function') w.altTriggerDown(this.context());
+  }
+
+  triggerAltUp() {
+    const w = this.current; if (!w) return;
+    if (typeof w.altTriggerUp === 'function') w.altTriggerUp(this.context());
+  }
+
   reload() {
     const ok = this.current?.reload(() => this.S?.reload?.());
     if (ok) {
@@ -128,6 +142,11 @@ export class WeaponSystem {
   switchSlot(slotIndex1Based) {
     const idx = (slotIndex1Based | 0) - 1;
     if (idx >= 0 && idx < this.inventory.length) {
+      const old = this.current;
+      if (old) {
+        old.triggerUp();
+        if (typeof old.altTriggerCancel === 'function') old.altTriggerCancel(this.context());
+      }
       this.currentIndex = idx;
       this.updateHUD?.();
     }
@@ -136,6 +155,10 @@ export class WeaponSystem {
   // Swap primary to a new weapon instance and convert reserve from old
   swapPrimary(makeWeaponFn) {
     const old = this.current;
+    if (old) {
+      old.triggerUp();
+      if (typeof old.altTriggerCancel === 'function') old.altTriggerCancel(this.context());
+    }
     const carry = Math.floor(Math.max(0, (old?.reserveAmmo || 0)) * 0.5);
     const newW = makeWeaponFn();
     newW.reset();
@@ -157,6 +180,8 @@ export class WeaponSystem {
     if (unlocks?.smg) list.push({ name:'SMG', make: ()=> new SMG() });
     if (unlocks?.shotgun) list.push({ name:'Shotgun', make: ()=> new Shotgun() });
     if (unlocks?.dmr) list.push({ name:'DMR', make: ()=> new DMR() });
+    if (unlocks?.minigun) list.push({ name:'Minigun', make: ()=> new Minigun() });
+    if (unlocks?.beamsaber) list.push({ name:'BeamSaber', make: ()=> new BeamSaber() });
     return list;
   }
 
@@ -171,6 +196,8 @@ export class WeaponSystem {
   onAmmoPickup(amount) {
     const gain = Math.max(0, amount | 0);
     const name = this.current?.name || '';
+    // BeamSaber has no ammo economy
+    if (name === 'BeamSaber') return;
     // Balance pass: scale ammo pickup by weapon archetype so each drop yields
     // a comparable fraction of that weapon's default reserve.
     // Target avg fraction of default reserve per drop (approx):
@@ -179,18 +206,24 @@ export class WeaponSystem {
     //  - Shotgun ~25% (0.3x of 15–30)
     //  - DMR ~25% (0.4x of 15–30)
     //  - Pistol ~20% (0.45x of 15–30)
+    //  - Minigun ~20% (1.8x of 15–30)
     const weaponPickupMultiplier = (w)=>{
       switch (w) {
         case 'SMG': return 1.6;
         case 'Shotgun': return 0.3;
-        case 'DMR': return 0.4;
+        case 'DMR': return 0.3;
         case 'Pistol': return 0.45;
         case 'Rifle': return 0.85;
+        case 'Minigun': return 1.8;
         default: return 1.0;
       }
     };
     const multiplier = weaponPickupMultiplier(name);
-    if (!this.splitPickupsProportionally || this.inventory.length <= 1) {
+
+    // Exclude BeamSaber from split calculations
+    const weapons = this.inventory.filter(w => w?.name !== 'BeamSaber');
+
+    if (!this.splitPickupsProportionally || weapons.length <= 1) {
       const adjustedGain = Math.floor(gain * multiplier);
       this.current?.addReserve(adjustedGain);
       this.S?.reload?.();
@@ -198,21 +231,21 @@ export class WeaponSystem {
       return;
     }
     // Proportional to deficits against each weapon's nominal reserve
-    const deficits = this.inventory.map(w => Math.max(0, (w.cfg.reserve || 0) - (w.reserveAmmo || 0)));
+    const deficits = weapons.map(w => Math.max(0, (w.cfg.reserve || 0) - (w.reserveAmmo || 0)));
     const totalDeficit = deficits.reduce((a,b)=>a+b,0);
     if (totalDeficit <= 0) {
       // Fallback: split evenly
-      const per = Math.floor(gain / this.inventory.length);
-      let rem = gain - per * this.inventory.length;
-      for (let i=0;i<this.inventory.length;i++) {
+      const per = Math.floor(gain / weapons.length);
+      let rem = gain - per * weapons.length;
+      for (let i=0;i<weapons.length;i++) {
         const add = per + (rem>0?1:0); rem = Math.max(0, rem-1);
-        this.inventory[i].addReserve(add);
+        weapons[i].addReserve(add);
       }
     } else {
       let remaining = gain;
-      for (let i=0;i<this.inventory.length;i++) {
+      for (let i=0;i<weapons.length;i++) {
         const share = Math.floor(gain * (deficits[i] / totalDeficit));
-        this.inventory[i].addReserve(share);
+        weapons[i].addReserve(share);
         remaining -= share;
       }
       // distribute any rounding remainder to current weapon first

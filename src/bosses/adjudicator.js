@@ -115,14 +115,14 @@ export class StrikeAdjudicator {
       }
     }
 
-    // Light add spawns (rushers) while in combat (never more than 3 alive from this boss)
+    // Light add spawns (bailiffs) while in combat (never more than 3 alive from this boss)
     if (this.enemyManager && (this._addCooldown || 0) <= 0) {
       const mine = Array.from(this.enemyManager.instances || []).filter(inst => inst?.summoner === this).length;
       if (mine < 3 && Math.random() < 0.18 * dt) {
         const p = ctx.player.position;
         const a = Math.random() * Math.PI * 2, r = 10 + Math.random() * 6;
         const pos = new this.THREE.Vector3(p.x + Math.cos(a)*r, 0.8, p.z + Math.sin(a)*r);
-        const root = this.enemyManager.spawnAt('rusher', pos, { countsTowardAlive: true });
+        const root = this.enemyManager.spawnAt('bailiff', pos, { countsTowardAlive: true });
         if (root) {
           const inst = this.enemyManager.instanceByRoot?.get(root);
           if (inst) inst.summoner = this;
@@ -341,9 +341,22 @@ export class StrikeAdjudicator {
     const ang = Math.atan2(toP.x, toP.z);
     const within = this._angleWithin(ang, m.start, m.end);
     if (within) {
-      ctx.onPlayerDamage(dmg);
-      const dir = toP.clone().normalize();
-      ctx.player.position.add(dir.multiplyScalar(knock));
+      const THREE = this.THREE;
+      const origin = new THREE.Vector3(from.x, from.y + 1.2, from.z);
+      const target = new THREE.Vector3(ctx.player.position.x, 1.5, ctx.player.position.z);
+      const dir = target.clone().sub(origin);
+      const distToPlayer = dir.length();
+      if (distToPlayer > 0) {
+        dir.normalize();
+        this._ray.set(origin, dir);
+        this._ray.far = distToPlayer - 0.1;
+        const hits = this._ray.intersectObjects(ctx.objects || [], false);
+        if (!(hits && hits.length > 0)) {
+          ctx.onPlayerDamage(dmg);
+          const knockDir = toP.clone().normalize();
+          ctx.player.position.add(knockDir.multiplyScalar(knock));
+        }
+      }
     }
     // pulse ring
     try { window?._EFFECTS?.ring?.(from.clone(), 6.5, 0x60a5fa); } catch(_){}
