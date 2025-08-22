@@ -39,7 +39,9 @@ if (musicSelect) {
 const url = new URL(window.location.href);
 const params = url.searchParams;
 const shapeSelect = document.getElementById('arenaShape');
-let arenaShape = params.get('shape') || (shapeSelect ? shapeSelect.value : 'box');
+// TODO: Implement later different arena shapes
+// let arenaShape = params.get('shape') || (shapeSelect ? shapeSelect.value : 'box');
+const arenaShape = 'box';
 if (shapeSelect) {
   shapeSelect.value = arenaShape;
   shapeSelect.addEventListener('change', e => {
