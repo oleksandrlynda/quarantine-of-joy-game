@@ -62,7 +62,8 @@ COURIER: Save your breath. We’ll need it for cheering. @exfil
 - Provide alternates for high‑repetition triggers (reloads, low health, objective captures)
 
 ## Localization Hooks
-- Tag every string with `#loc_key` (e.g., `#boss_sanitizer_intro_01`).
+- Tag every string with `#loc_key` appended at the end of the line.
+  - Format: `#<beat_id>_nn` where `beat_id` matches the narrative key and `nn` is a two‑digit index (e.g., `#boss_5_start_01`).
 - Mark non‑translatable wordplay with `@nt` and provide at least one localized alt line.
 - Counts: provide ≥2 alternates for barks; ≥1 alternate for event lines; VO sheets include speaker, timing, and trigger.
 - Formatting: avoid embedding numbers; use placeholders (e.g., `{value}`) for dynamic content.
@@ -77,3 +78,4 @@ COURIER: Save your breath. We’ll need it for cheering. @exfil
   - Boss Intros/Outros (each boss): 6–8 intro, 4–6 outro
 - Neutral chatter (hub/city): 12–16 lines per major district
 - Localization: provide 2 alt lines for region‑specific idioms; avoid untranslatable puns in critical callouts
+
