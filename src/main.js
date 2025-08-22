@@ -18,7 +18,10 @@ import { Progression } from './progression.js';
 import { loadAllModels, prewarmAllShaders } from '../loader.js?v=3';
 import { StoryManager } from './story.js';
 
-const isMobile = window.IS_MOBILE || window.matchMedia('(pointer:coarse)').matches;
+// Prefer the flag set in index.html; fallback to media query
+const isMobile = (typeof window !== 'undefined' && 'IS_MOBILE' in window && window.IS_MOBILE)
+  ? !!window.IS_MOBILE
+  : window.matchMedia?.('(pointer:coarse)').matches === true;
 
 // --- Music selection ---
 const musicSelect = document.getElementById('musicSelect');
@@ -507,10 +510,7 @@ try { weaponView.setWeapon(weaponSystem.getPrimaryName()); } catch(_) {}
 progression = new Progression({ weaponSystem, documentRef: document, onPause: (lock)=>{ offerActive = !!lock; paused = !!lock; }, controls });
 story = storyDisabled ? null : new StoryManager({ documentRef: document, onPause: (lock)=>{ paused = !!lock; }, controls, toastFn: (t)=> showToast(t), tickerFn: (t)=> showTicker(t), beatsUrl: 'assets/story/beats.json' });
 
-// Prefer the flag set in index.html; fallback to media query
-const isMobile = (typeof window !== 'undefined' && 'IS_MOBILE' in window)
-  ? !!window.IS_MOBILE
-  : window.matchMedia?.('(pointer:coarse)').matches === true;
+
 
 if (!isMobile) {
   // Desktop: support primary fire + right-click alt fire
