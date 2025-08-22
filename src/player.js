@@ -58,24 +58,95 @@ export class PlayerController {
     this.fullHeight = this.colliderHalf.y * 2; // ~1.8m
     this._groundRaycaster = new THREE.Raycaster();
 
-    // Listeners
-    window.addEventListener('keydown', (e)=>{
-      this.keys.add(e.code);
-      if(e.code === 'Space' && this.canJump){
-        // Block jump if not enough stamina
-        if (this.stamina >= this.staminaJumpCost) {
-          this.velocityY = 7;
-          this.canJump = false;
-          // Spend stamina for jump
-          this._spendStamina(this.staminaJumpCost);
-        }
+    // Input helpers
+    this.isMobile = window.matchMedia('(pointer:coarse)').matches;
+    this.joy = {x:0, y:0};
+
+    if (!this.isMobile){
+      window.addEventListener('keydown', (e)=>{
+        this.keys.add(e.code);
+        if(e.code === 'Space') this.jump();
+        if(e.code==='ControlLeft' || e.code==='ControlRight') this.crouching = true;
+      });
+      window.addEventListener('keyup', (e)=>{
+        this.keys.delete(e.code);
+        if(e.code==='ControlLeft' || e.code==='ControlRight') this.crouching = false;
+      });
+    } else {
+      // Virtual joystick for movement
+      const joyEl = document.getElementById('joystick');
+      const knob = joyEl?.querySelector('.knob');
+      const updateFromVector = (dx, dy)=>{
+        const threshold = 0.3;
+        this.keys.delete('KeyW'); this.keys.delete('KeyS');
+        this.keys.delete('KeyA'); this.keys.delete('KeyD');
+        if (dy < -threshold) this.keys.add('KeyW');
+        if (dy > threshold) this.keys.add('KeyS');
+        if (dx < -threshold) this.keys.add('KeyA');
+        if (dx > threshold) this.keys.add('KeyD');
+      };
+      if (joyEl){
+        let active = false;
+        joyEl.addEventListener('touchstart', e=>{
+          active = true; e.preventDefault();
+        });
+        joyEl.addEventListener('touchmove', e=>{
+          if(!active) return; e.preventDefault();
+          const t = e.touches[0];
+          const rect = joyEl.getBoundingClientRect();
+          const r = rect.width/2;
+          const x = t.clientX - (rect.left + r);
+          const y = t.clientY - (rect.top + r);
+          const mag = Math.min(r, Math.hypot(x,y));
+          const ang = Math.atan2(y,x);
+          const dx = Math.cos(ang)*mag/r;
+          const dy = Math.sin(ang)*mag/r;
+          if (knob) knob.style.transform = `translate(${dx*r}px, ${dy*r}px)`;
+          updateFromVector(dx, dy);
+        }, {passive:false});
+        const reset = ()=>{
+          active = false;
+          if (knob) knob.style.transform = 'translate(0,0)';
+          updateFromVector(0,0);
+        };
+        joyEl.addEventListener('touchend', reset);
+        joyEl.addEventListener('touchcancel', reset);
       }
-      if(e.code==='ControlLeft' || e.code==='ControlRight') this.crouching = true;
-    });
-    window.addEventListener('keyup', (e)=>{
-      this.keys.delete(e.code);
-      if(e.code==='ControlLeft' || e.code==='ControlRight') this.crouching = false;
-    });
+        // Look controls on right side
+        let lookId = null, lx=0, ly=0;
+        this.domElement.addEventListener('touchstart', e=>{
+          if (e.target.closest('#actionButtons')) return;
+          for(const t of e.touches){
+            if (t.clientX > window.innerWidth/2){ lookId=t.identifier; lx=t.clientX; ly=t.clientY; break; }
+          }
+        }, {passive:false});
+        this.domElement.addEventListener('touchmove', e=>{
+          if(lookId===null) return; e.preventDefault();
+          const t = Array.from(e.touches).find(tt=>tt.identifier===lookId);
+          if(!t) return;
+          const dx = t.clientX - lx; const dy = t.clientY - ly;
+          this.yawObject.rotation.y -= dx * 0.0025;
+          this.pitchObject.rotation.x -= dy * 0.0025;
+          this.pitchObject.rotation.x = Math.max(-Math.PI/2 + 0.01, Math.min(Math.PI/2 - 0.01, this.pitchObject.rotation.x));
+          lx = t.clientX; ly = t.clientY;
+        }, {passive:false});
+        const endLook = e=>{
+          if(lookId===null) return;
+          for(const t of e.changedTouches){
+            if(t.identifier===lookId){ lookId=null; break; }
+          }
+        };
+        this.domElement.addEventListener('touchend', endLook);
+        this.domElement.addEventListener('touchcancel', endLook);
+    }
+  }
+
+  jump(){
+    if(this.canJump && this.stamina >= this.staminaJumpCost){
+      this.velocityY = 7;
+      this.canJump = false;
+      this._spendStamina(this.staminaJumpCost);
+    }
   }
 
   refreshColliders(objects){
