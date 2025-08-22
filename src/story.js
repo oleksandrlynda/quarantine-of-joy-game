@@ -20,6 +20,7 @@ export class StoryManager {
     this._seen = this._loadSeen();
     this._currentBeat = null;
     this._tickerShown = false;
+    this._bossActive = false;
   }
 
   _bindUI(){
@@ -35,11 +36,13 @@ export class StoryManager {
     this.enabled = false;
     if (this.container) this.container.style.display = 'none';
     this._tickerShown = false;
+    this._bossActive = false;
   }
 
   startRun(){
     this.enabled = true;
     this._tickerShown = false;
+    this._bossActive = false;
     // Optionally load external beats for easy authoring
     if (this._beatsUrl) {
       try {
@@ -71,7 +74,7 @@ export class StoryManager {
     if (wave === 10) this._enqueueBeat('midRun');
     if (wave === 20) this._enqueueBeat('lateRun');
     // Drop a ticker snippet the first time we get past wave 1, then occasionally
-    if (this.ticker && wave > 1) {
+    if (this.ticker && wave > 1 && !this._bossActive) {
       const tickers = Object.keys(this._beats).filter(id => this._beats[id].mode === 'ticker');
       const remaining = tickers.filter(id => !this._beatsFired.has(id));
       if (remaining.length > 0) {
@@ -88,14 +91,21 @@ export class StoryManager {
 
   onBossStart(wave){
     if (!this.enabled) return;
+    this._bossActive = true;
     this._enqueueBeat(`boss_${wave}_start`);
+    this._enqueueBeat(`boss_${wave}_ticker`);
     this._maybeShow();
   }
 
   onBossDeath(wave){
     if (!this.enabled) return;
     this._enqueueBeat(`boss_${wave}_down`);
+    this._enqueueBeat(`boss_${wave}_ticker`);
     if (wave === 5) this._enqueueBeat('boss_5_report');
+    const beat = this._beats[`boss_${wave}_ticker`];
+    const repeat = typeof beat?.repeat === 'number' ? beat.repeat : 3;
+    const interval = typeof beat?.interval === 'number' ? beat.interval : 8000;
+    setTimeout(()=>{ this._bossActive = false; }, repeat * (interval + 240));
     this._maybeShow();
   }
 
@@ -246,22 +256,26 @@ const NARRATIVE_BEATS = {
   ticker_gossip15: { id:'ticker_gossip15', text: 'Alert: rogue trainee spotted speed-running safety briefings.', mode: 'ticker' },
   ticker_gossip16: { id:'ticker_gossip16', text: 'Fun fact: reloading to the beat increases accuracy by 0%. Still fun.', mode: 'ticker' },
   // Boss-specific hooks; generic fallback copy is fine
+  'boss_5_ticker': { id:'boss_5_ticker', text: 'Alert: Broodmaker active—clear pods to stem the swarm.', mode: 'ticker', repeat: 4 },
   'boss_5_start': { id:'boss_5_start', text: 'Broodmaker spawns incoming. Eliminate pods to thin the swarm.' },
   'boss_5_down': { id:'boss_5_down', text: 'MOD: Broodmaker down. Swarm quieting. Scoop supplies and reset your lane.' },
   boss_5_report: { id:'boss_5_report', text: 'MOD: Uplink clean. The block’s laughing again. BoB will counter—eyes up.', mode: 'toast', persistOnce: true },
+  'boss_10_ticker': { id:'boss_10_ticker', text: 'Alert: Commissioner Sanitizer broadcasting—strafe to dodge beams.', mode: 'ticker', repeat: 4 },
   'boss_10_start': { id:'boss_10_start', text: 'MOD: Commissioner Sanitizer’s spire team online. Area denial and beams—strafe clean.' },
   'boss_10_down': { id:'boss_10_down', text: 'MOD: Sanitizer silenced. Broadcast reached the block. Armory channels are opening.' },
+  'boss_15_ticker': { id:'boss_15_ticker', text: 'Alert: Influencer Captain streaming—pop sponsor pods to break shield.', mode: 'ticker', repeat: 4 },
   'boss_15_start': { id:'boss_15_start', text: 'MOD: Influencer Militia Captain with Ad Zeppelin support. Cancel sponsorship pods to break the shield.' },
   'boss_15_down': { id:'boss_15_down', text: 'MOD: Captain dropped. Formation broken; sponsors ghosted.' },
+  'boss_20_ticker': { id:'boss_20_ticker', text: 'Alert: Algorithm Shard Avatar distorting field—stay off-beat.', mode: 'ticker', repeat: 4 },
   'boss_20_start': { id:'boss_20_start', text: 'GLITCHCAT: Algorithm Shard Avatar manifesting. Watch emissive tells; play off‑beat.' },
   'boss_20_down': { id:'boss_20_down', text: 'GLITCHCAT: Shard reconciled. Signal variance restored.' },
+  'boss_25_ticker': { id:'boss_25_ticker', text: 'Alert: Broodmaker returns heavier—spread damage and smash eggs.', mode: 'ticker', repeat: 4 },
   'boss_25_start': { id:'boss_25_start', text: 'Broodmaker returns, reinforced. Spread the damage, clear eggs fast.' },
-  'boss_25_down': { id:'boss_25_down', text: 'Heavy Broodmaker down. You are becoming the problem.' }
-  ,
-  'boss_30_start': { id:'boss_30_start', text: 'Hydraclone detected. Eliminate clones quickly to prevent overwhelming numbers.' },
+  'boss_25_down': { id:'boss_25_down', text: 'Heavy Broodmaker down. You are becoming the problem.' },
+  'boss_30_ticker': { id:'boss_30_ticker', text: 'Alert: Hydraclone divides under fire—erase clones quickly.', mode: 'ticker', repeat: 4 },
+  'boss_30_start': { id:'boss_30_start', text: 'Hydraclone detected. Eliminate clones quickly to prevent overwhelming numbers.'},
   'boss_30_down': { id:'boss_30_down', text: 'Hydraclone neutralized. The field quiets—for now.' },
+  'boss_35_ticker': { id:'boss_35_ticker', text: 'Alert: Strike Adjudicator deployed—expect precision retaliation.', mode: 'ticker', repeat: 4 },
   'boss_35_start': { id:'boss_35_start', text: 'Strike Adjudicator enters. Expect precision strikes and punish windows—stay moving.' },
   'boss_35_down': { id:'boss_35_down', text: 'Adjudicator down. You have exceeded projections.' }
 };
-
-
