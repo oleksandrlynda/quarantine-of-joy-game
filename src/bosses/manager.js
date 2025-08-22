@@ -46,7 +46,7 @@ export class BossManager {
   startBoss(wave) {
     const THREE = this.THREE;
     this.reset();
-    this.active = true; this.wave = wave;
+    this.wave = wave;
 
     // Spawn position: prefer manager's spawn selection, else fallback near far edge
     const spawnPos = (typeof this.enemyManager._chooseSpawnPos === 'function'
@@ -77,7 +77,10 @@ export class BossManager {
     } else if (wave == 35) {
       boss = new StrikeAdjudicator({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager });
     }
-    
+
+    if (!boss) return false;
+
+    this.active = true;
     boss._notifyDeath = () => this._onBossDeath();
     this.enemyManager.registerExternalEnemy(boss, { countsTowardAlive: true });
     this.boss = boss;
@@ -85,6 +88,7 @@ export class BossManager {
     // First ability window 8–12s
     this.cooldown = 8 + Math.random() * 4;
     this.telegraphTime = 0;
+    return true;
   }
 
   update(dt, ctx) {

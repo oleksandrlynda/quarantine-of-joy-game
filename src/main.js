@@ -1028,10 +1028,11 @@ if (enemyManager && enemyManager.bossManager) {
       if (currentSongIndex < 0) currentSongIndex = 0;
       loadCurrentSong();
     }
-    originalStartBoss(wave);
+    const res = originalStartBoss(wave);
     try { if (story) story.onBossStart(wave); } catch(_) {}
     // Record boss max HP for intensity mapping
     try { bm._musicBossMaxHp = bm?.boss?.root?.userData?.hp || bm?.boss?.maxHp || 1; } catch (_) { bm._musicBossMaxHp = 1; }
+    return res;
   };
   const originalOnBossDeath = bm._onBossDeath.bind(bm);
   bm._onBossDeath = () => {

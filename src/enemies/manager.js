@@ -591,9 +591,11 @@ export class EnemyManager {
     if (this.suspendWaves) return; // disabled in test harness
     // Gate boss waves
     if (this.wave % 5 === 0) {
-      if (this.onWave) this.onWave(this.wave, 1);
-      this.bossManager.startBoss(this.wave);
-      return;
+      const started = this.bossManager.startBoss(this.wave);
+      if (started) {
+        if (this.onWave) this.onWave(this.wave, 1);
+        return;
+      }
     }
 
     const count = 10 + this.wave;
