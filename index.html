@@ -45,36 +45,21 @@
 
 <div id="toasts"></div>
 
+<div id="newsTicker"></div>
+
 <div id="story" style="display:none">
   <div class="card">
     <div id="storyText" class="storyText"></div>
     <div class="actions"><button class="primary" id="storyNext">Continue</button></div>
   </div>
-  <div id="crosshair">
-   <div class="seg top"></div>
-   <div class="seg bottom"></div>
-   <div class="seg left"></div>
-   <div class="seg right"></div>
- </div>
-  <div id="hitmarker"></div>
-  <div id="bossHud" style="display:none">
-    <div id="bossName" class="tiny"></div>
-    <div class="bossBar"><div id="bossHpBar"></div></div>
-  </div>
-  <div id="toasts"></div>
-  <div id="newsTicker"></div>
-  <div id="story" style="display:none">
-    <div class="card">
-      <div id="storyText" class="storyText"></div>
-      <div class="actions"><button class="primary" id="storyNext">Continue</button></div>
-    </div>
-    <style>
-      #story{ position:fixed; inset:0; display:grid; place-items:center; background:rgba(0,0,0,0.35); pointer-events:auto; z-index:5; }
-      #story .card{ background:#ffffffee; border-radius:18px; padding:16px; width:min(92%,520px); box-shadow:0 20px 70px #00000055; }
-      #story .storyText{ font-weight:700; line-height:1.4; margin-bottom:12px; }
-      #story .actions{ display:flex; justify-content:flex-end; }
-    </style>
-  </div>
+  <style>
+    #story{ position:fixed; inset:0; display:grid; place-items:center; background:rgba(0,0,0,0.35); pointer-events:auto; z-index:5; }
+    #story .card{ background:#ffffffee; border-radius:18px; padding:16px; width:min(92%,520px); box-shadow:0 20px 70px #00000055; }
+    #story .storyText{ font-weight:700; line-height:1.4; margin-bottom:12px; }
+    #story .actions{ display:flex; justify-content:flex-end; }
+  </style>
+</div>
+
 <div id="promoPulse"></div>
 
 <div id="offer" style="display:none">
