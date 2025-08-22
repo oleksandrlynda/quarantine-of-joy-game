@@ -573,7 +573,7 @@ export class EnemyManager {
     for (const e of this.enemies) this.scene.remove(e);
     this.enemies.clear();
     this.instances.clear();
-    this.wave = 19; this.alive = 0;
+    this.wave = 1; this.alive = 0;
     if (this.bossManager) this.bossManager.reset();
     if (!this.suspendWaves) this.startWave();
   }
