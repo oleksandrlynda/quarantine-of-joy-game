@@ -1,9 +1,11 @@
 import { createBlockBot } from '../assets/blockbot.js';
 import { createGruntBot } from '../assets/gruntbot.js';
+import { createGruntlingBot } from '../assets/gruntlingbot.js';
 // Asset cache: build models once and clone for spawns
 const _enemyAssetCache = {
-	tank: null,
-	grunt: null
+        tank: null,
+        grunt: null,
+        gruntling: null
 };
 
 // --- Melee attack definitions ---
@@ -31,12 +33,74 @@ export class MeleeEnemy {
       if (!_enemyAssetCache.tank) _enemyAssetCache.tank = createBlockBot({ THREE, mats, scale: 1.1 });
       const src = _enemyAssetCache.tank;
       const clone = src.root.clone(true);
-      body = clone; head = clone.userData?.head || src.head; this._animRefs = src.refs || {};
+      // Remap anim refs from original asset graph to this clone so animations affect the visible mesh
+      const remapRefs = (srcRoot, cloneRoot, refs) => {
+        const out = {};
+        const getPath = (node) => {
+          const path = [];
+          let cur = node;
+          while (cur && cur !== srcRoot) {
+            const parent = cur.parent; if (!parent) return null;
+            const idx = parent.children.indexOf(cur); if (idx < 0) return null;
+            path.push(idx); cur = parent;
+          }
+          return path.reverse();
+        };
+        const follow = (root, path) => {
+          let cur = root; for (const idx of (path||[])) { if (!cur || !cur.children || idx >= cur.children.length) return null;
+cur = cur.children[idx]; }
+          return cur;
+        };
+        for (const k of Object.keys(refs||{})) { const p = getPath(refs[k]); out[k] = p ? follow(cloneRoot, p) : null; }
+        return out;
+      };
+      body = clone; head = clone.userData?.head || src.head; this._animRefs = remapRefs(src.root, clone, src.refs || {});
+    } else if (cfg && cfg.type === 'gruntling') {
+      if (!_enemyAssetCache.gruntling) _enemyAssetCache.gruntling = createGruntlingBot({ THREE, mats, cfg, scale: 0.7 });
+      const src = _enemyAssetCache.gruntling;
+      const clone = src.root.clone(true);
+      // Remap anim refs from original asset graph to this clone so animations affect the visible mesh
+      const remapRefs = (srcRoot, cloneRoot, refs) => {
+        const out = {};
+        const getPath = (node) => {
+          const path = [];
+          let cur = node;
+          while (cur && cur !== srcRoot) {
+            const parent = cur.parent; if (!parent) return null;
+            const idx = parent.children.indexOf(cur); if (idx < 0) return null;
+            path.push(idx); cur = parent;
+          }
+          return path.reverse();
+        };
+        const follow = (root, path) => {
+          let cur = root; for (const idx of (path||[])) { if (!cur || !cur.children || idx >= cur.children.length) return null; cur = cur.children[idx]; }
+          return cur;
+        };
+        for (const k of Object.keys(refs||{})) { const p = getPath(refs[k]); out[k] = p ? follow(cloneRoot, p) : null; }
+        return out;
+      };
+      body = clone; head = clone.userData?.head || src.head; this._animRefs = remapRefs(src.root, clone, src.refs || {});
     } else {
       if (!_enemyAssetCache.grunt) _enemyAssetCache.grunt = createGruntBot({ THREE, mats, scale: 0.88 });
       const src = _enemyAssetCache.grunt;
       const clone = src.root.clone(true);
-      body = clone; head = clone.userData?.head || src.head; this._animRefs = src.refs || {};
+      const remapRefs = (srcRoot, cloneRoot, refs) => {
+        const out = {};
+        const getPath = (node) => {
+          const path = [];
+          let cur = node;
+          while (cur && cur !== srcRoot) {
+            const parent = cur.parent; if (!parent) return null;
+            const idx = parent.children.indexOf(cur); if (idx < 0) return null;
+            path.push(idx); cur = parent;
+          }
+          return path.reverse();
+        };
+        const follow = (root, path) => { let cur = root; for (const idx of (path||[])) { if (!cur || !cur.children || idx >= cur.children.length) return null; cur = cur.children[idx]; } return cur; };
+        for (const k of Object.keys(refs||{})) { const p = getPath(refs[k]); out[k] = p ? follow(cloneRoot, p) : null; }
+        return out;
+      };
+      body = clone; head = clone.userData?.head || src.head; this._animRefs = remapRefs(src.root, clone, src.refs || {});
     }
     body.position.copy(spawnPos);
 

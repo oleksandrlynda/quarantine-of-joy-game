@@ -42,6 +42,20 @@ export class Pickups {
     return false;
   }
 
+  // Spawn multiple pickups at once, ignoring caps and pity timers.
+  // `type` can be 'ammo', 'med', or 'random' for a mix.
+  dropMultiple(type, pos, count) {
+    for (let i = 0; i < count; i++) {
+      const t = (type === 'random' || !type)
+        ? (Math.random() < 0.5 ? 'ammo' : 'med')
+        : type;
+      const p = pos.clone();
+      p.x += (Math.random() - 0.5) * 0.6;
+      p.z += (Math.random() - 0.5) * 0.6;
+      this.spawn(t, p);
+    }
+  }
+
   spawn(type, pos) {
     const THREE = this.THREE;
     const group = new THREE.Group();

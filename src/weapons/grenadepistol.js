@@ -82,7 +82,12 @@ export class GrenadePistol extends Weapon {
         root.userData.hp -= dmg;
         if (root.userData.hp <= 0){
           effects?.enemyDeath?.(root.position.clone());
-          pickups?.maybeDrop?.(root.position.clone());
+          const eType = root?.userData?.type;
+          if (eType === 'tank') { // tanks shower extra rewards
+            pickups?.dropMultiple?.('random', root.position.clone(), 3 + (Math.random() * 2 | 0));
+          } else {
+            pickups?.maybeDrop?.(root.position.clone());
+          }
           enemyManager.remove(root);
           const finalScore = Math.round(120 * (ctx.combo?.multiplier || 1));
           addScore?.(finalScore);

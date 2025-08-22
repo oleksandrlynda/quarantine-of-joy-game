@@ -1,7 +1,7 @@
 import * as THREE from 'https://unpkg.com/three@0.159.0/build/three.module.js';
 import { PointerLockControls } from 'https://unpkg.com/three@0.159.0/examples/jsm/controls/PointerLockControls.js?module';
 import { WeatherSystem } from './weather.js';
-import { createWorld } from './world.js';
+import { createWorld } from './world.js?v=1';
 import { makeSeededRng, makeNamespacedRng, generateSeedString } from './util/rng.js';
 import { EnemyManager } from './enemies.js';
 import { PlayerController } from './player.js';
@@ -15,6 +15,7 @@ import { WeaponSystem } from './weapons/system.js';
 import { WeaponView } from './weapons/view.js';
 import { startEditor } from './editor.js';
 import { Progression } from './progression.js';
+import { loadAllModels, prewarmAllShaders } from '../loader.js?v=3';
 import { StoryManager } from './story.js';
 
 const isMobile = window.IS_MOBILE || window.matchMedia('(pointer:coarse)').matches;
@@ -33,6 +34,16 @@ if (musicSelect) {
 // ------ Seeded RNG + URL persistence ------
 const url = new URL(window.location.href);
 const params = url.searchParams;
+const shapeSelect = document.getElementById('arenaShape');
+let arenaShape = params.get('shape') || (shapeSelect ? shapeSelect.value : 'box');
+if (shapeSelect) {
+  shapeSelect.value = arenaShape;
+  shapeSelect.addEventListener('change', e => {
+    const u = new URL(window.location.href);
+    u.searchParams.set('shape', e.target.value);
+    window.location.href = `${u.pathname}?${u.searchParams.toString()}`;
+  });
+}
 let seed = params.get('seed');
 if (!seed) {
   seed = generateSeedString(6);
@@ -70,10 +81,36 @@ const mobileControlsEl = document.getElementById('mobileControls');
 if (mobileControlsEl) mobileControlsEl.style.display = isMobile ? '' : 'none';
 
 // ------ World (renderer, scene, camera, lights, sky, materials, arena) ------
-const { renderer, scene, camera, skyMat, hemi, dir, mats, objects } = createWorld(THREE, rng);
+const { renderer, scene, camera, skyMat, hemi, dir, mats, objects } = createWorld(THREE, rng, arenaShape);
 const wantEditor = (new URL(window.location.href)).searchParams.get('editor') === '1';
 const storyParam = (new URL(window.location.href)).searchParams.get('story');
 const storyDisabled = storyParam === '0' || storyParam === 'false';
+
+// Show loading overlay during asset + shader prewarm
+const loadingEl = document.getElementById('loading');
+const loadingBar = document.getElementById('loadingBar');
+const loadingText = document.getElementById('loadingText');
+function setLoading(pct, label){
+  if (!loadingEl) return;
+  const v = Math.max(0, Math.min(1, pct||0));
+  if (loadingBar) loadingBar.style.width = `${(v*100).toFixed(0)}%`;
+  if (loadingText) loadingText.textContent = `${(v*100).toFixed(0)}%${label?` — ${label}`:''}`;
+}
+
+// Kick asset load + shader warmup before proceeding
+try {
+  setLoading(0.02, 'Loading models');
+  const progress = (done, total)=>{ setLoading(0.02 + 0.48*(done/Math.max(1,total)), `Loading models ${done}/${total}`); };
+  const shaderWarm = params.get('warmup') === '1';
+  const { registry } = await loadAllModels({ renderer, onProgress: progress, skipWarmup: !shaderWarm });
+  if (shaderWarm) {
+    setLoading(0.55, 'Compiling shaders');
+    await prewarmAllShaders(renderer, { registry, includeShadows: renderer.shadowMap?.enabled, includeDepthVariants: true, extras: [] });
+  }
+  setLoading(1.0, 'Ready');
+  // Hide overlay
+  if (loadingEl) loadingEl.style.display = 'none';
+} catch(e) { console.warn('Warmup failed — continuing without precompiled shaders'); if (loadingEl) loadingEl.style.display = 'none'; }
 
 // Obstacles / Level loading (deterministic per seed or explicit map)
 const obstacleManager = new ObstacleManager(THREE, scene, mats);
@@ -148,6 +185,7 @@ effects.muzzleEnabled = true;
 // First-person simple weapon view (barrel meshes)
 const weaponView = new WeaponView(THREE, camera);
 const pickups = new Pickups(THREE, scene);
+enemyManager.pickups = pickups;
 
 // Wire obstacle manager hooks now that managers exist
 obstacleManager.enemyManager = enemyManager;
@@ -197,7 +235,10 @@ const weaponIconEl = document.getElementById('weaponIcon');
 const hpPillEl = document.getElementById('hpPill');
 const ammoPillEl = document.getElementById('ammoPill');
 const waveBarEl = document.getElementById('waveBar');
+const wavePillEl = document.getElementById('wavePill');
 const remainingEl = document.getElementById('remaining');
+const hydraWrapEl = document.getElementById('hydraWrap');
+const hydraCountEl = document.getElementById('hydraCount');
 const hitmarkerEl = document.getElementById('hitmarker');
 const bossHudEl = document.getElementById('bossHud');
 const bossNameEl = document.getElementById('bossName');
@@ -256,12 +297,13 @@ let story;        // lightweight narrative beats
 let offerActive = false; // suppress panel on pointer unlock during offers
 
 function updateHUD(){
-  const ammoVal = weaponSystem ? weaponSystem.getAmmo() : 30;
-  const reserveVal = weaponSystem ? weaponSystem.getReserve() : 60;
   const w = weaponSystem ? weaponSystem.current : null;
+  const isBeamSaber = w?.name === 'BeamSaber';
+  const ammoVal = weaponSystem ? (isBeamSaber ? '∞' : weaponSystem.getAmmo()) : 30;
+  const reserveVal = weaponSystem ? (isBeamSaber ? '∞' : weaponSystem.getReserve()) : 60;
   if (weaponNameEl) weaponNameEl.textContent = w ? w.name : 'Rifle';
   if (weaponIconEl) {
-    const iconMap = { Rifle:'assets/icons/weapon-rifle.svg', SMG:'assets/icons/weapon-smg.svg', Shotgun:'assets/icons/weapon-shotgun.svg', DMR:'assets/icons/weapon-dmr.svg', Pistol:'assets/icons/weapon-pistol.svg' };
+    const iconMap = { Rifle:'assets/icons/weapon-rifle.svg', SMG:'assets/icons/weapon-smg.svg', Shotgun:'assets/icons/weapon-shotgun.svg', DMR:'assets/icons/weapon-dmr.svg', Pistol:'assets/icons/weapon-pistol.svg', BeamSaber:'assets/icons/weapon-beamsaber.svg' };
     weaponIconEl.src = iconMap[w?.name] || iconMap.Rifle;
   }
   hpEl.textContent=hp; ammoEl.textContent=ammoVal; magEl.textContent=reserveVal; scoreEl.textContent=score; if (bestEl) bestEl.textContent = best; if(waveEl) waveEl.textContent = enemyManager.wave;
@@ -278,12 +320,32 @@ function updateHUDComboAndBoss(){
   // Low state cues
   if (hpPillEl){ hpPillEl.classList.remove('low','crit'); if (hp <= 25) { hpPillEl.classList.add('crit'); } else if (hp <= 50) { hpPillEl.classList.add('low'); } }
   if (ammoPillEl){ const ammoValLocal = weaponSystem ? weaponSystem.getAmmo() : 30; ammoPillEl.classList.remove('need-reload'); if (ammoValLocal <= 0) ammoPillEl.classList.add('need-reload'); }
-  // Wave progress
+  // Hydra lineage aggregate
+  let hydraAlive = 0, hydraDesc = 0;
+  try {
+    const bb = enemyManager?._ctx?.blackboard;
+    if (bb && bb.hydraLineages) {
+      for (const v of Object.values(bb.hydraLineages)) {
+        hydraAlive += v.alive || 0;
+        hydraDesc += v.descendants || 0;
+      }
+    }
+  } catch(_) {}
+  if (hydraWrapEl) {
+    if (hydraAlive > 0) {
+      hydraWrapEl.style.display = '';
+      if (hydraCountEl) hydraCountEl.textContent = `${hydraAlive}/${hydraDesc}`;
+    } else {
+      hydraWrapEl.style.display = 'none';
+    }
+  }
+  // Wave progress (account for hydra descendants)
   if (waveBarEl && typeof enemyManager.waveStartingAlive === 'number'){
-    const total = Math.max(1, enemyManager.waveStartingAlive);
+    const total = Math.max(1, enemyManager.waveStartingAlive + hydraDesc);
     const remaining = Math.max(0, enemyManager.alive|0);
     const done01 = Math.max(0, Math.min(1, 1 - (remaining / total)));
     waveBarEl.style.width = `${(done01*100).toFixed(1)}%`;
+    if (wavePillEl) wavePillEl.classList.toggle('hydra', hydraAlive > 0);
   }
   if (remainingEl) { remainingEl.textContent = Math.max(0, enemyManager.alive|0); }
   // Hide remaining when boss active
@@ -402,7 +464,7 @@ function addTracer(from, to){
   // New: use effects-driven sprite tracer for motion
   if (effects && typeof effects.spawnBulletTracer === 'function') {
     const muzzlePos = effects.getMuzzleWorldPos(new THREE.Vector3());
-    effects.spawnBulletTracer(muzzlePos, to, { ttl: 0.08, width: 0.08, impact: true });
+    effects.spawnBulletTracer(muzzlePos, to, { ttl: 0.12, width: 0.04, impact: true });
   } else {
     // Fallback to legacy line if effects unavailable
     const g = new THREE.BufferGeometry().setFromPoints([from.clone(), to.clone()]);
@@ -444,37 +506,66 @@ try { weaponView.setWeapon(weaponSystem.getPrimaryName()); } catch(_) {}
 progression = new Progression({ weaponSystem, documentRef: document, onPause: (lock)=>{ offerActive = !!lock; paused = !!lock; }, controls });
 story = storyDisabled ? null : new StoryManager({ documentRef: document, onPause: (lock)=>{ paused = !!lock; }, controls, toastFn: (t)=> showToast(t), beatsUrl: 'assets/story/beats.json' });
 
-if (!isMobile){
-  window.addEventListener('mousedown', e=>{ if(!controls.isLocked || paused) return; weaponSystem.triggerDown(); });
-  window.addEventListener('mouseup', ()=>{ weaponSystem.triggerUp(); });
-  window.addEventListener('keydown', e=>{
-    if(e.code==='KeyR'){ weaponSystem.reload(); }
-    if(e.code==='KeyP'){ paused=!paused; }
-    if(e.code==='Digit1'){ weaponSystem.switchSlot(1); }
-    if(e.code==='Digit2'){ weaponSystem.switchSlot(2); }
-    if(e.code==='Digit3'){ weaponSystem.switchSlot(3); }
-    if(e.code==='Digit4'){ weaponSystem.switchSlot(4); }
-    if(e.code==='Digit5'){ weaponSystem.switchSlot(5); }
-    try { weaponView.setWeapon(weaponSystem.getPrimaryName()); } catch(_) {}
+// Prefer the flag set in index.html; fallback to media query
+const isMobile = (typeof window !== 'undefined' && 'IS_MOBILE' in window)
+  ? !!window.IS_MOBILE
+  : window.matchMedia?.('(pointer:coarse)').matches === true;
+
+if (!isMobile) {
+  // Desktop: support primary fire + right-click alt fire
+  window.addEventListener('mousedown', e => {
+    if (!controls.isLocked || paused) return;
+    if (e.button === 2) weaponSystem.triggerAltDown();
+    else weaponSystem.triggerDown();
   });
+
+  window.addEventListener('mouseup', e => {
+    if (e.button === 2) weaponSystem.triggerAltUp();
+    else weaponSystem.triggerUp();
+  });
+
+  // Disable context menu so right-click is usable for alt fire
+  window.addEventListener('contextmenu', e => { e.preventDefault(); });
+
+  window.addEventListener('keydown', e => {
+    if (e.code === 'KeyR') { weaponSystem.reload(); }
+    if (e.code === 'KeyP') { paused = !paused; }
+    if (e.code === 'Digit1') { weaponSystem.switchSlot(1); }
+    if (e.code === 'Digit2') { weaponSystem.switchSlot(2); }
+    if (e.code === 'Digit3') { weaponSystem.switchSlot(3); }
+    if (e.code === 'Digit4') { weaponSystem.switchSlot(4); }
+    if (e.code === 'Digit5') { weaponSystem.switchSlot(5); }
+    // Update view on quick slot changes
+    try { weaponView.setWeapon(weaponSystem.getPrimaryName()); } catch (_) {}
+  });
+
 } else {
+  // Mobile: touch controls (fire, reload, jump)
   const fireBtn = document.getElementById('btnFire');
   const reloadBtn = document.getElementById('btnReload');
   const jumpBtn = document.getElementById('btnJump');
-  if (fireBtn){
-    fireBtn.addEventListener('touchstart', e=>{ e.preventDefault(); e.stopPropagation(); weaponSystem.triggerDown(); }, {passive:false});
-    const end = ()=> weaponSystem.triggerUp();
+
+  if (fireBtn) {
+    fireBtn.addEventListener('touchstart', e => {
+      e.preventDefault(); e.stopPropagation();
+      weaponSystem.triggerDown();
+    }, { passive: false });
+    const end = () => weaponSystem.triggerUp();
     fireBtn.addEventListener('touchend', end);
     fireBtn.addEventListener('touchcancel', end);
   }
-  if (reloadBtn){
-    reloadBtn.addEventListener('touchstart', e=>{ e.preventDefault(); e.stopPropagation(); }, {passive:false});
-    reloadBtn.addEventListener('touchend', ()=>{ weaponSystem.reload(); });
+
+  if (reloadBtn) {
+    reloadBtn.addEventListener('touchstart', e => { e.preventDefault(); e.stopPropagation(); }, { passive: false });
+    reloadBtn.addEventListener('touchend', () => { weaponSystem.reload(); });
   }
-  if (jumpBtn){
-    jumpBtn.addEventListener('touchstart', e=>{ e.preventDefault(); e.stopPropagation(); }, {passive:false});
-    jumpBtn.addEventListener('touchend', ()=>{ player.jump(); });
+
+  if (jumpBtn) {
+    jumpBtn.addEventListener('touchstart', e => { e.preventDefault(); e.stopPropagation(); }, { passive: false });
+    jumpBtn.addEventListener('touchend', () => { player.jump(); });
   }
+
+  // Optional: quick-slot keyboard shortcuts generally don't apply on mobile
 }
 
 updateHUD();
@@ -638,6 +729,11 @@ function step(){
       const len = (prof.lenPx + bloom * (prof.lenPx * 0.6)).toFixed(2);
       crosshairEl.style.setProperty('--xh-gap', `${gap}px`);
       crosshairEl.style.setProperty('--xh-len', `${len}px`);
+      if (typeof prof.rotDeg === 'number') {
+        crosshairEl.style.setProperty('--xh-rot', `${prof.rotDeg}deg`);
+      } else {
+        crosshairEl.style.setProperty('--xh-rot', '0deg');
+      }
       // Optional tint on perfect accuracy
       if (bloom < 0.05) {
         crosshairEl.style.setProperty('--xh', '#16a34a');

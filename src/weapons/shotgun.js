@@ -61,7 +61,12 @@ export class Shotgun extends Weapon {
         effects?.spawnBulletDecal?.(end, res.hitFace?.normal, { size: 0.09, ttl: 8, color: 0x1a1a1a, softness: 0.65, object: res.hitObject, owner: res.enemyRoot, attachTo: res.enemyRoot });
         if (res.enemyRoot.userData.hp <= 0) {
           effects?.enemyDeath?.(res.enemyRoot.position.clone());
-          pickups?.maybeDrop?.(res.enemyRoot.position.clone());
+          const eType = res.enemyRoot?.userData?.type;
+          if (eType === 'tank') { // tanks shower extra rewards
+            pickups?.dropMultiple?.('random', res.enemyRoot.position.clone(), 3 + (Math.random() * 2 | 0));
+          } else {
+            pickups?.maybeDrop?.(res.enemyRoot.position.clone());
+          }
           enemyManager.remove(res.enemyRoot);
           const base = (res.isHead || res.bodyPart==='head') ? 150 : 100;
           const finalScore = Math.round(base * (ctx.combo?.multiplier || 1));

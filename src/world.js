@@ -1,7 +1,7 @@
 // World setup: renderer, scene, camera, sky, lights, arena, materials
 // Export a factory to build and return references used by the game
 
-export function createWorld(THREE, rng = Math.random){
+export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
   // Renderer
   const params = (new URL(window.location.href)).searchParams;
   const renderer = new THREE.WebGLRenderer({ antialias: params.get('aa') === '1', powerPreference: 'high-performance' });
@@ -118,21 +118,53 @@ export function createWorld(THREE, rng = Math.random){
   // Collidable objects
   const objects = [];
 
-  function makeArena(){
-    const floor = new THREE.Mesh(new THREE.BoxGeometry(80,1,80), mats.floor);
-    floor.position.y = -0.5; floor.receiveShadow = !!enableShadows; scene.add(floor);
+  function makeArena(shape){
+    const wallH = 6, wallT = 1;
 
-    const wallH=6, wallT=1;
-    const mkWall = (w,h,d,x,y,z)=>{ const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d), mats.wall); m.position.set(x,y,z); m.castShadow=!!enableShadows; m.receiveShadow=!!enableShadows; scene.add(m); objects.push(m); };
-    mkWall(80, wallH, wallT, 0, wallH/2, -40);
-    mkWall(80, wallH, wallT, 0, wallH/2,  40);
-    mkWall(wallT, wallH, 80, -40, wallH/2, 0);
-    mkWall(wallT, wallH, 80,  40, wallH/2, 0);
+    const buildPoly = (pts, skipFn) => {
+      const shape2 = new THREE.Shape();
+      pts.forEach(([x,z], i) => { if (i === 0) shape2.moveTo(x, z); else shape2.lineTo(x, z); });
+      const geom = new THREE.ExtrudeGeometry(shape2, { depth:1, bevelEnabled:false });
+      const floor = new THREE.Mesh(geom, mats.floor);
+      floor.rotation.x = -Math.PI/2; floor.position.y = -1; floor.receiveShadow = !!enableShadows; scene.add(floor);
+      for (let i=0;i<pts.length;i++) {
+        const a = pts[i], b = pts[(i+1)%pts.length];
+        if (skipFn && skipFn(a,b)) continue;
+        const [x1,z1] = a, [x2,z2] = b;
+        const cx=(x1+x2)/2, cz=(z1+z2)/2;
+        const len=Math.hypot(x2-x1, z2-z1);
+        const ang=Math.atan2(z2-z1, x2-x1);
+        const wall = new THREE.Mesh(new THREE.BoxGeometry(len, wallH, wallT), mats.wall);
+        wall.position.set(cx, wallH/2, cz); wall.rotation.y = ang;
+        wall.castShadow=wall.receiveShadow=!!enableShadows; scene.add(wall); objects.push(wall);
+      }
+    };
 
-    // Crates and other procedural obstacles are now managed by ObstacleManager
+    switch(shape){
+      case 'circle': {
+        const floor = new THREE.Mesh(new THREE.CylinderGeometry(40,40,1,32), mats.floor);
+        floor.position.y = -0.5; floor.receiveShadow = !!enableShadows; scene.add(floor);
+        const wall = new THREE.Mesh(new THREE.CylinderGeometry(40,40,wallH,32,1,true), mats.wall);
+        wall.position.y = wallH/2; wall.castShadow = wall.receiveShadow = !!enableShadows; scene.add(wall); objects.push(wall);
+        break;
+      }
+      case 'diamond':
+        buildPoly([[0,-40],[40,0],[0,40],[-40,0]]);
+        break;
+      case 'triangle':
+        buildPoly([[0,40],[40,-40],[-40,-40]]);
+        break;
+      case 'pi':
+        buildPoly([
+          [-40,40],[40,40],[40,-40],[20,-40],[20,20],[-20,20],[-20,-40],[-40,-40]
+        ], (a,b)=> a[1]===-40 && b[1]===-40);
+        break;
+      default:
+        buildPoly([[-40,-40],[40,-40],[40,40],[-40,40]]);
+    }
   }
 
-  makeArena();
+  makeArena(arenaShape);
 
   return { renderer, scene, camera, skyMat, hemi, dir, mats, objects };
 }

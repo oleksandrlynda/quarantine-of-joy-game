@@ -54,6 +54,16 @@ export class Weapon {
     this._triggerHeld = false;
   }
 
+  // Optional alternate fire; default no-op
+  // eslint-disable-next-line no-unused-vars
+  altTriggerDown(ctx) {}
+
+  // eslint-disable-next-line no-unused-vars
+  altTriggerUp(ctx) {}
+
+  // eslint-disable-next-line no-unused-vars
+  altTriggerCancel(ctx) {}
+
   update(dt, ctx) { // for auto fire sustain
     // Block sustain if weapon view is reloading (if provided in ctx)
     if (this.mode === 'auto' && this._triggerHeld && !(ctx && ctx.weaponView && ctx.weaponView.isReloading && ctx.weaponView.isReloading())) {
