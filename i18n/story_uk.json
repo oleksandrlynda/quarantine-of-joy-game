@@ -1,6 +1,7 @@
 {
   "beats": {
     "intro": { "id": "intro", "text": "Кур'єре, BoB запечатав цей квартал. Захопи ретранслятор і запали перший сміх. #intro_01" },
+    "intro2": { "id": "intro2", "text": "BoB — Бот Нагляду за Трансляцією — тримає Echo City в мертвій тиші. Зірви ретранслятор і дозволь кварталу сміятися. #intro_02", "mode": "ticker", "repeat": 1 },
     "firstWave": { "id": "firstWave", "text": "Розвідники BoB наближаються. Позначай їх і піднімай хайп. #firstWave_01", "mode": "toast", "persistOnce": true },
     "bossIncoming": { "id": "bossIncoming", "text": "Стрибок сигнатури BoB — бос наближається. Прибережи кілька панчлайнів для натовпу. #bossIncoming_01" },
     "midRun": { "id": "midRun", "text": "Меми пливуть. BoB підлаштовується; залишайся непередбачуваним. #midRun_01", "mode": "toast", "persistOnce": true },

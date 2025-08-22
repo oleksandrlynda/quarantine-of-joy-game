@@ -1,6 +1,7 @@
 {
   "beats": {
     "intro": { "id": "intro", "text": "Courier, BoB sealed this block. Hijack the relay and spark the first laugh. #intro_01" },
+    "intro2": { "id": "intro2", "text": "BoB—the Broadcast Overseer Bot—keeps Echo City on mute. Break the relay and let the block laugh. #intro_02", "mode": "ticker", "repeat": 1 },
     "firstWave": { "id": "firstWave", "text": "BoB scouts inbound. Tag them and keep the hype climbing. #firstWave_01", "mode": "toast", "persistOnce": true },
     "bossIncoming": { "id": "bossIncoming", "text": "BoB signature spike—boss inbound. Save some punchlines for the crowd. #bossIncoming_01" },
     "midRun": { "id": "midRun", "text": "Memes are flowing. BoB is adapting; stay unpredictable. #midRun_01", "mode": "toast", "persistOnce": true },

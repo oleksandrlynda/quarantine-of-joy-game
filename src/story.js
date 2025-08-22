@@ -57,17 +57,28 @@ export class StoryManager {
           });
           this._beats = beats;
           this._enqueueBeat('intro');
-          this._enqueueBeat('intro2');
           this._enqueueBeat('controlsTip');
           this._maybeShow();
+          setTimeout(() => {
+            this._enqueueBeat('intro2');
+            this._maybeShow();
+          }, 4000);
         })
         .catch(() => {
           this._enqueueBeat('intro');
           this._maybeShow();
+          setTimeout(() => {
+            this._enqueueBeat('intro2');
+            this._maybeShow();
+          }, 4000);
         });
     } catch(_) {
       this._enqueueBeat('intro');
       this._maybeShow();
+      setTimeout(() => {
+        this._enqueueBeat('intro2');
+        this._maybeShow();
+      }, 4000);
     }
   }
 
