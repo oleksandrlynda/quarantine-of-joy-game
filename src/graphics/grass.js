@@ -6,7 +6,8 @@ export function createGrassMesh({
   colorRange = [0x6dbb3c, 0x4c8a2f],
   heightRange = [0.8, 1.6],
   windStrength = 0.3,
-  noiseFreq = 0.2
+  noiseFreq = 0.2,
+  tiltRange = 0.3
 } = {}) {
   // Base geometry for a single blade
   const blade = new THREE.PlaneGeometry(0.1, 1, 1, 3);
@@ -21,6 +22,8 @@ export function createGrassMesh({
   const angles = new Float32Array(bladeCount);
   const scales = new Float32Array(bladeCount);
   const colors = new Float32Array(bladeCount * 3);
+  const tiltsX = new Float32Array(bladeCount);
+  const tiltsZ = new Float32Array(bladeCount);
   const chunkSize = 10;
   const chunks = new Map();
 
@@ -62,6 +65,8 @@ export function createGrassMesh({
     const n = noise2D(x * noiseFreq, z * noiseFreq);
     offsets.set([x, y, z], i * 3);
     angles[i] = Math.random() * Math.PI * 2;
+    tiltsX[i] = (Math.random() - 0.5) * 2 * tiltRange;
+    tiltsZ[i] = (Math.random() - 0.5) * 2 * tiltRange;
     const minScale = heightRange[0];
     const maxScale = heightRange[1];
     scales[i] = Math.max(minScale, n * maxScale);
@@ -87,19 +92,27 @@ export function createGrassMesh({
   const angleAttr = new THREE.InstancedBufferAttribute(angles, 1);
   const scaleAttr = new THREE.InstancedBufferAttribute(scales, 1);
   const colorAttr = new THREE.InstancedBufferAttribute(colors, 3);
+  const tiltXAttr = new THREE.InstancedBufferAttribute(tiltsX, 1);
+  const tiltZAttr = new THREE.InstancedBufferAttribute(tiltsZ, 1);
   offsetAttr.setUsage(THREE.DynamicDrawUsage);
   angleAttr.setUsage(THREE.DynamicDrawUsage);
   scaleAttr.setUsage(THREE.DynamicDrawUsage);
   colorAttr.setUsage(THREE.DynamicDrawUsage);
+  tiltXAttr.setUsage(THREE.DynamicDrawUsage);
+  tiltZAttr.setUsage(THREE.DynamicDrawUsage);
   geo.setAttribute('offset', offsetAttr);
   geo.setAttribute('angle', angleAttr);
   geo.setAttribute('scale', scaleAttr);
   geo.setAttribute('color', colorAttr);
+  geo.setAttribute('tiltX', tiltXAttr);
+  geo.setAttribute('tiltZ', tiltZAttr);
   geo.instanceCount = bladeCount;
   const baseOffsets = offsets.slice();
   const baseAngles = angles.slice();
   const baseColors = colors.slice();
   const baseScales = scales.slice();
+  const baseTiltsX = tiltsX.slice();
+  const baseTiltsZ = tiltsZ.slice();
 
   const material = new THREE.ShaderMaterial({
     uniforms: {
@@ -116,6 +129,8 @@ export function createGrassMesh({
       attribute float angle;
       attribute float scale;
       attribute vec3 color;
+      attribute float tiltX;
+      attribute float tiltZ;
       uniform float time;
       uniform float windStrength;
       uniform vec2 windDirection;
@@ -126,16 +141,23 @@ export function createGrassMesh({
       void main(){
         vColor = color;
         vec3 pos = position;
+        float bladeY = position.y;
         pos.y *= scale * heightFactor;
+        float cx = cos(tiltX);
+        float sx = sin(tiltX);
+        pos = vec3(pos.x, pos.y * cx - pos.z * sx, pos.y * sx + pos.z * cx);
+        float cz = cos(tiltZ);
+        float sz = sin(tiltZ);
+        pos = vec3(pos.x * cz - pos.y * sz, pos.x * sz + pos.y * cz, pos.z);
         float sway = sin(time + offset.x + offset.z);
         float disp = (windStrength * 0.6 + max(0.0, sway) * windStrength +
-          min(0.0, sway) * windStrength * 0.1) * position.y;
+          min(0.0, sway) * windStrength * 0.1) * bladeY;
         pos.xz += windDirection * disp;
         vec2 actorVec = offset.xz - actorPos.xz;
         float dist = length(actorVec);
         float influence = max(0.0, 1.0 - dist / actorRadius);
         if (dist > 0.0001) actorVec /= dist; else actorVec = vec2(0.0);
-        pos.xz += actorVec * influence * 0.2 * position.y;
+        pos.xz += actorVec * influence * 0.2 * bladeY;
         float c = cos(angle);
         float s = sin(angle);
         pos = vec3(
@@ -167,6 +189,8 @@ export function createGrassMesh({
     baseAngles,
     baseColors,
     baseScales,
+    baseTiltsX,
+    baseTiltsZ,
     near: 15,
     far: 30
   };
@@ -188,6 +212,8 @@ export function createGrassMesh({
       const anglesAttr = geometry.getAttribute('angle');
       const colorsAttr = geometry.getAttribute('color');
       const scalesAttr = geometry.getAttribute('scale');
+      const tiltXAttr = geometry.getAttribute('tiltX');
+      const tiltZAttr = geometry.getAttribute('tiltZ');
       let write = 0;
       // Fade chunk density smoothly based on camera distance to avoid popping
       for (const chunk of lod.chunks.values()) {
@@ -207,6 +233,8 @@ export function createGrassMesh({
           anglesAttr.setX(write, lod.baseAngles[idx]);
           colorsAttr.setXYZ(write, lod.baseColors[i3], lod.baseColors[i3 + 1], lod.baseColors[i3 + 2]);
           scalesAttr.setX(write, baseScale * factor);
+          tiltXAttr.setX(write, lod.baseTiltsX[idx]);
+          tiltZAttr.setX(write, lod.baseTiltsZ[idx]);
           write++;
         }
       }
@@ -215,6 +243,8 @@ export function createGrassMesh({
       anglesAttr.needsUpdate = true;
       colorsAttr.needsUpdate = true;
       scalesAttr.needsUpdate = true;
+      tiltXAttr.needsUpdate = true;
+      tiltZAttr.needsUpdate = true;
     }
   };
   return mesh;
