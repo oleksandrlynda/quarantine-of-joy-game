@@ -811,6 +811,7 @@ function step(){
     if (grassLODGroups && grassLODGroups.length) {
       const start = 40 - 20;
       const end = 40 + 20;
+      const outEnd = end + 20;
       grassLODGroups.forEach(g => {
         const near = g.meshes[0];
         const far = g.meshes[1];
@@ -820,11 +821,23 @@ function step(){
           far.material.uniforms.opacity
         ) {
           const dist = camera.position.distanceTo(g.center);
+          // Phase 1: fade in far mesh
           const t = THREE.MathUtils.smoothstep(dist, start, end);
-          near.material.uniforms.opacity.value = 1 - t;
-          near.visible = near.material.uniforms.opacity.value > 0.01;
-          far.material.uniforms.opacity.value = t;
+          const nearCount = near.geometry?.instanceCount || 1;
+          const farCount = far.geometry?.instanceCount || 1;
+          const ratio = nearCount / farCount;
+          far.material.uniforms.opacity.value = Math.min(1, t * ratio);
           far.visible = far.material.uniforms.opacity.value > 0.01;
+
+          // Phase 2: after far is fully visible, fade out near mesh
+          let nearOpacity = 1;
+          if (t >= 1) {
+            const outT = THREE.MathUtils.smoothstep(dist, end, outEnd);
+            nearOpacity = 1 - outT;
+          }
+          near.material.uniforms.opacity.value = nearOpacity;
+          // Keep near visible until far is fully opaque
+          near.visible = far.material.uniforms.opacity.value < 0.999 || nearOpacity > 0.01;
         } else {
           if (near && near.material.uniforms.opacity) {
             near.material.uniforms.opacity.value = 1;
