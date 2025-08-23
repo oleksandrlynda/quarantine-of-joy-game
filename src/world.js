@@ -189,11 +189,14 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
   try {
     const base = new THREE.PlaneGeometry(80, 80, 32, 32);
     base.rotateX(-Math.PI / 2);
-    base.translate(0, -1, 0);
+    // Nudge slightly above the arena floor to avoid z-fighting
+    base.translate(0, -0.99, 0);
     const { positionNode, geometry } = createGrass({ geometry: base });
     const mat = new MeshBasicNodeMaterial({ transparent: true, fog: false });
     mat.positionNode = positionNode;
     mat.colorNode = attribute('color');
+    // Allow seeing the underlying floor while keeping proper occlusion
+    mat.depthWrite = false;
     // Provide dummy common uniforms so the renderer's refreshUniformsCommon
     // helper doesn't fail when it expects standard material slots like
     // `opacity` and `diffuse` which Node materials omit.
