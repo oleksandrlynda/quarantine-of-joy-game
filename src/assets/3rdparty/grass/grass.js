@@ -16,21 +16,24 @@ import {
   div,
 } from 'three/tsl'
 
-const createFullGrassGeometry = (options: {
-  geometry: BufferGeometry
-  colorA: string
-  colorB: string
-  bladesPerPoint: number
-  clusterRadius: number
-  heightVariation: { min: number; max: number }
-  widthVariation: { min: number; max: number }
-  baseDarkness: number
-  colorSamples: number
-}) => {
+/**
+ * Build a geometry containing many grass blades.
+ * @param {Object} options
+ * @param {BufferGeometry} options.geometry
+ * @param {string} options.colorA
+ * @param {string} options.colorB
+ * @param {number} options.bladesPerPoint
+ * @param {number} options.clusterRadius
+ * @param {{min: number, max: number}} options.heightVariation
+ * @param {{min: number, max: number}} options.widthVariation
+ * @param {number} options.baseDarkness
+ * @param {number} options.colorSamples
+ */
+const createFullGrassGeometry = (options) => {
   const positionAttribute = options.geometry.getAttribute('position')
   const normalAttribute = options.geometry.getAttribute('normal')
-  const points: number[][] = []
-  const normals: number[][] = []
+  const points = []
+  const normals = []
 
   for (let i = 0; i < positionAttribute.count; i++) {
     const x = positionAttribute.getX(i)
@@ -57,7 +60,7 @@ const createFullGrassGeometry = (options: {
   const colorAVec = new Color(options.colorA)
   const colorBVec = new Color(options.colorB)
 
-  const colorSamples: Color[] = []
+  const colorSamples = []
   for (let i = 0; i < options.colorSamples; i++) {
     const lerpValue = i / (options.colorSamples - 1)
     const sampleColor = colorAVec.clone().lerp(colorBVec, lerpValue)
@@ -82,11 +85,11 @@ const createFullGrassGeometry = (options: {
   let bladeIndex = 0
 
   for (let i = 0; i < points.length; i++) {
-    const centerX = points[i]![0]!
-    const centerY = points[i]![1]!
-    const centerZ = points[i]![2]!
+    const centerX = points[i][0]
+    const centerY = points[i][1]
+    const centerZ = points[i][2]
 
-    tmpTerrainNormal.set(normals[i]![0]!, normals[i]![1]!, normals[i]![2]!)
+    tmpTerrainNormal.set(normals[i][0], normals[i][1], normals[i][2])
 
     for (let j = 0; j < options.bladesPerPoint; j++) {
       const vertexOffset = bladeIndex * 9 // 3 vertices * 3 components
@@ -102,7 +105,7 @@ const createFullGrassGeometry = (options: {
 
       // Randomly select one of the pre-calculated color samples - cache the color object
       const colorSampleIndex = Math.floor(Math.random() * options.colorSamples)
-      const bladeColor = colorSamples[colorSampleIndex]!
+      const bladeColor = colorSamples[colorSampleIndex]
       const bladeColorR = bladeColor.r
       const bladeColorG = bladeColor.g
       const bladeColorB = bladeColor.b
@@ -197,12 +200,15 @@ const createFullGrassGeometry = (options: {
   return geometry
 }
 
-const createPositionNode = (options: {
-  windSpeed: number
-  windSize: number
-  windDisplacement: number
-  upBias?: number
-}) => {
+/**
+ * Create a node that positions grass blades with wind animation.
+ * @param {Object} options
+ * @param {number} options.windSpeed
+ * @param {number} options.windSize
+ * @param {number} options.windDisplacement
+ * @param {number} [options.upBias]
+ */
+const createPositionNode = (options) => {
   const bladeHeight = attribute('bladeHeight')
   const bladeWidth = attribute('bladeWidth')
 
@@ -240,21 +246,24 @@ const createPositionNode = (options: {
   return add(positionLocal, localOffset)
 }
 
-export const grass = (options: {
-  geometry: BufferGeometry
-  widthVariation?: { min: number; max: number }
-  windSpeed?: number
-  windSize?: number
-  windDisplacement?: number
-  upBias?: number
-  bladesPerPoint?: number
-  clusterRadius?: number
-  heightVariation?: { min: number; max: number }
-  colorA?: string
-  colorB?: string
-  baseDarkness?: number
-  colorSamples?: number
-}) => {
+/**
+ * Generate grass geometry and positioning node.
+ * @param {Object} options
+ * @param {BufferGeometry} options.geometry
+ * @param {{min:number,max:number}} [options.widthVariation]
+ * @param {number} [options.windSpeed]
+ * @param {number} [options.windSize]
+ * @param {number} [options.windDisplacement]
+ * @param {number} [options.upBias]
+ * @param {number} [options.bladesPerPoint]
+ * @param {number} [options.clusterRadius]
+ * @param {{min:number,max:number}} [options.heightVariation]
+ * @param {string} [options.colorA]
+ * @param {string} [options.colorB]
+ * @param {number} [options.baseDarkness]
+ * @param {number} [options.colorSamples]
+ */
+export const grass = (options) => {
   const positionNode = createPositionNode({
     windSpeed: options.windSpeed ?? 0.8,
     windSize: options.windSize ?? 1.5,
