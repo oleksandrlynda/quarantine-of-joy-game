@@ -619,7 +619,9 @@ export class EnemyManager {
       }
     } else {
       py = desiredY;
-      if (enemy.userData) enemy.userData.baseGround = undefined;
+      if (enemy.userData?.baseGround != null && beforeGround <= enemy.userData.baseGround + 1e-3) {
+        enemy.userData.baseGround = undefined;
+      }
     }
 
     enemy.position.set(px, py, pz);
