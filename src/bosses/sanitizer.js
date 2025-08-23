@@ -431,7 +431,7 @@ export class Sanitizer {
     const hpRatio = this.root.userData.hp / this.maxHp;
     if (!this._panicRushActive && hpRatio < 0.2) {
       this._panicRushActive = true;
-      this._panicRushWaves = 3;
+      this._panicRushWaves = 2;
       this._panicRushTimer = 0;
     }
 
@@ -469,7 +469,7 @@ export class Sanitizer {
 
     this._panicRushWaves--;
     if (this._panicRushWaves > 0) {
-      this._panicRushTimer = 1.0;
+      this._panicRushTimer = 2.0;
     } else {
       this._panicRushActive = false;
     }
