@@ -114,10 +114,11 @@ const mobileControlsEl = document.getElementById('mobileControls');
 if (mobileControlsEl) mobileControlsEl.style.display = isMobile ? '' : 'none';
 
 // ------ World (renderer, scene, camera, lights, sky, materials, arena) ------
-const { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius, grassMesh, vegetation, fauna } = createWorld(THREE, rng, arenaShape, biomeOrder[0]);
+const { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius, grassMesh, vegetation, fauna, updateDayNight } = createWorld(THREE, rng, arenaShape, biomeOrder[0]);
 const wantEditor = (new URL(window.location.href)).searchParams.get('editor') === '1';
 const storyParam = (new URL(window.location.href)).searchParams.get('story');
 const storyDisabled = storyParam === '0' || storyParam === 'false';
+let isNight = false;
 
 // Show loading overlay during asset + shader prewarm
 const loadingEl = document.getElementById('loading');
@@ -693,6 +694,8 @@ function step(){
   _lastFrameAt = now;
 
   const dt = Math.min(0.033, clock.getDelta());
+  const nightNow = updateDayNight(dt);
+  if (nightNow !== isNight) { isNight = nightNow; BiomeManager.setDayNight(isNight); }
   if((controls.isLocked || isMobile) && !paused && !gameOver){
     // advance game time only while active
     gameTime += dt;

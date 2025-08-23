@@ -15,6 +15,7 @@ export function createFauna({ scene, THREE }) {
   const radii = new Float32Array(max);
   const heights = new Float32Array(max);
   let active = 0;
+  let isNight = false;
 
   function randomize(i) {
     phases[i] = Math.random() * Math.PI * 2;
@@ -43,10 +44,12 @@ export function createFauna({ scene, THREE }) {
   function update(dt) {
     if (active === 0) return;
     for (let i = 0; i < active; i++) {
-      phases[i] += speeds[i] * dt;
+      const speed = speeds[i] * (isNight ? 0.3 : 1);
+      phases[i] += speed * dt;
       const x = Math.cos(phases[i]) * radii[i];
       const z = Math.sin(phases[i]) * radii[i];
-      const y = heights[i] + Math.sin(phases[i] * 2) * 0.5;
+      const amp = isNight ? 0.2 : 0.5;
+      const y = heights[i] + Math.sin(phases[i] * 2) * amp;
       dummy.position.set(x, y, z);
       dummy.lookAt(
         Math.cos(phases[i] + Math.PI/2) * radii[i],
@@ -59,5 +62,9 @@ export function createFauna({ scene, THREE }) {
     mesh.instanceMatrix.needsUpdate = true;
   }
 
-  return { group, update, setDensity };
+  function setNight(n){
+    isNight = !!n;
+  }
+
+  return { group, update, setDensity, setNight };
 }

@@ -6,7 +6,7 @@ import { createVegetationMesh } from './graphics/vegetation.js';
 import { BiomeManager } from './biome.js';
 import { createFauna } from './fauna.js';
 
-export function createWorld(THREE, rng = Math.random, arenaShape = 'box', biome = 'grass'){
+export function createWorld(THREE, rng = Math.random, arenaShape = 'box', biome = 'grass', dayLength = 24 * 60){
   // Renderer
   const params = (new URL(window.location.href)).searchParams;
   const renderer = new THREE.WebGLRenderer({ antialias: params.get('aa') === '1', powerPreference: 'high-performance' });
@@ -154,6 +154,30 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box', biome 
   BiomeManager.attachVegetation(vegetation);
   BiomeManager.setBiome(biome);
 
+  // Day-night cycle
+  const dayLengthSec = dayLength; // 24-minute loop by default
+  let timeOfDay = 0; // 0..1
+  const sunDayColor = new THREE.Color('#ffe9a8');
+  const sunNightColor = new THREE.Color('#223355');
+  function updateDayNight(dt){
+    timeOfDay = (timeOfDay + dt / dayLengthSec) % 1;
+    const ang = timeOfDay * Math.PI * 2;
+    const sx = Math.sin(ang);
+    const sy = Math.cos(ang);
+    dir.position.set(sx * 40, sy * 40, 0);
+    skyMat.uniforms.sunDir.value.set(sx, sy, 0).normalize();
+    const nightMix = Math.max(0, -sy);
+    skyMat.uniforms.sunColor.value.copy(sunDayColor).lerp(sunNightColor, nightMix);
+    const cfg = BiomeManager._biomes[BiomeManager.getCurrentBiome()] || {};
+    const dayTop = new THREE.Color(cfg.skyTop || '#aee9ff');
+    const dayBottom = new THREE.Color(cfg.skyBottom || '#f1e3ff');
+    const nightTop = new THREE.Color((cfg.night && cfg.night.skyTop) || cfg.skyTop || '#aee9ff');
+    const nightBottom = new THREE.Color((cfg.night && cfg.night.skyBottom) || cfg.skyBottom || '#f1e3ff');
+    skyMat.uniforms.top.value.copy(dayTop).lerp(nightTop, nightMix);
+    skyMat.uniforms.bottom.value.copy(dayBottom).lerp(nightBottom, nightMix);
+    return sy < 0;
+  }
+
   // Collidable objects
   const objects = [];
   let arenaRadius = Infinity;
@@ -242,7 +266,7 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box', biome 
 
   makeArena(arenaShape);
 
-  return { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius, grassMesh, vegetation: vegetation.meshes, fauna };
+  return { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius, grassMesh, vegetation: vegetation.meshes, fauna, updateDayNight };
 }
 
 
