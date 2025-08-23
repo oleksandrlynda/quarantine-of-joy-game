@@ -24,6 +24,8 @@ export function createGrassMesh({
   const colors = new Float32Array(bladeCount * 3);
   const tiltsX = new Float32Array(bladeCount);
   const tiltsZ = new Float32Array(bladeCount);
+  const swayPhases = new Float32Array(bladeCount);
+  const swayAmps = new Float32Array(bladeCount);
   const chunkSize = 10;
   const chunks = new Map();
 
@@ -67,6 +69,8 @@ export function createGrassMesh({
     angles[i] = Math.random() * Math.PI * 2;
     tiltsX[i] = (Math.random() - 0.5) * 2 * tiltRange;
     tiltsZ[i] = (Math.random() - 0.5) * 2 * tiltRange;
+    swayPhases[i] = Math.random() * Math.PI * 2;
+    swayAmps[i] = 0.5 + Math.random() * 0.5;
     const minScale = heightRange[0];
     const maxScale = heightRange[1];
     scales[i] = Math.max(minScale, n * maxScale);
@@ -94,18 +98,24 @@ export function createGrassMesh({
   const colorAttr = new THREE.InstancedBufferAttribute(colors, 3);
   const tiltXAttr = new THREE.InstancedBufferAttribute(tiltsX, 1);
   const tiltZAttr = new THREE.InstancedBufferAttribute(tiltsZ, 1);
+  const swayPhaseAttr = new THREE.InstancedBufferAttribute(swayPhases, 1);
+  const swayAmpAttr = new THREE.InstancedBufferAttribute(swayAmps, 1);
   offsetAttr.setUsage(THREE.DynamicDrawUsage);
   angleAttr.setUsage(THREE.DynamicDrawUsage);
   scaleAttr.setUsage(THREE.DynamicDrawUsage);
   colorAttr.setUsage(THREE.DynamicDrawUsage);
   tiltXAttr.setUsage(THREE.DynamicDrawUsage);
   tiltZAttr.setUsage(THREE.DynamicDrawUsage);
+  swayPhaseAttr.setUsage(THREE.DynamicDrawUsage);
+  swayAmpAttr.setUsage(THREE.DynamicDrawUsage);
   geo.setAttribute('offset', offsetAttr);
   geo.setAttribute('angle', angleAttr);
   geo.setAttribute('scale', scaleAttr);
   geo.setAttribute('color', colorAttr);
   geo.setAttribute('tiltX', tiltXAttr);
   geo.setAttribute('tiltZ', tiltZAttr);
+  geo.setAttribute('swayPhase', swayPhaseAttr);
+  geo.setAttribute('swayAmp', swayAmpAttr);
   geo.instanceCount = bladeCount;
   const baseOffsets = offsets.slice();
   const baseAngles = angles.slice();
@@ -113,6 +123,8 @@ export function createGrassMesh({
   const baseScales = scales.slice();
   const baseTiltsX = tiltsX.slice();
   const baseTiltsZ = tiltsZ.slice();
+  const baseSwayPhases = swayPhases.slice();
+  const baseSwayAmps = swayAmps.slice();
 
   const material = new THREE.ShaderMaterial({
     uniforms: {
@@ -131,6 +143,8 @@ export function createGrassMesh({
       attribute vec3 color;
       attribute float tiltX;
       attribute float tiltZ;
+      attribute float swayPhase;
+      attribute float swayAmp;
       uniform float time;
       uniform float windStrength;
       uniform vec2 windDirection;
@@ -149,10 +163,8 @@ export function createGrassMesh({
         float cz = cos(tiltZ);
         float sz = sin(tiltZ);
         pos = vec3(pos.x * cz - pos.y * sz, pos.x * sz + pos.y * cz, pos.z);
-        float sway = sin(time + offset.x + offset.z);
-        float disp = (windStrength * 0.6 + max(0.0, sway) * windStrength +
-          min(0.0, sway) * windStrength * 0.1) * bladeY;
-        pos.xz += windDirection * disp;
+        float sway = sin(time + swayPhase) * swayAmp;
+        pos.xz += windDirection * (windStrength * sway * bladeY);
         vec2 actorVec = offset.xz - actorPos.xz;
         float dist = length(actorVec);
         float influence = max(0.0, 1.0 - dist / actorRadius);
@@ -191,6 +203,8 @@ export function createGrassMesh({
     baseScales,
     baseTiltsX,
     baseTiltsZ,
+    baseSwayPhases,
+    baseSwayAmps,
     near: 15,
     far: 30
   };
@@ -214,6 +228,8 @@ export function createGrassMesh({
       const scalesAttr = geometry.getAttribute('scale');
       const tiltXAttr = geometry.getAttribute('tiltX');
       const tiltZAttr = geometry.getAttribute('tiltZ');
+      const swayPhaseAttr = geometry.getAttribute('swayPhase');
+      const swayAmpAttr = geometry.getAttribute('swayAmp');
       let write = 0;
       // Fade chunk density smoothly based on camera distance to avoid popping
       for (const chunk of lod.chunks.values()) {
@@ -235,6 +251,8 @@ export function createGrassMesh({
           scalesAttr.setX(write, baseScale * factor);
           tiltXAttr.setX(write, lod.baseTiltsX[idx]);
           tiltZAttr.setX(write, lod.baseTiltsZ[idx]);
+          swayPhaseAttr.setX(write, lod.baseSwayPhases[idx]);
+          swayAmpAttr.setX(write, lod.baseSwayAmps[idx]);
           write++;
         }
       }
@@ -245,6 +263,8 @@ export function createGrassMesh({
       scalesAttr.needsUpdate = true;
       tiltXAttr.needsUpdate = true;
       tiltZAttr.needsUpdate = true;
+      swayPhaseAttr.needsUpdate = true;
+      swayAmpAttr.needsUpdate = true;
     }
   };
   return mesh;
