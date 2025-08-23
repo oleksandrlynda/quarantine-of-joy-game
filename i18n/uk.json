@@ -51,6 +51,7 @@
   "start.tipMobile": "Торкнись «Грати», щоб почати. Тягни для огляду.",
   "start.bugs": "Баги",
   "start.reportBug": "Повідомити про баг",
+  "pause.resume": "Продовжити",
   "loading.message": "Завантаження шейдерів і ресурсів…",
   "loading.models": "Завантаження моделей",
   "loading.compiling": "Компіляція шейдерів",

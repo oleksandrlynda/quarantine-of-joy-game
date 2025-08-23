@@ -858,6 +858,9 @@ requestAnimationFrame(step);
 const panel = document.getElementById('panel');
 const playBtn = document.getElementById('play');
 const retryBtn = document.getElementById('retry');
+const pauseMenu = document.getElementById('pauseMenu');
+const resumeBtn = document.getElementById('resumeBtn');
+const pauseRestart = document.getElementById('pauseRestart');
 
 function reset(){ // clear enemies
   stopSuno();
@@ -889,8 +892,25 @@ function startGame(){
   if (musicChoice === 'suno') { playSuno(); } else { music.start(); }
 }
 
+function resumeGame(){
+  pauseMenu.style.display='none';
+  panel.parentElement.style.display='none';
+  paused=false;
+  controls.lock();
+}
+
+function showPauseMenu(){
+  if (paused || gameOver) return;
+  panel.style.display='none';
+  pauseMenu.style.display='';
+  panel.parentElement.style.display='grid';
+  paused=true;
+}
+
 playBtn.onclick = startGame;
 retryBtn.onclick = startGame;
+if (resumeBtn) resumeBtn.onclick = resumeGame;
+if (pauseRestart) pauseRestart.onclick = startGame;
 
 // Quality preset buttons: update URL params and reload
 const qLow = document.getElementById('qLow');
@@ -908,11 +928,22 @@ if (qHigh) qHigh.onclick = ()=> setParams({ aa: 1, shadows: 1, autoDPR: 0, tone:
 if (qUltra) qUltra.onclick = ()=> setParams({ aa: 1, shadows: 1, autoDPR: 0, tone: 1, debug: 1 });
 
 controls.addEventListener('unlock', ()=>{
-  // If an offer/modal unlocked the pointer, don't show the start panel
-  if (offerActive) return;
-  if (story && story.active) return;
-  panel.parentElement.style.display='grid';
-  retryBtn.style.display='';
+  if (gameOver) {
+    pauseMenu.style.display='none';
+    panel.style.display='';
+    panel.parentElement.style.display='grid';
+    retryBtn.style.display='';
+  } else {
+    showPauseMenu();
+  }
+});
+
+window.addEventListener('blur', ()=>{
+  if (!gameOver) showPauseMenu();
+});
+
+document.addEventListener('visibilitychange', ()=>{
+  if (!gameOver) showPauseMenu();
 });
 
 // Start with a wave ready so there's action immediately after lock (skip in editor)
