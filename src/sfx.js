@@ -213,6 +213,23 @@ export class SFX {
     };
   }
 
+  dashWhoosh(opts = {}) {
+    if (this.isMuted) return; this.ensure();
+    const a = this.ctx; const t0 = a.currentTime + 0.001;
+    const pan = this._makePan(opts.pan);
+    const vol = opts.volume != null ? opts.volume : 1;
+    const dur = 0.15;
+    const nb = a.createBuffer(1, (dur * a.sampleRate) | 0, a.sampleRate);
+    const ch = nb.getChannelData(0);
+    for (let i = 0; i < ch.length; i++) ch[i] = (Math.random() * 2 - 1) * (1 - i / ch.length);
+    const src = a.createBufferSource(); src.buffer = nb; src.playbackRate.value = this._rv(1.0, 1.1);
+    const hp = a.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 180;
+    const env = this._env({ a: 0.01, d: 0.25, g: 0.5 * vol, t0 });
+    src.connect(hp).connect(env.node).connect(pan).connect(this.master);
+    this._tapFx(env.node, 0.1);
+    src.start(t0); src.stop(env.endTime + 0.01);
+  }
+
   reload() {
     if (this.isMuted) return; this.ensure();
     const a = this.ctx; const t0 = a.currentTime + 0.001;
