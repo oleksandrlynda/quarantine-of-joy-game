@@ -17,7 +17,8 @@ export class WeatherSystem {
     this.rain = this.createRainPoints(6000);
     this.snow = this.createSnowPoints(2600);
     this.fog = this.createFogPoints(1100);
-    this.sand = this.createSandPoints(1200);
+    // Denser sandstorm particle field than fog for visibility
+    this.sand = this.createSandPoints(1600);
     this.windPoints = this.createWindPoints(1500);
     this.rain.visible = false; this.snow.visible = false; this.fog.visible = false; this.sand.visible = false; this.windPoints.visible = false;
 
@@ -122,7 +123,8 @@ export class WeatherSystem {
       this._envTarget.hemiIntensity = 0.9; this._envTarget.dirIntensity = 0.7;
     } else if (hasSand) {
       this._envTarget.fogColor = new C(0xdcc7a4);
-      this._envTarget.fogNear = 12; this._envTarget.fogFar = 90;
+      // Sandstorms should be thicker than generic fog
+      this._envTarget.fogNear = 8; this._envTarget.fogFar = 70;
       this._envTarget.skyTop = new C('#d2b98c'); this._envTarget.skyBottom = new C('#f0e4d0');
       this._envTarget.hemiIntensity = 0.6; this._envTarget.dirIntensity = 0.55;
     } else if (hasWind) {
@@ -387,7 +389,7 @@ export class WeatherSystem {
     const material = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false, depthTest: true,
       uniforms:{ uTime:this.uTime, uSize:{value:42.0}, uHeight:{value:Math.min(60, this.height)}, uArea:{value:this.areaSize}, uAlpha:{value:0.0} },
-      vertexShader:`uniform float uTime; uniform float uHeight; uniform float uSize; uniform float uArea; attribute float aSpeed; attribute float aSeed; varying float vAlpha; void main(){ vec3 pos=position; float s=aSeed*6.283; float halfA=0.5*uArea; float fx=position.x + sin(uTime*0.15 + s)*2.0 + sin(uTime*0.32 + s*1.1)*1.5; float fz=position.z + cos(uTime*0.12 + s)*2.1 + cos(uTime*0.27 + s*0.9)*1.4; pos.x=-halfA+mod(fx+halfA,uArea); pos.z=-halfA+mod(fz+halfA,uArea); pos.y=mod(position.y + sin(uTime*0.18 + s)*0.4, uHeight); vec4 mv=modelViewMatrix*vec4(pos,1.0); gl_Position=projectionMatrix*mv; float dist=max(0.001,-mv.z); gl_PointSize=uSize*clamp(180.0/dist,10.0,95.0); float base=clamp(0.12 + fract(aSeed*53.0)*0.18,0.12,0.3); float nearFade=clamp((dist-2.0)/8.0,0.0,1.0); vAlpha=base*nearFade; }`,
+      vertexShader:`uniform float uTime; uniform float uHeight; uniform float uSize; uniform float uArea; attribute float aSpeed; attribute float aSeed; varying float vAlpha; void main(){ vec3 pos=position; float s=aSeed*6.283; float halfA=0.5*uArea; float fx=position.x + sin(uTime*0.15 + s)*2.0 + sin(uTime*0.32 + s*1.1)*1.5; float fz=position.z + cos(uTime*0.12 + s)*2.1 + cos(uTime*0.27 + s*0.9)*1.4; pos.x=-halfA+mod(fx+halfA,uArea); pos.z=-halfA+mod(fz+halfA,uArea); pos.y=mod(position.y + sin(uTime*0.18 + s)*0.4, uHeight); vec4 mv=modelViewMatrix*vec4(pos,1.0); gl_Position=projectionMatrix*mv; float dist=max(0.001,-mv.z); gl_PointSize=uSize*clamp(180.0/dist,10.0,95.0); float base=clamp(0.2 + fract(aSeed*53.0)*0.3,0.2,0.5); float nearFade=clamp((dist-2.0)/8.0,0.0,1.0); vAlpha=base*nearFade; }`,
       fragmentShader:`precision mediump float; varying float vAlpha; uniform float uAlpha; void main(){ vec2 pc=gl_PointCoord-0.5; float d2=dot(pc,pc); float soft=exp(-4.5*d2); float a=soft*vAlpha*uAlpha; if(a<0.01) discard; vec3 col=vec3(0.78,0.70,0.55); gl_FragColor=vec4(col,a); }`
     });
     const points = new THREE.Points(g, material); this.group.add(points); return points;
