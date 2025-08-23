@@ -114,7 +114,7 @@ const mobileControlsEl = document.getElementById('mobileControls');
 if (mobileControlsEl) mobileControlsEl.style.display = isMobile ? '' : 'none';
 
 // ------ World (renderer, scene, camera, lights, sky, materials, arena) ------
-const { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius, grassMesh, vegetation, fauna, updateDayNight } = createWorld(THREE, rng, arenaShape, biomeOrder[0]);
+const { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius, grassMesh, vegetation, fauna, ambient, updateDayNight } = createWorld(THREE, rng, arenaShape, biomeOrder[0]);
 const wantEditor = (new URL(window.location.href)).searchParams.get('editor') === '1';
 const storyParam = (new URL(window.location.href)).searchParams.get('story');
 const storyDisabled = storyParam === '0' || storyParam === 'false';
@@ -765,6 +765,7 @@ function step(){
     // effects update
     effects.update(dt);
     if (fauna && fauna.update) fauna.update(dt);
+    if (ambient && ambient.update) ambient.update(dt);
 
     // pickups update (magnet + animation)
     pickups.update(dt, controls.getObject().position, (type, amount, where) => {
@@ -860,6 +861,16 @@ function step(){
             mesh.material.uniforms.snowMix.value = snowMix;
             mesh.material.uniforms.windDirection.value.set(wind.x / len, wind.z / len);
             mesh.material.uniforms.windStrength.value = 0.2 + 3.0 * windMix;
+          }
+        }
+      }
+      if (ambient) {
+        for (const sys of ambient.systems) {
+          const mat = sys.mesh.material;
+          if (mat && mat.uniforms) {
+            mat.uniforms.snowMix.value = snowMix;
+            mat.uniforms.windDirection.value.set(wind.x / len, wind.z / len);
+            mat.uniforms.windStrength.value = 0.2 + 3.0 * windMix;
           }
         }
       }

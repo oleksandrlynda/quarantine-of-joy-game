@@ -41,7 +41,7 @@
     import { BiomeManager } from './src/biome.js';
     import { SFX } from './src/sfx.js';
 
-    const { renderer, scene, camera, skyMat, hemi, dir, mats, grassMesh, fauna, updateDayNight } = createWorld(THREE, Math.random);
+    const { renderer, scene, camera, skyMat, hemi, dir, mats, grassMesh, fauna, ambient, updateDayNight } = createWorld(THREE, Math.random);
     camera.position.set(0, 18, 36);
     camera.lookAt(0, 1.6, 0);
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -78,6 +78,7 @@
       if (nightNow !== isNight){ isNight = nightNow; BiomeManager.setDayNight(isNight); }
       weather.update(t, camera);
       if (fauna) fauna.update(dt);
+      if (ambient) ambient.update(dt);
       const rainMix = weather._mix?.rain || 0;
       const snowMix = weather._mix?.snow || 0;
       const heightFactor = Math.max(0.2, 1 - 0.3 * rainMix - 0.6 * snowMix);
@@ -89,6 +90,16 @@
       const len = Math.hypot(wind.x, wind.z) || 1;
       grassMesh.material.uniforms.windDirection.value.set(wind.x / len, wind.z / len);
       grassMesh.material.uniforms.windStrength.value = 0.2 + 3.0 * windMix;
+      if (ambient) {
+        for (const sys of ambient.systems) {
+          const mat = sys.mesh.material;
+          if (mat && mat.uniforms) {
+            mat.uniforms.snowMix.value = snowMix;
+            mat.uniforms.windDirection.value.set(wind.x / len, wind.z / len);
+            mat.uniforms.windStrength.value = 0.2 + 3.0 * windMix;
+          }
+        }
+      }
 
       skyMat.uniforms.time.value = t;
       renderer.render(scene, camera);

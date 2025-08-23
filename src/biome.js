@@ -12,6 +12,7 @@ export const BiomeManager = {
         { type: 'pine', count: 120 },
         { type: 'bush', count: 80 }
       ],
+      particles: [],
       night: {
         skyTop: '#0b0d33',
         skyBottom: '#1a0d26',
@@ -19,7 +20,8 @@ export const BiomeManager = {
         ground: 0x2b3b2b,
         wall: 0x2e3a4f,
         weather: 'clear',
-        fauna: 10
+        fauna: 10,
+        particles: [{ type: 'firefly', count: 50 }]
       }
     },
     desert: {
@@ -33,6 +35,7 @@ export const BiomeManager = {
       vegetation: [
         { type: 'cactus', count: 80 }
       ],
+      particles: [{ type: 'dust', count: 40 }],
       night: {
         skyTop: '#332211',
         skyBottom: '#1f1408',
@@ -40,7 +43,8 @@ export const BiomeManager = {
         ground: 0x604e2a,
         wall: 0x4a3a1e,
         weather: 'clear',
-        fauna: 3
+        fauna: 3,
+        particles: [{ type: 'dust', count: 20 }]
       }
     },
     urban: {
@@ -52,6 +56,7 @@ export const BiomeManager = {
       weather: 'rain',
       fauna: 10,
       vegetation: [],
+      particles: [],
       night: {
         skyTop: '#1a1a2a',
         skyBottom: '#0f0f18',
@@ -59,7 +64,8 @@ export const BiomeManager = {
         ground: 0x2a2a2a,
         wall: 0x161616,
         weather: 'rain',
-        fauna: 5
+        fauna: 5,
+        particles: []
       }
     }
   },
@@ -79,6 +85,9 @@ export const BiomeManager = {
   },
   attachVegetation(veg){
     this.vegetation = veg;
+  },
+  attachParticles(p){
+    this.particles = p;
   },
   getCurrentBiome(){
     return this.current;
@@ -108,5 +117,6 @@ export const BiomeManager = {
       if (this.fauna.setDensity) this.fauna.setDensity(cfg.fauna || 0);
     }
     if (this.vegetation && this.vegetation.setConfig) this.vegetation.setConfig(cfg.vegetation || []);
+    if (this.particles && this.particles.setConfig) this.particles.setConfig(cfg.particles || []);
   }
 };

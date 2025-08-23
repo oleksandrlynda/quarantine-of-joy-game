@@ -3,6 +3,7 @@
 
 import { createGrassMesh, cullGrassUnderObjects } from './graphics/grass.js';
 import { createVegetationMesh } from './graphics/vegetation.js';
+import { createAmbientParticles } from './graphics/ambientParticles.js';
 import { BiomeManager } from './biome.js';
 import { createFauna } from './fauna.js';
 
@@ -152,6 +153,20 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box', biome 
     }
   }};
   BiomeManager.attachVegetation(vegetation);
+  const ambient = { systems: [], setConfig(list){
+    for (const s of this.systems) scene.remove(s.mesh);
+    this.systems.length = 0;
+    if (!floorGeo) return;
+    for (const cfg of list){
+      const sys = createAmbientParticles({ floorGeometry: floorGeo, type: cfg.type, count: cfg.count });
+      scene.add(sys.mesh);
+      cullGrassUnderObjects(sys.mesh, objects);
+      this.systems.push(sys);
+    }
+  }, update(dt){
+    for (const s of this.systems) s.update(dt);
+  }};
+  BiomeManager.attachParticles(ambient);
   BiomeManager.setBiome(biome);
 
   // Day-night cycle
@@ -202,6 +217,7 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box', biome 
       grassMesh = grass;
       floorGeo = g;
       vegetation.setConfig(BiomeManager._biomes[BiomeManager.getCurrentBiome()]?.vegetation || []);
+      ambient.setConfig(BiomeManager._biomes[BiomeManager.getCurrentBiome()]?.particles || []);
     };
 
     const buildPoly = (pts, skipFn) => {
@@ -266,7 +282,7 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box', biome 
 
   makeArena(arenaShape);
 
-  return { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius, grassMesh, vegetation: vegetation.meshes, fauna, updateDayNight };
+  return { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius, grassMesh, vegetation: vegetation.meshes, fauna, ambient, updateDayNight };
 }
 
 
