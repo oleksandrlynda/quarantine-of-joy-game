@@ -39,9 +39,12 @@
     import { Broodmaker } from './src/bosses/broodmaker.js';
     import { Sanitizer } from './src/bosses/sanitizer.js';
     import { Captain } from './src/bosses/captain.js';
+    import { CaptainV2 } from './src/bosses/captain_v2.js';
     import { ShardAvatar } from './src/bosses/shard.js';
     import { Hydraclone } from './src/bosses/hydraclone.js';
     import { StrikeAdjudicator } from './src/bosses/adjudicator.js';
+
+    const captainV2Config = { speed: 3.0, fireRate: 1.5, projectileSpeed: 30 };
 
     // World
     const { renderer, scene, camera, skyMat, mats, objects, arenaRadius } = createWorld(THREE, Math.random);
@@ -73,7 +76,7 @@
       const pos = controls.getObject().position.clone();
       const f = new THREE.Vector3(); camera.getWorldDirection(f); f.y=0; f.normalize();
       return { position: pos, forward: f };
-    }, arenaRadius);
+    }, arenaRadius, obstacleManager, { captainVariant: 'v2', captainV2Config });
     // Test harness mode: no waves
     enemyManager.suspendWaves = true;
 
@@ -94,7 +97,7 @@
     window.addEventListener('keydown', e=>{ if(e.code==='KeyR'){ weaponSystem.reload(); } });
 
     // UI enemy list (core + bosses)
-    const enemyTypes = ['grunt','rusher','shooter','sniper','tank','flyer','healer','warden','boss:broodmaker','boss:sanitizer','boss:captain','boss:shard','boss:hydraclone','boss:adjudicator'];
+    const enemyTypes = ['grunt','rusher','shooter','sniper','tank','flyer','healer','warden','boss:broodmaker','boss:sanitizer','boss:captain','boss:captain_v2','boss:shard','boss:hydraclone','boss:adjudicator'];
     const enemySel = document.getElementById('enemySel');
     for (const t of enemyTypes){ const opt=document.createElement('option'); opt.value=t; opt.textContent=t; enemySel.appendChild(opt); }
 
@@ -103,6 +106,7 @@
         'boss:broodmaker': ()=> new Broodmaker({ THREE, mats, spawnPos, enemyManager, mode:'light' }),
         'boss:sanitizer' : ()=> new Sanitizer({ THREE, mats, spawnPos, enemyManager }),
         'boss:captain'   : ()=> new Captain  ({ THREE, mats, spawnPos, enemyManager }),
+        'boss:captain_v2': ()=> new CaptainV2({ THREE, mats, spawnPos, enemyManager, ...captainV2Config }),
         'boss:shard'     : ()=> new ShardAvatar({ THREE, mats, spawnPos, enemyManager }),
         'boss:hydraclone': ()=> new Hydraclone({ THREE, mats, spawnPos, enemyManager, generation: 0 }),
         'boss:adjudicator':()=> new StrikeAdjudicator({ THREE, mats, spawnPos, enemyManager }),

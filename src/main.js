@@ -213,6 +213,15 @@ window.addEventListener('resize', ()=>{
 });
 
 // ------ Enemies ------
+const captainVariant = params.get('captain') === 'v2' ? 'v2' : 'v1';
+const captainV2Config = {};
+// Override CaptainV2 tuning via URL params (capSpeed, capFire, capProj)
+const cs = parseFloat(params.get('capSpeed'));
+if (!Number.isNaN(cs)) captainV2Config.speed = cs;
+const cf = parseFloat(params.get('capFire'));
+if (!Number.isNaN(cf)) captainV2Config.fireRate = cf;
+const cp = parseFloat(params.get('capProj'));
+if (!Number.isNaN(cp)) captainV2Config.projectileSpeed = cp;
 const enemyManager = new EnemyManager(
   THREE,
   scene,
@@ -224,7 +233,8 @@ const enemyManager = new EnemyManager(
     return { position: pos, forward: f };
   },
   arenaRadius,
-  obstacleManager
+  obstacleManager,
+  { captainVariant, captainV2Config }
 );
 // Ensure enemy manager colliders include arena floor and obstacles
 if (enemyManager.refreshColliders) enemyManager.refreshColliders(objects);

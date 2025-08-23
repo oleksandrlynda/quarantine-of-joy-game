@@ -18,7 +18,8 @@ function containsExtrudeGeometry(obj){
 }
 
 export class EnemyManager {
-  constructor(THREE, scene, mats, objects = [], getPlayer = null, arenaRadius = Infinity, obstacleManager = null) {
+  // bossOptions may include { captainVariant, captainV2Config }
+  constructor(THREE, scene, mats, objects = [], getPlayer = null, arenaRadius = Infinity, obstacleManager = null, bossOptions = {}) {
     this.THREE = THREE;
     this.scene = scene;
     this.mats = mats;
@@ -75,7 +76,7 @@ export class EnemyManager {
     };
 
     // Boss system
-    this.bossManager = new BossManager({ THREE: this.THREE, scene: this.scene, mats: this.mats, enemyManager: this });
+    this.bossManager = new BossManager({ THREE: this.THREE, scene: this.scene, mats: this.mats, enemyManager: this, ...bossOptions });
 
     // Bullet pools (instanced) for enemy projectiles
     this._initBulletPools();

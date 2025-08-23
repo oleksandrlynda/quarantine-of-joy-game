@@ -4,16 +4,22 @@
 import { Broodmaker } from './broodmaker.js';
 import { Sanitizer } from './sanitizer.js';
 import { Captain } from './captain.js';
+import { CaptainV2 } from './captain_v2.js';
 import { ShardAvatar } from './shard.js';
 import { Hydraclone } from './hydraclone.js';
 import { StrikeAdjudicator } from './adjudicator.js';
 
+const DEFAULT_CAPTAIN_V2_CONFIG = { speed: 3.0, fireRate: 1.5, projectileSpeed: 30 }; // default tuning
+
 export class BossManager {
-  constructor({ THREE, scene, mats, enemyManager }) {
+  constructor({ THREE, scene, mats, enemyManager, captainVariant = 'v1', captainV2Config = {} }) {
     this.THREE = THREE;
     this.scene = scene;
     this.mats = mats;
     this.enemyManager = enemyManager;
+    this.captainVariant = captainVariant;
+    // CaptainV2 tuning overrides
+    this.captainV2Config = { ...DEFAULT_CAPTAIN_V2_CONFIG, ...captainV2Config };
 
     this.active = false;
     this.boss = null;
@@ -67,7 +73,9 @@ export class BossManager {
     } else if (wave == 10) {
       boss = new Sanitizer({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager });
     } else if (wave == 15) {
-      boss = new Captain({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager });
+      boss = this.captainVariant === 'v2'
+        ? new CaptainV2({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager, ...this.captainV2Config })
+        : new Captain({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager });
     } else if (wave == 20) {
       boss = new ShardAvatar({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager });
     } else if (wave == 25) {

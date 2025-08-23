@@ -54,9 +54,12 @@
     import { Broodmaker } from './src/bosses/broodmaker.js';
     import { Sanitizer } from './src/bosses/sanitizer.js';
     import { Captain } from './src/bosses/captain.js';
+    import { CaptainV2 } from './src/bosses/captain_v2.js';
     import { ShardAvatar } from './src/bosses/shard.js';
     import { Hydraclone } from './src/bosses/hydraclone.js';
     import { StrikeAdjudicator } from './src/bosses/adjudicator.js';
+
+    const captainV2Config = { speed: 3.0, fireRate: 1.5, projectileSpeed: 30 };
 
     const loadingEl = document.getElementById('loading');
     const loadingBar = document.getElementById('loadingBar');
@@ -127,7 +130,7 @@
     // Helper to create a manager bound to a decoy target
     function createManagerFor(decoy){
       const getPlayer = () => ({ position: decoy.obj.position, forward: decoy.forward });
-      const m = new EnemyManager(THREE, scene, mats, objects, getPlayer, arenaRadius);
+      const m = new EnemyManager(THREE, scene, mats, objects, getPlayer, arenaRadius, null, { captainVariant: 'v2', captainV2Config });
       managers.push(m);
       return m;
     }
@@ -161,13 +164,14 @@
       { t:'warden',  p:v3( 22,0.8, 10) }
     ];
     const ALL_ENEMY_TYPES = ['grunt','rusher','shooter','sniper','tank','flyer','healer','warden'];
-    const ALL_BOSS_TYPES = ['boss:broodmaker','boss:sanitizer','boss:captain','boss:shard','boss:hydraclone','boss:adjudicator'];
+    const ALL_BOSS_TYPES = ['boss:broodmaker','boss:sanitizer','boss:captain','boss:captain_v2','boss:shard','boss:hydraclone','boss:adjudicator'];
     
     // Bosses: one of each (light positions around the perimeter)
     const bossSpecs = [
       { name: 'Broodmaker', make: (spawnPos, enemyManager)=> new Broodmaker({ THREE, mats, spawnPos, enemyManager, mode: 'light' }) },
       { name: 'Sanitizer',  make: (spawnPos, enemyManager)=> new Sanitizer ({ THREE, mats, spawnPos, enemyManager }) },
       { name: 'Captain',    make: (spawnPos, enemyManager)=> new Captain   ({ THREE, mats, spawnPos, enemyManager }) },
+      { name: 'CaptainV2',  make: (spawnPos, enemyManager)=> new CaptainV2 ({ THREE, mats, spawnPos, enemyManager, ...captainV2Config }) },
       { name: 'Shard',      make: (spawnPos, enemyManager)=> new ShardAvatar({ THREE, mats, spawnPos, enemyManager }) },
       { name: 'Hydraclone', make: (spawnPos, enemyManager)=> new Hydraclone({ THREE, mats, spawnPos, enemyManager, generation: 0 }) },
       { name: 'Adjudicator',make: (spawnPos, enemyManager)=> new StrikeAdjudicator({ THREE, mats, spawnPos, enemyManager }) }
@@ -291,9 +295,10 @@
           'boss:broodmaker': (p)=> bossSpecs[0].make(p, manager),
           'boss:sanitizer':  (p)=> bossSpecs[1].make(p, manager),
           'boss:captain':    (p)=> bossSpecs[2].make(p, manager),
-          'boss:shard':      (p)=> bossSpecs[3].make(p, manager),
-          'boss:hydraclone': (p)=> bossSpecs[4].make(p, manager),
-          'boss:adjudicator':(p)=> bossSpecs[5].make(p, manager)
+          'boss:captain_v2': (p)=> bossSpecs[3].make(p, manager),
+          'boss:shard':      (p)=> bossSpecs[4].make(p, manager),
+          'boss:hydraclone': (p)=> bossSpecs[5].make(p, manager),
+          'boss:adjudicator':(p)=> bossSpecs[6].make(p, manager)
         };
         const inst = (map[label] ? map[label](pos) : null);
         if (inst) { manager.registerExternalEnemy(inst, { countsTowardAlive: true }); return inst.root; }
