@@ -431,6 +431,7 @@ enemyManager.onWave = (_wave, startingAlive) => {
   enemyManager.waveStartingAlive = startingAlive || 0;
   updateHUD();
   pickups.onWave(enemyManager.wave);
+  if (weather && typeof weather.onWave === 'function') weather.onWave();
   if (player.refreshColliders) player.refreshColliders(objects);
   if (progression) progression.onWave(enemyManager.wave);
   if (story) story.onWave(enemyManager.wave);
