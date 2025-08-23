@@ -173,7 +173,8 @@ camera.getWorldDirection = function(target){
     weather.mode && (weather.mode.includes('wind') || weather.mode.includes('sand')) ? 1 : 0
   );
   if (windLevel > 0.01){
-    const yaw = weather.wind.x * 0.03 * windLevel;
+    // Reduce crosswind impact on aiming by 90%
+    const yaw = weather.wind.x * 0.003 * windLevel;
     target.applyAxisAngle(new THREE.Vector3(0,1,0), yaw).normalize();
   }
   return target;
