@@ -7,6 +7,7 @@ export const RUSHER_VARIANTS = {
     speedMin: 6.4,
     speedMax: 7.9,
     dashDuration: 0.5,
+    windUp: 0.25,
     color: 0xf97316,
     palette: {
       accent: 0xf97316,
@@ -18,6 +19,7 @@ export const RUSHER_VARIANTS = {
     speedMin: 7.4,
     speedMax: 8.8,
     dashDuration: 0.6,
+    windUp: 0.45,
     color: 0x6366f1,
     palette: {
       accent: 0x6366f1,
@@ -29,6 +31,7 @@ export const RUSHER_VARIANTS = {
     speedMin: 6.0,
     speedMax: 7.0,
     dashDuration: 0.55,
+    windUp: 0.35,
     color: 0xfacc15,
     explodesOnDeath: true,
     explosionRadius: 3.5,
@@ -221,7 +224,7 @@ export class RusherEnemy {
     }
     const canDash = (dist >= 5 && dist <= 20) && !this._charging && this._dashCooldown <= 0 && this._recoverTimer <= 0 && this._windUpTimer <= 0 && this._stunTimer <= 0 && this._flinchTimer <= 0 && this._hasLineOfSight(e.position, playerPos, ctx.objects);
     if (canDash && Math.random() < 1.2 * dt) {
-      this._windUpTimer = 0.3;
+      this._windUpTimer = this.cfg.windUp || 0.3;
       this._dashDir.copy(desired);
       try { this._windUpSound?.stop?.(); this._windUpSound = window?._SFX?.dashWindup?.(); } catch(_){}
       // face dash direction immediately
