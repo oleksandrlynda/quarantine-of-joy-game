@@ -1,6 +1,8 @@
 // World setup: renderer, scene, camera, sky, lights, arena, materials
 // Export a factory to build and return references used by the game
 
+import { createGrassMesh } from './graphics/grass.js';
+
 export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
   // Renderer
   const params = (new URL(window.location.href)).searchParams;
@@ -122,12 +124,27 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
   function makeArena(shape){
     const wallH = 6, wallT = 1;
 
+    const addGrass = (floor) => {
+      const g = floor.geometry.clone();
+      floor.updateMatrixWorld();
+      g.applyMatrix4(floor.matrixWorld);
+      const grass = createGrassMesh({
+        floorGeometry: g,
+        bladeCount: 8000,
+        colorRange: [0x6dbb3c, 0x4c8a2f],
+        heightRange: [0.8, 1.6],
+        windStrength: 0.3
+      });
+      scene.add(grass);
+    };
+
     const buildPoly = (pts, skipFn) => {
       const shape2 = new THREE.Shape();
       pts.forEach(([x,z], i) => { if (i === 0) shape2.moveTo(x, z); else shape2.lineTo(x, z); });
       const geom = new THREE.ExtrudeGeometry(shape2, { depth:1, bevelEnabled:false });
       const floor = new THREE.Mesh(geom, mats.floor);
       floor.rotation.x = -Math.PI/2; floor.position.y = -1; floor.receiveShadow = !!enableShadows; scene.add(floor);
+      addGrass(floor);
       for (let i=0;i<pts.length;i++) {
         const a = pts[i], b = pts[(i+1)%pts.length];
         if (skipFn && skipFn(a,b)) continue;
@@ -146,6 +163,7 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
         arenaRadius = 40;
         const floor = new THREE.Mesh(new THREE.CircleGeometry(arenaRadius, 32), mats.floor);
         floor.rotation.x = -Math.PI/2; floor.position.y = -0.01; floor.receiveShadow = !!enableShadows; scene.add(floor);
+        addGrass(floor);
         // The floor should not be part of the collider list; including it
         // prevents enemy spawn locations from being considered valid in the
         // circular arena because its bounding box covers the entire play area.
