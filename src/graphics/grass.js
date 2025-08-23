@@ -52,22 +52,26 @@ export function createGrassMesh({
   const activeTiles = tiles.filter(t => t.area > 0);
   activeTiles.forEach(t => { t.counts = levels.map(() => 0); });
   levels.forEach((lvl, li) => {
-    const tilesCount = activeTiles.length;
     let remaining = lvl.bladeCount;
     let remainingArea = totalArea;
+    const lastIdx = activeTiles.length - 1;
     activeTiles.forEach((t, i) => {
-      const tilesLeft = tilesCount - i;
-      if (tilesLeft === 1) {
-        t.counts[li] = remaining;
-        return;
+      if (i === lastIdx) {
+        // Assign all leftover blades to the final tile.
+        t.counts[li] = Math.max(1, remaining);
+      } else {
+        const share = Math.max(1, Math.floor(remaining * (t.area / remainingArea)));
+        t.counts[li] = share;
+        remaining -= share;
+        remainingArea -= t.area;
       }
-      const share = Math.floor(remaining * (t.area / remainingArea));
-      const maxForTile = remaining - (tilesLeft - 1);
-      const count = Math.max(1, Math.min(maxForTile, share));
-      t.counts[li] = count;
-      remaining -= count;
-      remainingArea -= t.area;
     });
+    // Correct rounding errors by adjusting the last tile.
+    const allocated = activeTiles.reduce((sum, t) => sum + t.counts[li], 0);
+    const diff = lvl.bladeCount - allocated;
+    if (diff !== 0) {
+      activeTiles[lastIdx].counts[li] += diff;
+    }
   });
 
   const baseGeos = levels.map(lvl => {
