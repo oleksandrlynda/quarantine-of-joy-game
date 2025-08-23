@@ -80,8 +80,8 @@ export function createSanitizerAsset({ THREE, mats, scale = 1.0, palette } = {})
         baton.rotation.y = side > 0 ? 0 : Math.PI; // handle mirrored
         // handle + shaft (axis along -Z)
         add(new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.28, 8), matArmor2), baton, new THREE.Vector3(0, -0.05, 0));
-        add(new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.95), matArmor), baton, new THREE.Vector3(0, 0.0, -0.52));
-        const tip = add(new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 0.36), matGlow), baton, new THREE.Vector3(0, 0.0, -1.0));
+        add(new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.475), matArmor), baton, new THREE.Vector3(0, 0.0, -0.26));
+        const tip = add(new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, 0.18), matGlow), baton, new THREE.Vector3(0, 0.0, -0.5));
         tip.material.emissiveIntensity = 1.1;
         refs.baton = baton; refs.tip = tip;
       } else {

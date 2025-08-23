@@ -47,10 +47,25 @@ export class Sanitizer {
     // Pulse (both phases)
     this._pulseCd = 3.8;
 
+    // Jump wave attack
+    this._jumpCd = 3 + Math.random() * 1.5; // seconds
+    this._jumpState = 'idle';
+    this._jumpTimer = 0;
+    this._jumpDir = new THREE.Vector3(1, 0, 0);
+    this._jumpVel = 0;
+
+    // Panic rushers (low HP trigger)
+    this._panicRushActive = false;
+    this._panicRushTimer = 0;
+    this._panicRushWaves = 0;
+    this._panicRushDone = false;
+
     // Elite calls (P1)
     this._eliteCd = 9 + Math.random() * 3;
-    this._eliteCap = 3;
+    this._eliteCap = 4;
+    this._tankCap = 4;
     this._eliteRoots = new Set();
+    this._tankRoots = new Set();
 
     // Turret pods (P2)
     this._turretCd = 6.5;
@@ -82,7 +97,7 @@ export class Sanitizer {
       for (const r of Array.from(this._eliteRoots)) if (this.enemyManager.enemies.has(r)) this.enemyManager.remove(r);
       for (const r of Array.from(this._turretRoots)) if (this.enemyManager.enemies.has(r)) this.enemyManager.remove(r);
     }
-    this._eliteRoots.clear(); this._turretRoots.clear();
+    this._eliteRoots.clear(); this._tankRoots.clear(); this._turretRoots.clear();
     for (const t of this._tiles) scene.remove(t.mesh||null);
     this._tiles.length = 0;
   }
@@ -119,6 +134,8 @@ export class Sanitizer {
     // Attacks
     this._updateBeam(dt, ctx);
     this._maybePulse(dt, ctx);
+    this._maybeJumpWave(dt, ctx);
+    this._maybePanicRushers(dt, ctx);
 
     // P1: elite shooter calls
     if (this.phase === 1) this._updateEliteCalls(dt, ctx);
@@ -152,6 +169,7 @@ export class Sanitizer {
 
   // ------------- locomotion -------------
   _updateMovement(dt, ctx) {
+    if (this._jumpState && this._jumpState !== 'idle') return;
     const e = this.root;
     const toPlayer = ctx.player.position.clone().sub(e.position);
     const dist = toPlayer.length();
@@ -358,12 +376,118 @@ export class Sanitizer {
     }
   }
 
+  // ------------- jump shockwave -------------
+  _maybeJumpWave(dt, ctx) {
+    const e = this.root;
+    switch (this._jumpState) {
+      case 'idle':
+        if (this._jumpCd > 0) { this._jumpCd -= dt; return; }
+        this._jumpDir = ctx.player.position.clone().sub(e.position).setY(0);
+        if (this._jumpDir.lengthSq() === 0) this._jumpDir.set(1, 0, 0);
+        this._jumpDir.normalize();
+        this._jumpState = 'windup';
+        this._jumpTimer = 0;
+        return;
+      case 'windup':
+        this._jumpTimer += dt;
+        if (this._jumpTimer >= 0.35) {
+          this._jumpState = 'air';
+          this._jumpTimer = 0;
+          this._jumpVel = 7.5; // launch velocity
+        }
+        return;
+      case 'air':
+        this._jumpVel -= 20 * dt; // gravity
+        e.position.y += this._jumpVel * dt;
+        if (e.position.y <= 0.8) {
+          e.position.y = 0.8;
+          this._jumpState = 'land';
+          this._jumpTimer = 0;
+          const radius = 7.0;
+          const angle = Math.PI / 4; // 45° arc
+          try { window?._EFFECTS?.spawnShockwaveArc?.(e.position.clone(), this._jumpDir.clone(), angle, radius, 0xffdd55); } catch(_) {}
+          const toP = ctx.player.position.clone().sub(e.position); toP.y = 0;
+          const dist = toP.length();
+          if (dist <= radius) {
+            toP.normalize();
+            const ang = Math.acos(Math.max(-1, Math.min(1, this._jumpDir.dot(toP))));
+            if (ang <= angle * 0.5) ctx.onPlayerDamage(18, 'shockwave');
+          }
+        }
+        return;
+      case 'land':
+        this._jumpTimer += dt;
+        if (this._jumpTimer >= 0.5) {
+          this._jumpState = 'idle';
+          this._jumpCd = 3 + Math.random() * 1.5;
+        }
+        return;
+      default:
+        this._jumpState = 'idle';
+    }
+  }
+
+  // ------------- panic rusher waves -------------
+  _maybePanicRushers(dt, ctx) {
+    if (!this.enemyManager) return;
+
+    const hpRatio = this.root.userData.hp / this.maxHp;
+    if (!this._panicRushActive && !this._panicRushDone && hpRatio < 0.2) {
+      this._panicRushActive = true;
+      this._panicRushWaves = 3;
+      this._panicRushTimer = 0;
+    }
+
+    if (!this._panicRushActive) return;
+
+    if (this._panicRushTimer > 0) {
+      this._panicRushTimer -= dt;
+      return;
+    }
+
+    const e = this.root;
+    const dir = ctx.player.position.clone().sub(e.position); dir.y = 0;
+    const dist = dir.length();
+    if (dist === 0) dir.set(1, 0, 0); else dir.normalize();
+
+    const spawns = [];
+    if (dist > 3) {
+      const base = e.position.clone().add(dir.clone().multiplyScalar(2));
+      const perp = new this.THREE.Vector3(-dir.z, 0, dir.x).setLength(0.8);
+      spawns.push(base.clone().add(perp.clone().multiplyScalar(-1)).setY(0.8));
+      spawns.push(base.clone().setY(0.8));
+      spawns.push(base.clone().add(perp).setY(0.8));
+    } else {
+      const left = this.refs.leftArm?.getWorldPosition(new this.THREE.Vector3()) || e.position.clone();
+      const right = this.refs.rightArm?.getWorldPosition(new this.THREE.Vector3()) || e.position.clone();
+      const forward = dir.lengthSq() === 0 ? new this.THREE.Vector3(0,0,1) : dir.clone();
+      const front = e.position.clone().add(forward.normalize().multiplyScalar(1.5));
+      left.y = right.y = front.y = 0.8;
+      spawns.push(left, right, front);
+    }
+
+    for (const p of spawns) {
+      this.enemyManager.spawnAt('rusher', p, { countsTowardAlive: true });
+    }
+
+    this._panicRushWaves--;
+    if (this._panicRushWaves > 0) {
+      this._panicRushTimer = 2.0;
+    } else {
+      this._panicRushActive = false;
+      this._panicRushDone = true;
+    }
+  }
+
   // ------------- elite calls (Phase 1) -------------
   _updateEliteCalls(dt, ctx) {
     // prune
     if (this.enemyManager) {
       for (const r of Array.from(this._eliteRoots)) {
         if (!this.enemyManager.enemies.has(r)) this._eliteRoots.delete(r);
+      }
+      for (const r of Array.from(this._tankRoots)) {
+        if (!this.enemyManager.enemies.has(r)) this._tankRoots.delete(r);
       }
     }
     if (this._eliteCd > 0) { this._eliteCd -= dt; return; }
@@ -373,13 +497,14 @@ export class Sanitizer {
     const count = 1 + (Math.random() < 0.5 ? 1 : 0);
     const spawns = this._spawnOnPerimeter(ctx, count, 16, 19);
     for (const p of spawns) {
-      const root = this.enemyManager.spawnAt('rusher', p, { countsTowardAlive: true }) ||
-                   this.enemyManager.spawnAt('shooter', p, { countsTowardAlive: true });
+      const kind = (Math.random() < 0.5 && this._tankRoots.size < this._tankCap) ? 'tank' : 'shooter';
+      const root = this.enemyManager.spawnAt(kind, p, { countsTowardAlive: true });
       if (root) {
         // small buff so they feel “elite”
         const inst = this.enemyManager.instanceByRoot.get(root);
         if (inst) { inst.speed *= 1.05; inst.cooldownBase = Math.max(0.7, (inst.cooldownBase||1.0)*0.9); }
         this._eliteRoots.add(root);
+        if (kind === 'tank') this._tankRoots.add(root);
       }
       if (this._eliteRoots.size >= this._eliteCap) break;
     }

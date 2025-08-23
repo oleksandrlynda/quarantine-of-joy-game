@@ -152,6 +152,9 @@ export class Effects {
     window._EFFECTS.spawnGroundSlam = (center, radius=5)=>{
       this.spawnGroundSlam(center, radius);
     };
+    window._EFFECTS.spawnShockwaveArc = (center, dir, angle, radius, color)=>{
+      this.spawnShockwaveArc(center, dir, angle, radius, color);
+    };
     window._EFFECTS.spawnBulletTracer = (start, end, options={})=>{
       this.spawnBulletTracer(start, end, options);
     };
@@ -919,6 +922,35 @@ spawnBulletImpact(position, normal){
     this._alive.push({ light, life:0, maxLife:0.18, tick: dt=>{ light.intensity = Math.max(0, light.intensity - dt*10); } });
 
     return true;
+  }
+
+  // Wedge-shaped expanding ring useful for directional shockwaves
+  spawnShockwaveArc(center, dir, angle=Math.PI/4, radius=6.0, color=0xffdd55){
+    const THREE = this.THREE;
+    const ring = this._allocRing();
+    if (!ring) return null;
+    const thetaLen = angle;
+    const thetaStart = -thetaLen/2;
+    const segs = 40;
+    ring.geometry?.dispose?.();
+    ring.geometry = new THREE.RingGeometry(1, 1.2, segs, 1, thetaStart, thetaLen);
+    ring.material = ring.material || new THREE.ShaderMaterial({
+      transparent:true, depthWrite:false, blending:THREE.AdditiveBlending,
+      uniforms:{ uElapsed:{value:0}, uLife:{value:0.6}, uStart:{value:radius*0.1}, uEnd:{value:radius}, uColor:{value:new THREE.Color(color)} },
+      vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+      fragmentShader:`precision mediump float; varying vec2 vUv; uniform float uElapsed; uniform float uLife; uniform float uStart; uniform float uEnd; uniform vec3 uColor; void main(){ float t=clamp(uElapsed/uLife,0.0,1.0); float r=mix(uStart,uEnd,t); float d=abs(length(vUv-0.5)*2.0 - r); float a=smoothstep(0.08,0.0,d)*(1.0-t); if(a<0.01) discard; gl_FragColor=vec4(uColor,a); }`
+    });
+    ring.material.uniforms.uElapsed.value = 0;
+    ring.material.uniforms.uLife.value = 0.6;
+    ring.material.uniforms.uStart.value = radius*0.1;
+    ring.material.uniforms.uEnd.value = radius;
+    ring.material.uniforms.uColor.value = new THREE.Color(color);
+    ring.position.copy(center.clone().setY(0.05));
+    ring.quaternion.setFromEuler(new THREE.Euler(-Math.PI/2, Math.atan2(dir.z, dir.x), 0, 'XYZ'));
+    ring.visible = true;
+    const ttl = ring.material.uniforms.uLife.value;
+    this._ringPool.active.push({ mesh: ring, life: 0, ttl });
+    return ring;
   }
 
   // Simple expanding ground ring useful for slams
