@@ -477,27 +477,36 @@ export class EnemyManager {
     let pz = enemy.position.z;
     let py = enemy.position.y;
   
+    const stepUpMax = 0.12 * this.enemyFullHeight;
+    const jumpAssistMax = 0.30 * this.enemyFullHeight;
+    let pendingLift = 0;
+
     const tryAxis = (dx, dz) => {
       const nx = px + dx, nz = pz + dz;
       const feetY = py - half.y;
       t.min.set(nx - half.x, Math.max(0.0, feetY + 0.05), nz - half.z);
       t.max.set(nx + half.x, feetY + (half.y*2),            nz + half.z);
       t.boxA.set(t.min, t.max);
-      for (const obb of this.objectBBs) { if (t.boxA.intersectsBox(obb)) return false; }
+      for (const obb of this.objectBBs) {
+        if (!t.boxA.intersectsBox(obb)) continue;
+        const need = obb.max.y - feetY;
+        if (need > jumpAssistMax + 1e-3) return false;
+        if (need > pendingLift) pendingLift = need;
+      }
       // accept & update running position for next axis
       px = nx; pz = nz; return true;
     };
-  
+
     const beforeGround = this._groundHeightAt(px, pz);
     tryAxis(step.x, 0);
     tryAxis(0, step.z);
-  
+
+    py += pendingLift;
+
     const afterGround = this._groundHeightAt(px, pz);
     const rise = Math.max(0, afterGround - beforeGround);
-    const stepUpMax = 0.12 * this.enemyFullHeight;
-    const jumpAssistMax = 0.30 * this.enemyFullHeight;
     const desiredY = afterGround + half.y;
-  
+
     if (rise > 0) {
       const maxLift = (rise <= stepUpMax + 1e-3) ? stepUpMax : (rise <= jumpAssistMax + 1e-3 ? jumpAssistMax : 0);
       if (maxLift > 0) {
@@ -507,9 +516,21 @@ export class EnemyManager {
     } else {
       py = desiredY;
     }
-  
+
+    const startX = enemy.position.x, startY = enemy.position.y, startZ = enemy.position.z;
+    const feetY = py - half.y;
+    t.min.set(px - half.x, Math.max(0.0, feetY + 0.05), pz - half.z);
+    t.max.set(px + half.x, feetY + (half.y*2),            pz + half.z);
+    t.boxA.set(t.min, t.max);
+    for (const obb of this.objectBBs) {
+      if (t.boxA.intersectsBox(obb)) {
+        enemy.position.set(startX, startY, startZ);
+        return;
+      }
+    }
+
     enemy.position.set(px, py, pz);
-  }  
+  }
 
   // Compute highest ground at XZ from colliders using raycast fallback to AABB top
   _groundHeightAt(x, z) {
