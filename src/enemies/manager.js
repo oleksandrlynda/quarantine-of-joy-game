@@ -454,7 +454,17 @@ export class EnemyManager {
   applyKnockback(enemy, vector) {
     if (!enemy || !vector) return;
     const step = vector.clone ? vector.clone() : new this.THREE.Vector3(vector.x || 0, vector.y || 0, vector.z || 0);
-    this._moveWithCollisions(enemy, step);
+    const type = enemy.userData?.type || '';
+    if (type === 'swarm_warden' || type.startsWith('flyer')) {
+      const horiz = step.clone();
+      horiz.y = 0;
+      const oldY = enemy.position.y;
+      this._moveWithCollisions(enemy, horiz);
+      const dip = Math.max(-0.3, Math.min(0.3, step.y || 0));
+      enemy.position.y = oldY + dip;
+    } else {
+      this._moveWithCollisions(enemy, step);
+    }
   }
 
   _moveWithCollisions(enemy, step) {
