@@ -129,7 +129,6 @@ export class RusherEnemy {
         this._dashTimer = (this.cfg.dashDuration ?? 0.5) + Math.random() * 0.2;
         this._dashTotal = this._dashTimer;
         this._overrunTimer = 0;
-        this._dashCooldown = 1.2 + Math.random() * 0.8;
         this._charging = true;
         this._hitCooldown = 0;
         this._hasDealtHit = false;
@@ -179,6 +178,10 @@ export class RusherEnemy {
       desired = desired.multiplyScalar(1.0).add(avoid.multiplyScalar(1.2)).add(sep.multiplyScalar(0.6)).normalize();
     }
 
+    if (!this._charging && dist < 5 && this._windUpTimer <= 0 && this._recoverTimer <= 0 && this._stunTimer <= 0 && this._flinchTimer <= 0) {
+      desired.negate();
+    }
+
     // Dash logic: burst when mid-range and LOS is clear
     if (this._dashCooldown > 0) this._dashCooldown = Math.max(0, this._dashCooldown - dt);
     if (this._charging) {
@@ -197,9 +200,10 @@ export class RusherEnemy {
         this._recoverTimer = 0.7 + Math.random() * 0.4;
         if (!this._hasDealtHit) this._stunTimer = 1.0 + Math.random() * 0.4;
         this._flinchAccum = 0;
+        this._dashCooldown = 1.2 + Math.random() * 0.8;
       }
     }
-    const canDash = (dist >= 8 && dist <= 18) && !this._charging && this._dashCooldown <= 0 && this._recoverTimer <= 0 && this._windUpTimer <= 0 && this._stunTimer <= 0 && this._flinchTimer <= 0 && this._hasLineOfSight(e.position, playerPos, ctx.objects);
+    const canDash = (dist >= 5 && dist <= 20) && !this._charging && this._dashCooldown <= 0 && this._recoverTimer <= 0 && this._windUpTimer <= 0 && this._stunTimer <= 0 && this._flinchTimer <= 0 && this._hasLineOfSight(e.position, playerPos, ctx.objects);
     if (canDash && Math.random() < 1.2 * dt) {
       this._windUpTimer = 0.3;
       this._dashDir.copy(desired);
@@ -232,6 +236,7 @@ export class RusherEnemy {
         window?._EFFECTS?.spawnDashImpact?.(e.position.clone(), this.cfg.color);
       } catch(_){}
       this._flinchAccum = 0;
+      this._dashCooldown = 1.2 + Math.random() * 0.8;
     }
     const speedNow = movedVec.length() / Math.max(dt, 0.00001);
     if (movedVec.lengthSq() > 1e-6) {
