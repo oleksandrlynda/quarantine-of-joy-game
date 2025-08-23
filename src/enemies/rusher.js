@@ -6,6 +6,7 @@ export const RUSHER_VARIANTS = {
     hp: 60,
     speedMin: 6.4,
     speedMax: 7.9,
+    dashDuration: 0.5,
     color: 0xf97316,
     palette: {
       accent: 0xf97316,
@@ -16,6 +17,7 @@ export const RUSHER_VARIANTS = {
     hp: 90,
     speedMin: 7.4,
     speedMax: 8.8,
+    dashDuration: 0.6,
     color: 0x6366f1,
     palette: {
       accent: 0x6366f1,
@@ -26,6 +28,7 @@ export const RUSHER_VARIANTS = {
     hp: 70,
     speedMin: 6.0,
     speedMax: 7.0,
+    dashDuration: 0.55,
     color: 0xfacc15,
     palette: {
       accent: 0xfacc15,
@@ -118,7 +121,7 @@ export class RusherEnemy {
       this._windUpTimer = Math.max(0, this._windUpTimer - dt);
       if (this._windUpTimer === 0) {
         // wind-up finished -> start dash
-        this._dashTimer = 0.35 + Math.random() * 0.15;
+        this._dashTimer = (this.cfg.dashDuration ?? 0.5) + Math.random() * 0.2;
         this._dashCooldown = 1.2 + Math.random() * 0.8;
         this._charging = true;
         this._hitCooldown = 0;
