@@ -1102,16 +1102,22 @@ export class EnemyManager {
 
     const minFlyer  = wave >= 5 ? 2 : 0;
     let needFlyer   = wave >= 5 ? Math.max(minFlyer, Math.floor(total * pctFlyer)) : 0;
-    let needRusher  = Math.floor(total * pctRusher);
+    // Base rusher pool, later split into variant tiers
+    let totalRusher = Math.floor(total * pctRusher);
+    let needRusher = totalRusher;           // commons
     let needRusherElite = 0;
     let needRusherExplosive = 0;
-    if (wave >= 15 && needRusher > 0) {
-      needRusherElite = Math.max(1, Math.floor(needRusher * 0.4));
+
+    if (wave >= 25 && totalRusher > 0) {
+      // Groups of five: 1 bomber, 1 elite, 3 common
+      const groups = Math.floor(totalRusher / 5);
+      needRusherExplosive = groups;
+      needRusherElite = groups;
+      needRusher -= groups * 2; // remaining are commons
+    } else if (wave >= 15 && totalRusher > 0) {
+      // 1 elite per 3 common (group of four)
+      needRusherElite = Math.floor(totalRusher / 4);
       needRusher -= needRusherElite;
-    }
-    if (wave >= 25 && needRusher > 0) {
-      needRusherExplosive = Math.max(1, Math.floor(needRusher * 0.3));
-      needRusher -= needRusherExplosive;
     }
     let needShooter = Math.floor(total * pctShooter);
     let needTank    = Math.max(wave >= 6 ? 1 : 0, Math.floor(total * pctTank));
