@@ -1,4 +1,4 @@
-import { BufferAttribute, BufferGeometry, Color, Vector3 } from 'three'
+import { BufferAttribute, BufferGeometry, Color, Vector3 } from 'https://unpkg.com/three@0.159.0/build/three.module.js'
 import {
   positionLocal,
   mul,
@@ -14,7 +14,7 @@ import {
   cross,
   attribute,
   div,
-} from 'three/tsl'
+} from 'https://unpkg.com/three@0.159.0/examples/jsm/nodes/Nodes.js?module'
 
 /**
  * Build a geometry containing many grass blades.
