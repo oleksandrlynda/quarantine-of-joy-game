@@ -138,6 +138,12 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box', biome 
   applyWeatherUniforms(mats.wall);
   mats.weather = weatherUniforms;
 
+  // Collidable objects and arena state
+  const objects = [];
+  let arenaRadius = Infinity;
+  let grassMesh = null;
+  let floorGeo = null;
+
   BiomeManager.init({ scene, skyMat, mats });
   const fauna = createFauna({ scene, THREE });
   BiomeManager.attachFauna(fauna);
@@ -192,12 +198,6 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box', biome 
     skyMat.uniforms.bottom.value.copy(dayBottom).lerp(nightBottom, nightMix);
     return sy < 0;
   }
-
-  // Collidable objects
-  const objects = [];
-  let arenaRadius = Infinity;
-  let grassMesh = null;
-  let floorGeo = null;
 
   function makeArena(shape){
     const wallH = 6, wallT = 1;
