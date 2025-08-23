@@ -1,5 +1,15 @@
 // Progression: tier-aware early game, no duplicate offers vs. current, safer restricted picks
 
+// Exported helper for testing weapon offer selection
+export function pickTwoDistinct(pool){
+  if (pool.length <= 1) return pool.slice(0, 1);
+  // pick two uniformly without replacement
+  const i = Math.floor(Math.random()*pool.length);
+  let j = Math.floor(Math.random()*pool.length);
+  while (j === i) j = Math.floor(Math.random()*pool.length);
+  return [pool[i], pool[j]];
+}
+
 export class Progression {
   constructor({ weaponSystem, documentRef, onPause, controls }){
     this.ws = weaponSystem;
@@ -111,15 +121,6 @@ export class Progression {
     return pool.filter(p => p && p.name !== cur);
   }
 
-  _pickTwoDistinct(pool){
-    if (pool.length <= 1) return pool.slice(0, 1);
-    // pick two uniformly without replacement
-    const i = Math.floor(Math.random()*pool.length);
-    let j = Math.floor(Math.random()*pool.length);
-    while (j === i) j = Math.floor(Math.random()*pool.length);
-    return [pool[i], pool[j]];
-  }
-
   _expandIfTooShort(picks, fallbackPool){
     // If after restrictions we have <2, top up from fallback (excluding duplicates)
     if (picks.length >= 2) return picks;
@@ -176,7 +177,7 @@ export class Progression {
     if (pool.length === 0) return;
 
     // Choose up to two distinct picks, and if restricted left us short, fill from basePool
-    let picks = this._pickTwoDistinct(pool);
+    let picks = pickTwoDistinct(pool);
     picks = this._expandIfTooShort(picks, basePool);
 
     // Build UI
