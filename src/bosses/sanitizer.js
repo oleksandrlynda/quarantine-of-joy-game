@@ -58,6 +58,7 @@ export class Sanitizer {
     this._panicRushActive = false;
     this._panicRushTimer = 0;
     this._panicRushWaves = 0;
+    this._panicRushDone = false;
 
     // Elite calls (P1)
     this._eliteCd = 9 + Math.random() * 3;
@@ -429,9 +430,9 @@ export class Sanitizer {
     if (!this.enemyManager) return;
 
     const hpRatio = this.root.userData.hp / this.maxHp;
-    if (!this._panicRushActive && hpRatio < 0.2) {
+    if (!this._panicRushActive && !this._panicRushDone && hpRatio < 0.2) {
       this._panicRushActive = true;
-      this._panicRushWaves = 2;
+      this._panicRushWaves = 3;
       this._panicRushTimer = 0;
     }
 
@@ -472,6 +473,7 @@ export class Sanitizer {
       this._panicRushTimer = 2.0;
     } else {
       this._panicRushActive = false;
+      this._panicRushDone = true;
     }
   }
 
