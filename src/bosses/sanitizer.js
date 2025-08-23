@@ -47,6 +47,18 @@ export class Sanitizer {
     // Pulse (both phases)
     this._pulseCd = 3.8;
 
+    // Jump wave attack
+    this._jumpCd = 6 + Math.random() * 2; // seconds
+    this._jumpState = 'idle';
+    this._jumpTimer = 0;
+    this._jumpDir = new THREE.Vector3(1, 0, 0);
+    this._jumpVel = 0;
+
+    // Panic rushers (low HP trigger)
+    this._panicRushActive = false;
+    this._panicRushTimer = 0;
+    this._panicRushWaves = 0;
+
     // Elite calls (P1)
     this._eliteCd = 9 + Math.random() * 3;
     this._eliteCap = 3;
@@ -119,6 +131,8 @@ export class Sanitizer {
     // Attacks
     this._updateBeam(dt, ctx);
     this._maybePulse(dt, ctx);
+    this._maybeJumpWave(dt, ctx);
+    this._maybePanicRushers(dt, ctx);
 
     // P1: elite shooter calls
     if (this.phase === 1) this._updateEliteCalls(dt, ctx);
@@ -152,6 +166,7 @@ export class Sanitizer {
 
   // ------------- locomotion -------------
   _updateMovement(dt, ctx) {
+    if (this._jumpState && this._jumpState !== 'idle') return;
     const e = this.root;
     const toPlayer = ctx.player.position.clone().sub(e.position);
     const dist = toPlayer.length();
@@ -355,6 +370,108 @@ export class Sanitizer {
       this._pulseCd = 3.5 + Math.random() * 1.0;
     } else {
       this._pulseCd = 0.1;
+    }
+  }
+
+  // ------------- jump shockwave -------------
+  _maybeJumpWave(dt, ctx) {
+    const e = this.root;
+    switch (this._jumpState) {
+      case 'idle':
+        if (this._jumpCd > 0) { this._jumpCd -= dt; return; }
+        this._jumpDir = ctx.player.position.clone().sub(e.position).setY(0);
+        if (this._jumpDir.lengthSq() === 0) this._jumpDir.set(1, 0, 0);
+        this._jumpDir.normalize();
+        this._jumpState = 'windup';
+        this._jumpTimer = 0;
+        return;
+      case 'windup':
+        this._jumpTimer += dt;
+        if (this._jumpTimer >= 0.35) {
+          this._jumpState = 'air';
+          this._jumpTimer = 0;
+          this._jumpVel = 7.5; // launch velocity
+        }
+        return;
+      case 'air':
+        this._jumpVel -= 20 * dt; // gravity
+        e.position.y += this._jumpVel * dt;
+        if (e.position.y <= 0.8) {
+          e.position.y = 0.8;
+          this._jumpState = 'land';
+          this._jumpTimer = 0;
+          const radius = 6.0;
+          const angle = Math.PI / 4; // 45° arc
+          try { window?._EFFECTS?.spawnShockwaveArc?.(e.position.clone(), this._jumpDir.clone(), angle, radius, 0x9bd1ff); } catch(_) {}
+          const toP = ctx.player.position.clone().sub(e.position); toP.y = 0;
+          const dist = toP.length();
+          if (dist <= radius) {
+            toP.normalize();
+            const ang = Math.acos(Math.max(-1, Math.min(1, this._jumpDir.dot(toP))));
+            if (ang <= angle * 0.5) ctx.onPlayerDamage(18, 'shockwave');
+          }
+        }
+        return;
+      case 'land':
+        this._jumpTimer += dt;
+        if (this._jumpTimer >= 0.5) {
+          this._jumpState = 'idle';
+          this._jumpCd = 6 + Math.random() * 2;
+        }
+        return;
+      default:
+        this._jumpState = 'idle';
+    }
+  }
+
+  // ------------- panic rusher waves -------------
+  _maybePanicRushers(dt, ctx) {
+    if (!this.enemyManager) return;
+
+    const hpRatio = this.root.userData.hp / this.maxHp;
+    if (!this._panicRushActive && hpRatio < 0.2) {
+      this._panicRushActive = true;
+      this._panicRushWaves = 3;
+      this._panicRushTimer = 0;
+    }
+
+    if (!this._panicRushActive) return;
+
+    if (this._panicRushTimer > 0) {
+      this._panicRushTimer -= dt;
+      return;
+    }
+
+    const e = this.root;
+    const dir = ctx.player.position.clone().sub(e.position); dir.y = 0;
+    const dist = dir.length();
+    if (dist === 0) dir.set(1, 0, 0); else dir.normalize();
+
+    const spawns = [];
+    if (dist > 3) {
+      const base = e.position.clone().add(dir.clone().multiplyScalar(2));
+      const perp = new this.THREE.Vector3(-dir.z, 0, dir.x).setLength(0.8);
+      spawns.push(base.clone().add(perp.clone().multiplyScalar(-1)).setY(0.8));
+      spawns.push(base.clone().setY(0.8));
+      spawns.push(base.clone().add(perp).setY(0.8));
+    } else {
+      const left = this.refs.leftArm?.getWorldPosition(new this.THREE.Vector3()) || e.position.clone();
+      const right = this.refs.rightArm?.getWorldPosition(new this.THREE.Vector3()) || e.position.clone();
+      const forward = dir.lengthSq() === 0 ? new this.THREE.Vector3(0,0,1) : dir.clone();
+      const front = e.position.clone().add(forward.normalize().multiplyScalar(1.5));
+      left.y = right.y = front.y = 0.8;
+      spawns.push(left, right, front);
+    }
+
+    for (const p of spawns) {
+      this.enemyManager.spawnAt('rusher', p, { countsTowardAlive: true });
+    }
+
+    this._panicRushWaves--;
+    if (this._panicRushWaves > 0) {
+      this._panicRushTimer = 1.0;
+    } else {
+      this._panicRushActive = false;
     }
   }
 
