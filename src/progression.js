@@ -262,9 +262,18 @@ export class Progression {
 
   // ---------- Accept / Decline ----------
   _decline(){
-    // +20% reserve to current primary
+    // +20% reserve to current primary based on default reserve capacity
     const cur = this.ws.current;
-    if (cur) cur.addReserve(Math.floor((cur.getReserve() || 0) * 0.2));
+    if (cur){
+      const base = cur.cfg?.reserve || 0;
+      let bonus = Math.floor(base * 0.2);
+      const cap = cur.cfg?.reserveCap ?? cur.cfg?.softCap ?? cur.cfg?.reserveSoftCap;
+      if (typeof cap === 'number'){
+        const allowed = Math.max(0, cap - (cur.getReserve ? cur.getReserve() : 0));
+        bonus = Math.min(bonus, allowed);
+      }
+      cur.addReserve(bonus);
+    }
     this._closeOffer(false);
   }
 
