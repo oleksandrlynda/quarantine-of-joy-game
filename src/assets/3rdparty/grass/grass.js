@@ -14,6 +14,7 @@ import {
   cross,
   attribute,
   div,
+  mix,
 } from 'https://unpkg.com/three@0.159.0/examples/jsm/nodes/Nodes.js'
 
 /**
@@ -240,10 +241,12 @@ const createPositionNode = (options) => {
   )
   const finalWindOffset = mul(windNoise, vec3(options.windDisplacement, 0, options.windDisplacement))
 
-  // Select position based on vertex index with billboard transformation
-  const localOffset = vertIdx
-    .equal(0)
-    .select(leftBase, vertIdx.equal(1).select(add(topCenter, finalWindOffset), rightBase))
+  // Select position based on vertex index using nested mixes
+  const localOffset = mix(
+    mix(rightBase, leftBase, vertIdx.equal(0)),
+    add(topCenter, finalWindOffset),
+    vertIdx.equal(1)
+  )
 
   return add(positionLocal, localOffset)
 }
