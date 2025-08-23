@@ -774,11 +774,13 @@ function step(){
       const mode = weather.mode || 'clear';
       const fogMix = (weather._mix?.fog) || (mode.includes('fog') ? 1 : 0);
       const rainMix = (weather._mix?.rain) || (mode.includes('rain') ? 1 : 0);
-      // Darker pads and softer hats in fog/rain
-      const hatCut = 6000 - 1800 * Math.min(1, (fogMix * 0.6 + rainMix * 0.4));
-      const padBright = 2000 - 600 * Math.min(1, fogMix) + 300 * Math.min(1, rainMix);
+      const sandMix = (weather._mix?.sand) || (mode.includes('sand') ? 1 : 0);
+      // Darker pads and softer hats in fog/rain/sand
+      const hatCut = 6000 - 1800 * Math.min(1, (fogMix * 0.6 + rainMix * 0.4 + sandMix * 0.7));
+      const padBright = 2000 - 600 * Math.min(1, fogMix + sandMix) + 300 * Math.min(1, rainMix);
       music.hatCutoffHz = Math.max(2200, hatCut|0);
       music.padBaseBrightnessHz = Math.max(1200, padBright|0);
+      if (typeof music.setMood === 'function') music.setMood({ fog: fogMix, rain: rainMix, sand: sandMix });
     } catch (e) { /* ignore mood errors */ }
   }
 

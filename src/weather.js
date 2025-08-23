@@ -1,11 +1,11 @@
-// WeatherSystem module: rain, snow, fog (can blend with rain), dynamic cycle, thunder for rain
+// WeatherSystem module: rain, snow, fog (can blend with rain), sandstorm, dynamic cycle, thunder for rain
 export class WeatherSystem {
   constructor(ctx){
     this.THREE = ctx.THREE; this.scene = ctx.scene; this.skyMat = ctx.skyMat; this.hemi = ctx.hemi; this.dir = ctx.dir;
     this.group = new this.THREE.Group(); this.scene.add(this.group);
 
     // Public state
-    this.mode = 'clear'; // 'clear' | 'rain' | 'snow' | 'fog' | 'rain+fog'
+    this.mode = 'clear'; // 'clear' | 'rain' | 'snow' | 'fog' | 'rain+fog' | 'sandstorm'
     this.precip = 'none'; // 'none' | 'rain' | 'snow'
     this.uTime = { value: 0 };
     this.wind = new this.THREE.Vector3(1.2, 0.0, -0.4);
@@ -16,11 +16,12 @@ export class WeatherSystem {
     this.rain = this.createRainPoints(6000);
     this.snow = this.createSnowPoints(2600);
     this.fog = this.createFogPoints(1100);
-    this.rain.visible = false; this.snow.visible = false; this.fog.visible = false;
+    this.sand = this.createSandPoints(1200);
+    this.rain.visible = false; this.snow.visible = false; this.fog.visible = false; this.sand.visible = false;
 
     // Crossfade state for smoother transitions
-    this._mix = { rain: 0, snow: 0, fog: 0 };
-    this._mixTarget = { rain: 0, snow: 0, fog: 0 };
+    this._mix = { rain: 0, snow: 0, fog: 0, sand: 0 };
+    this._mixTarget = { rain: 0, snow: 0, fog: 0, sand: 0 };
     this._transitionTime = 3.5; // seconds to blend between states (longer = smoother)
     this._lastTime = 0;
 
@@ -79,13 +80,15 @@ export class WeatherSystem {
     const hasRain = m.includes('rain');
     const hasSnow = m.includes('snow');
     const hasFog  = m.includes('fog');
+    const hasSand = m.includes('sand');
     this.precip = hasRain ? 'rain' : (hasSnow ? 'snow' : 'none');
 
     // Particle targets (capture current as start for easing)
-    this._mixStart = { rain: this._mix.rain, snow: this._mix.snow, fog: this._mix.fog };
+    this._mixStart = { rain: this._mix.rain, snow: this._mix.snow, fog: this._mix.fog, sand: this._mix.sand };
     this._mixTarget.rain = hasRain ? 1 : 0;
     this._mixTarget.snow = hasSnow ? 1 : 0;
     this._mixTarget.fog  = hasFog  ? 1 : 0;
+    this._mixTarget.sand = hasSand ? 1 : 0;
 
     // Environment targets (fog/sky/light). Also capture current as start
     this._envStart = {
@@ -113,6 +116,11 @@ export class WeatherSystem {
       this._envTarget.fogNear = 22; this._envTarget.fogFar = 140;
       this._envTarget.skyTop = new C('#cfe9ff'); this._envTarget.skyBottom = new C('#f6f9ff');
       this._envTarget.hemiIntensity = 0.9; this._envTarget.dirIntensity = 0.7;
+    } else if (hasSand) {
+      this._envTarget.fogColor = new C(0xdcc7a4);
+      this._envTarget.fogNear = 12; this._envTarget.fogFar = 90;
+      this._envTarget.skyTop = new C('#d2b98c'); this._envTarget.skyBottom = new C('#f0e4d0');
+      this._envTarget.hemiIntensity = 0.6; this._envTarget.dirIntensity = 0.55;
     } else if (hasFog) {
       this._envTarget.fogColor = new C(0xd9e6f2);
       this._envTarget.fogNear = 16; this._envTarget.fogFar = 115;
@@ -167,14 +175,17 @@ export class WeatherSystem {
     this._mix.rain = lerp01(this._mixStart?.rain ?? 0, this._mixTarget.rain, s);
     this._mix.snow = lerp01(this._mixStart?.snow ?? 0, this._mixTarget.snow, s);
     this._mix.fog  = lerp01(this._mixStart?.fog  ?? 0, this._mixTarget.fog,  s);
+    this._mix.sand = lerp01(this._mixStart?.sand ?? 0, this._mixTarget.sand, s);
 
     if (this.rain && this.rain.material?.uniforms?.uAlpha){ this.rain.material.uniforms.uAlpha.value = this._mix.rain; }
     if (this.snow && this.snow.material?.uniforms?.uAlpha){ this.snow.material.uniforms.uAlpha.value = this._mix.snow; }
     if (this.fog  && this.fog.material?.uniforms?.uAlpha){ this.fog.material.uniforms.uAlpha.value  = this._mix.fog; }
+    if (this.sand && this.sand.material?.uniforms?.uAlpha){ this.sand.material.uniforms.uAlpha.value = this._mix.sand; }
 
     if (this.rain) this.rain.visible = this._mix.rain > 0.01;
     if (this.snow) this.snow.visible = this._mix.snow > 0.01;
     if (this.fog)  this.fog.visible  = this._mix.fog  > 0.01;
+    if (this.sand) this.sand.visible = this._mix.sand > 0.01;
 
     // environment blending using eased t
     this.scene.fog.color.copy(this._envStart.fogColor).lerp(this._envTarget.fogColor, s);
@@ -204,19 +215,20 @@ export class WeatherSystem {
   }
 
   _scheduleNextChange(now){
-    // Clear more often: 60% clear, 25% rain, 15% snow.
+    // Weather probabilities: 45% clear, 18% rain, 8% rain+fog, 17% snow, 7% fog, 5% sandstorm.
     // Next change after 20–45 seconds.
     this._nextChangeAt = now + 20 + Math.random()*25;
   }
 
   _pickNextWeather(){
     const r = Math.random();
-    // 50% clear, 18% rain, 8% rain+fog, 17% snow, 7% fog
-    const target = r < 0.50 ? 'clear'
-                 : r < 0.68 ? 'rain'
-                 : r < 0.76 ? 'rain+fog'
-                 : r < 0.93 ? 'snow'
-                 : 'fog';
+    // 45% clear, 18% rain, 8% rain+fog, 17% snow, 7% fog, 5% sandstorm
+    const target = r < 0.45 ? 'clear'
+                 : r < 0.63 ? 'rain'
+                 : r < 0.71 ? 'rain+fog'
+                 : r < 0.88 ? 'snow'
+                 : r < 0.95 ? 'fog'
+                 : 'sandstorm';
     this.setMode(target);
     this._scheduleNextChange(this.uTime.value);
   }
@@ -323,6 +335,18 @@ export class WeatherSystem {
       uniforms:{ uTime:this.uTime, uSize:{value:48.0}, uHeight:{value:Math.min(60, this.height)}, uArea:{value:this.areaSize}, uAlpha:{value:0.0} },
       vertexShader:`uniform float uTime; uniform float uHeight; uniform float uSize; uniform float uArea; attribute float aSpeed; attribute float aSeed; varying float vAlpha; void main(){ vec3 pos=position; float s=aSeed*6.283; float halfA=0.5*uArea; float fx=position.x + sin(uTime*0.10 + s)*1.6 + sin(uTime*0.23 + s*1.3)*1.1; float fz=position.z + cos(uTime*0.08 + s)*1.7 + cos(uTime*0.19 + s*0.9)*1.2; pos.x = -halfA + mod(fx + halfA, uArea); pos.z = -halfA + mod(fz + halfA, uArea); pos.y = mod(position.y + sin(uTime*0.12 + s)*0.6, uHeight); vec4 mv = modelViewMatrix * vec4(pos,1.0); gl_Position = projectionMatrix * mv; float dist = max(0.001, -mv.z); gl_PointSize = uSize * clamp(180.0/dist, 10.0, 95.0); float base = clamp(0.06 + fract(aSeed*97.0)*0.14, 0.06, 0.2); float nearFade = clamp((dist - 2.0) / 10.0, 0.0, 1.0); vAlpha = base * nearFade; }`,
       fragmentShader:`precision mediump float; varying float vAlpha; uniform float uAlpha; void main(){ vec2 pc = gl_PointCoord - 0.5; float d2 = dot(pc, pc); float soft = exp(-4.5 * d2); float a = soft * vAlpha * uAlpha; if(a < 0.01) discard; vec3 col = vec3(0.86, 0.92, 0.99); gl_FragColor = vec4(col, a); }`
+    });
+    const points = new THREE.Points(g, material); this.group.add(points); return points;
+  }
+
+  createSandPoints(count){
+    const THREE = this.THREE; const g = this.createBaseGeometry(count);
+    const speeds = g.getAttribute('aSpeed'); for(let i=0;i<speeds.count;i++) speeds.setX(i, 1.5 + Math.random()*2.0); speeds.needsUpdate = true;
+    const material = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, depthTest: true,
+      uniforms:{ uTime:this.uTime, uSize:{value:42.0}, uHeight:{value:Math.min(60, this.height)}, uArea:{value:this.areaSize}, uAlpha:{value:0.0} },
+      vertexShader:`uniform float uTime; uniform float uHeight; uniform float uSize; uniform float uArea; attribute float aSpeed; attribute float aSeed; varying float vAlpha; void main(){ vec3 pos=position; float s=aSeed*6.283; float halfA=0.5*uArea; float fx=position.x + sin(uTime*0.15 + s)*2.0 + sin(uTime*0.32 + s*1.1)*1.5; float fz=position.z + cos(uTime*0.12 + s)*2.1 + cos(uTime*0.27 + s*0.9)*1.4; pos.x=-halfA+mod(fx+halfA,uArea); pos.z=-halfA+mod(fz+halfA,uArea); pos.y=mod(position.y + sin(uTime*0.18 + s)*0.4, uHeight); vec4 mv=modelViewMatrix*vec4(pos,1.0); gl_Position=projectionMatrix*mv; float dist=max(0.001,-mv.z); gl_PointSize=uSize*clamp(180.0/dist,10.0,95.0); float base=clamp(0.12 + fract(aSeed*53.0)*0.18,0.12,0.3); float nearFade=clamp((dist-2.0)/8.0,0.0,1.0); vAlpha=base*nearFade; }`,
+      fragmentShader:`precision mediump float; varying float vAlpha; uniform float uAlpha; void main(){ vec2 pc=gl_PointCoord-0.5; float d2=dot(pc,pc); float soft=exp(-4.5*d2); float a=soft*vAlpha*uAlpha; if(a<0.01) discard; vec3 col=vec3(0.78,0.70,0.55); gl_FragColor=vec4(col,a); }`
     });
     const points = new THREE.Points(g, material); this.group.add(points); return points;
   }
