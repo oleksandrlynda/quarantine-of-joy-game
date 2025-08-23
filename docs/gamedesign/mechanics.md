@@ -6,7 +6,7 @@
 - Shoot: left click
 - Reload: `R`
 - Sprint: `Shift`
-- Crouch: `Ctrl`
+- Crouch: `C`
 - Jump: `Space`
 - Pause: `P`
 
