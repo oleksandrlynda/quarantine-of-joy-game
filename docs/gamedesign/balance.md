@@ -73,6 +73,7 @@ Recommended guardrails
 - Snow: −10% enemy ground speed; compensate with +1 Shooter per wave after wave 6 when Snow active
 - Thunder: brief 0.15s stagger on basic enemies during flashes; ensure boss telegraphs are unaffected
 - Sandstorm: −25% visibility; spawn +1 melee enemy per wave
+- Windy: ~10% visibility loss; projectiles yaw sideways ≈3°
 
 ## Difficulty bands (multipliers)
 - Story/Easy: enemy damage ×0.75, add caps −20%, wave size −1, boss HP −20%

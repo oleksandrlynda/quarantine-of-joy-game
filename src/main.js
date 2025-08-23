@@ -161,6 +161,18 @@ if (levelParam) {
 // Weather system
 const weather = new WeatherSystem({ THREE, scene, skyMat, hemi, dir });
 
+// Adjust player forward direction for crosswind when windy
+const _origGetDir = camera.getWorldDirection.bind(camera);
+camera.getWorldDirection = function(target){
+  _origGetDir(target);
+  const windLevel = weather && (weather._mix?.wind || (weather.mode && weather.mode.includes('wind') ? 1 : 0));
+  if (windLevel > 0.01){
+    const yaw = weather.wind.x * 0.03 * windLevel;
+    target.applyAxisAngle(new THREE.Vector3(0,1,0), yaw).normalize();
+  }
+  return target;
+};
+
 // ------ Player ------
 const player = new PlayerController(THREE, camera, document.body, objects, arenaRadius);
 const controls = player.controls;

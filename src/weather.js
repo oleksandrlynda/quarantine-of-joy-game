@@ -1,14 +1,15 @@
-// WeatherSystem module: rain, snow, fog (can blend with rain), sandstorm, dynamic cycle, thunder for rain
+// WeatherSystem module: rain, snow, fog (can blend with rain), sandstorm, windy, dynamic cycle, thunder for rain
 export class WeatherSystem {
   constructor(ctx){
     this.THREE = ctx.THREE; this.scene = ctx.scene; this.skyMat = ctx.skyMat; this.hemi = ctx.hemi; this.dir = ctx.dir;
     this.group = new this.THREE.Group(); this.scene.add(this.group);
 
     // Public state
-    this.mode = 'clear'; // 'clear' | 'rain' | 'snow' | 'fog' | 'rain+fog' | 'sandstorm'
+    this.mode = 'clear'; // 'clear' | 'rain' | 'snow' | 'fog' | 'rain+fog' | 'sandstorm' | 'windy'
     this.precip = 'none'; // 'none' | 'rain' | 'snow'
     this.uTime = { value: 0 };
     this.wind = new this.THREE.Vector3(1.2, 0.0, -0.4);
+    this._baseWind = this.wind.clone();
     this.areaSize = 120;
     this.height = 80;
 
@@ -20,8 +21,8 @@ export class WeatherSystem {
     this.rain.visible = false; this.snow.visible = false; this.fog.visible = false; this.sand.visible = false;
 
     // Crossfade state for smoother transitions
-    this._mix = { rain: 0, snow: 0, fog: 0, sand: 0 };
-    this._mixTarget = { rain: 0, snow: 0, fog: 0, sand: 0 };
+    this._mix = { rain: 0, snow: 0, fog: 0, sand: 0, wind: 0 };
+    this._mixTarget = { rain: 0, snow: 0, fog: 0, sand: 0, wind: 0 };
     this._transitionTime = 3.5; // seconds to blend between states (longer = smoother)
     this._lastTime = 0;
 
@@ -81,14 +82,16 @@ export class WeatherSystem {
     const hasSnow = m.includes('snow');
     const hasFog  = m.includes('fog');
     const hasSand = m.includes('sand');
+    const hasWind = m.includes('wind');
     this.precip = hasRain ? 'rain' : (hasSnow ? 'snow' : 'none');
 
     // Particle targets (capture current as start for easing)
-    this._mixStart = { rain: this._mix.rain, snow: this._mix.snow, fog: this._mix.fog, sand: this._mix.sand };
+    this._mixStart = { rain: this._mix.rain, snow: this._mix.snow, fog: this._mix.fog, sand: this._mix.sand, wind: this._mix.wind };
     this._mixTarget.rain = hasRain ? 1 : 0;
     this._mixTarget.snow = hasSnow ? 1 : 0;
     this._mixTarget.fog  = hasFog  ? 1 : 0;
     this._mixTarget.sand = hasSand ? 1 : 0;
+    this._mixTarget.wind = hasWind ? 1 : 0;
 
     // Environment targets (fog/sky/light). Also capture current as start
     this._envStart = {
@@ -121,6 +124,11 @@ export class WeatherSystem {
       this._envTarget.fogNear = 12; this._envTarget.fogFar = 90;
       this._envTarget.skyTop = new C('#d2b98c'); this._envTarget.skyBottom = new C('#f0e4d0');
       this._envTarget.hemiIntensity = 0.6; this._envTarget.dirIntensity = 0.55;
+    } else if (hasWind) {
+      this._envTarget.fogColor = new C(0xcfe8ff);
+      this._envTarget.fogNear = 18; this._envTarget.fogFar = 150;
+      this._envTarget.skyTop = new C('#b0e5ff'); this._envTarget.skyBottom = new C('#f1e3ff');
+      this._envTarget.hemiIntensity = 0.9; this._envTarget.dirIntensity = 0.85;
     } else if (hasFog) {
       this._envTarget.fogColor = new C(0xd9e6f2);
       this._envTarget.fogNear = 16; this._envTarget.fogFar = 115;
@@ -135,7 +143,7 @@ export class WeatherSystem {
 
     // Feed ambient weather loops
     try {
-      const windMix = Math.max(this._mixTarget.fog, this._mixTarget.sand);
+      const windMix = Math.max(this._mixTarget.fog, this._mixTarget.sand, this._mixTarget.wind);
       window._SFX?.setWeatherMix?.({ rain: this._mixTarget.rain, snow: this._mixTarget.snow, wind: windMix });
     } catch (_) {}
 
@@ -182,6 +190,7 @@ export class WeatherSystem {
     this._mix.snow = lerp01(this._mixStart?.snow ?? 0, this._mixTarget.snow, s);
     this._mix.fog  = lerp01(this._mixStart?.fog  ?? 0, this._mixTarget.fog,  s);
     this._mix.sand = lerp01(this._mixStart?.sand ?? 0, this._mixTarget.sand, s);
+    this._mix.wind = lerp01(this._mixStart?.wind ?? 0, this._mixTarget.wind, s);
 
     if (this.rain && this.rain.material?.uniforms?.uAlpha){ this.rain.material.uniforms.uAlpha.value = this._mix.rain; }
     if (this.snow && this.snow.material?.uniforms?.uAlpha){ this.snow.material.uniforms.uAlpha.value = this._mix.snow; }
@@ -192,6 +201,9 @@ export class WeatherSystem {
     if (this.snow) this.snow.visible = this._mix.snow > 0.01;
     if (this.fog)  this.fog.visible  = this._mix.fog  > 0.01;
     if (this.sand) this.sand.visible = this._mix.sand > 0.01;
+
+    const wScale = 1 + this._mix.wind * 3.0;
+    this.wind.copy(this._baseWind).multiplyScalar(wScale);
 
     // environment blending using eased t
     this.scene.fog.color.copy(this._envStart.fogColor).lerp(this._envTarget.fogColor, s);
@@ -221,20 +233,21 @@ export class WeatherSystem {
   }
 
   _scheduleNextChange(now){
-    // Weather probabilities: 45% clear, 18% rain, 8% rain+fog, 17% snow, 7% fog, 5% sandstorm.
+    // Weather probabilities: 41% clear, 18% rain, 8% rain+fog, 17% snow, 7% fog, 5% sandstorm, 4% windy.
     // Next change after 20–45 seconds.
     this._nextChangeAt = now + 20 + Math.random()*25;
   }
 
   _pickNextWeather(){
     const r = Math.random();
-    // 45% clear, 18% rain, 8% rain+fog, 17% snow, 7% fog, 5% sandstorm
-    const target = r < 0.45 ? 'clear'
-                 : r < 0.63 ? 'rain'
-                 : r < 0.71 ? 'rain+fog'
-                 : r < 0.88 ? 'snow'
-                 : r < 0.95 ? 'fog'
-                 : 'sandstorm';
+    // 41% clear, 18% rain, 8% rain+fog, 17% snow, 7% fog, 5% sandstorm, 4% windy
+    const target = r < 0.41 ? 'clear'
+                 : r < 0.59 ? 'rain'
+                 : r < 0.67 ? 'rain+fog'
+                 : r < 0.84 ? 'snow'
+                 : r < 0.91 ? 'fog'
+                 : r < 0.96 ? 'sandstorm'
+                 : 'windy';
     this.setMode(target);
     this._scheduleNextChange(this.uTime.value);
   }

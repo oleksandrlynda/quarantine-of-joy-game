@@ -15,6 +15,7 @@ Auto‑cycles every ~20–45s among:
 - **Rain**: denser fog, dimmer light, fast streak particle system
 - **Snow**: brightened fog, gentle flakes with drift
 - **Sandstorm**: swirling dust, warm tint, reduced visibility
+- **Windy**: strong gusts push particles sideways and tint the sky slightly
 
 Subtle ambient loops fade with each mode — rain patter, howling wind, and hush snow.
 
@@ -26,8 +27,9 @@ Rain may trigger thunder:
 - **Rain**: enemy detection range reduced (e.g., ~20% shorter aggro distance)
 - **Snow**: enemy ground speed reduced by ~10%
 - **Sandstorm**: visibility reduced by ~25%; spawn +1 melee enemy per wave
+- **Windy**: visibility trimmed ~10%; projectiles curve ~3° with crosswind
 - **Thunderstorm**: brief global flash can stagger basic enemies for ~0.15s
-- Future affixes to consider: strong wind alters particle drift; overcast increases spawn density slightly; fog pockets reduce visibility locally
+- Future affixes to consider: overcast increases spawn density slightly; fog pockets reduce visibility locally
 
 ### Arena seeds
 - Deterministic arena layout via seed input/toggle
