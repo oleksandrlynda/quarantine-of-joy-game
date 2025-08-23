@@ -82,8 +82,8 @@ export class SFX {
         src.connect(hp).connect(lp); return lp;
       }),
       snow: makeLoop((src) => {
-        const hp = a.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 4000;
-        const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 7000;
+        const hp = a.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 120;
+        const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 400;
         src.connect(hp).connect(lp); return lp;
       }),
     };
@@ -95,7 +95,7 @@ export class SFX {
     const clamp01 = (v)=> Math.max(0, Math.min(1, v));
     this._weatherLoops.rain.gain.setTargetAtTime(clamp01(rain) * 0.6, t, 0.5);
     this._weatherLoops.wind.gain.setTargetAtTime(clamp01(wind) * 0.5, t, 0.5);
-    this._weatherLoops.snow.gain.setTargetAtTime(clamp01(snow) * 0.05, t, 0.5);
+    this._weatherLoops.snow.gain.setTargetAtTime(clamp01(snow) * 0.2, t, 0.5);
   }
 
   // Utility: make a gain with AR envelope

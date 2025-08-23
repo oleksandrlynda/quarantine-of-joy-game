@@ -370,9 +370,13 @@ export class WeatherSystem {
     const material = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
       uniforms:{ uTime:this.uTime, uSize:{value:1.2}, uHeight:{value:this.height}, uWind:{value:this.wind}, uArea:{value:this.areaSize}, uAlpha:{value:0.0} },
-      vertexShader:`uniform float uTime; uniform float uHeight; uniform vec3 uWind; uniform float uSize; uniform float uArea; attribute float aSeed; varying float vFade; void main(){ vec3 pos=position; float halfA=0.5*uArea; float fx=position.x+uWind.x*uTime*2.0+sin(uTime*1.7+aSeed*6.283)*0.3; float fz=position.z+uWind.z*uTime*2.0+cos(uTime*1.3+aSeed*6.283)*0.3; pos.x=-halfA+mod(fx+halfA,uArea); pos.z=-halfA+mod(fz+halfA,uArea); pos.y=mod(position.y+sin(uTime*0.5+aSeed*6.283)*0.3,uHeight); vec4 mv=modelViewMatrix*vec4(pos,1.0); gl_Position=projectionMatrix*mv; float dist=-mv.z; gl_PointSize=uSize*clamp(180.0/dist,1.0,6.0); vFade=0.5; }`,
-      fragmentShader:`precision mediump float; varying float vFade; uniform float uAlpha; void main(){ vec2 pc=gl_PointCoord-0.5; float d=length(pc); float a=smoothstep(0.5,0.0,d)*vFade*uAlpha; if(a<0.01) discard; vec3 col=vec3(0.9,0.95,1.0); gl_FragColor=vec4(col,a); }`
+      vertexShader: `uniform float uTime;uniform float uHeight;uniform vec3 uWind;uniform float uSize;uniform float uArea;attribute float aSeed;varying vec2 vVel;varying float vFade;void main(){vec3 pos=position;vec2 w=uWind.xz*10.5;float t=uTime+aSeed*23.17;float n1=sin((position.x*0.17+aSeed*7.0)+t*0.9);float n2=cos((position.z*0.13-aSeed*5.0)-t*1.2);vec2 noise=vec2(n1,-n2)*0.35+vec2(sin(t*1.3+aSeed*11.0),cos(t*1.1+aSeed*9.0))*0.15;vec2 vel=w+noise;vVel=vel;float halfA=0.5*uArea;float fx=position.x+vel.x*uTime;float fz=position.z+vel.y*uTime;pos.x=-halfA+mod(fx+halfA,uArea);pos.z=-halfA+mod(fz+halfA,uArea);float baseY=position.y;pos.y=clamp(baseY+sin(t*0.7)*0.1,0.0,uHeight);vec4 mv=modelViewMatrix*vec4(pos,1.0);gl_Position=projectionMatrix*mv;float dist=-mv.z;float speed=length(vel);gl_PointSize=uSize*(0.6+clamp(speed*0.25,0.0,2.0))*clamp(180.0/dist,1.0,5.0);vFade=0.45;}`,
+      fragmentShader: `precision mediump float;varying vec2 vVel;varying float vFade;uniform float uAlpha;float hash(float x){return fract(sin(x)*43758.5453);}void main(){vec2 pc=gl_PointCoord-0.5;vec2 dir=normalize(vVel+1e-6);float ang=atan(dir.y,dir.x);float s=sin(ang),c=cos(ang);vec2 q=vec2(c*pc.x+s*pc.y,-s*pc.x+c*pc.y);float longAxis=0.75;float shortAxis=0.12;float d=sqrt((q.x*q.x)/(longAxis*longAxis)+(q.y*q.y)/(shortAxis*shortAxis));float core=smoothstep(1.0,0.0,d);float head=smoothstep(-0.6,0.8,q.x);float profile=core*mix(0.6,1.0,head);float n=hash(q.x*91.7+q.y*57.3);float a=profile*(0.8+0.2*n)*vFade*uAlpha;if(a<0.02)discard;vec3 col=vec3(0.45,0.40,0.35);gl_FragColor=vec4(col,a);}`
     });
+    material.transparent = true;
+    material.depthWrite = false;
+    material.blending = THREE.NormalBlending;
+    material.uniforms.uAlpha.value = 0.7;
     const points = new THREE.Points(g, material); this.group.add(points); return points;
   }
 
