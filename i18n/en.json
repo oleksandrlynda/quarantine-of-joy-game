@@ -50,6 +50,7 @@
   "start.tipMobile": "Tap Play to start. Drag to look.",
   "start.bugs": "Bugs",
   "start.reportBug": "Report bug",
+  "pause.resume": "Resume",
   "loading.message": "Loading shaders & assets…",
   "loading.models": "Loading models",
   "loading.compiling": "Compiling shaders",
