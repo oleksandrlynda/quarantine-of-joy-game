@@ -118,6 +118,7 @@ export class RusherEnemy {
     this._flinchAccum = 0;        // accumulated damage while dashing
     this._exploded = false;       // whether explosion has been triggered
     this._lastCtx = null;         // last update context for onRemoved
+    this._stuckTime = 0;          // time spent moving negligibly
 
     // Spawn delay: wander briefly before engaging the player
     this._spawnDelay = 3 + Math.random() * 2; // 3-5s
@@ -228,6 +229,20 @@ export class RusherEnemy {
     const toPred = predicted.sub(e.position); toPred.y = 0;
     let desired = toPred.lengthSq() > 0 ? toPred.normalize() : toPlayer.clone();
 
+    const hasLOS = this._hasLineOfSight(e.position, playerPos, ctx.objects);
+    const isStuck = this._stuckTime > 0.4;
+    if ((!hasLOS || isStuck) && ctx.pathfind && !this._charging) {
+      ctx.pathfind.recomputeIfStale(this, playerPos).then(p => { this._path = p; });
+      const wp = ctx.pathfind.nextWaypoint(this);
+      if (wp) {
+        const dir = new THREE.Vector3(wp.x - e.position.x, 0, wp.z - e.position.z);
+        if (dir.lengthSq() > 0) desired = dir.normalize();
+      }
+    } else if (hasLOS && !isStuck && ctx.pathfind) {
+      ctx.pathfind.clear(this);
+      this._path = null;
+    }
+
     // Avoid obstacles and separation unless currently charging
     if (!this._charging) {
       const avoid = ctx.avoidObstacles(e.position, desired, 2.2);
@@ -265,7 +280,7 @@ export class RusherEnemy {
         this._dashCooldown = 1.2 + Math.random() * 0.8;
       }
     }
-    const canDash = (dist >= 5 && dist <= 20) && !this._charging && this._dashCooldown <= 0 && this._recoverTimer <= 0 && this._windUpTimer <= 0 && this._stunTimer <= 0 && this._flinchTimer <= 0 && this._hasLineOfSight(e.position, playerPos, ctx.objects);
+    const canDash = (dist >= 5 && dist <= 20) && !this._charging && this._dashCooldown <= 0 && this._recoverTimer <= 0 && this._windUpTimer <= 0 && this._stunTimer <= 0 && this._flinchTimer <= 0 && hasLOS;
     if (canDash && Math.random() < 1.2 * dt) {
       this._windUpTimer = this.cfg.windUp || 0.3;
       this._dashDir.copy(desired);
@@ -345,6 +360,12 @@ export class RusherEnemy {
         blade.material.emissiveIntensity = (this._windUpTimer > 0 || this._charging) ? 1.4 : 0.7;
       }
     } catch(_){}
+    const movedLen = movedVec.length();
+    if (step.lengthSq() > 1e-4 && movedLen < 0.01) {
+      this._stuckTime += dt;
+    } else {
+      this._stuckTime = 0;
+    }
     this._lastPos.copy(e.position);
   }
 
@@ -391,14 +412,24 @@ export class RusherEnemy {
 
   _hasLineOfSight(fromPos, targetPos, objects) {
     const THREE = this.THREE;
-    const origin = new THREE.Vector3(fromPos.x, fromPos.y + 1.2, fromPos.z);
-    const target = new THREE.Vector3(targetPos.x, 1.5, targetPos.z);
-    const dir = target.clone().sub(origin);
-    const dist = dir.length(); if (dist <= 0.0001) return true;
-    dir.normalize();
-    this._raycaster.set(origin, dir); this._raycaster.far = dist - 0.1;
-    const hits = this._raycaster.intersectObjects(objects, false);
-    return !(hits && hits.length > 0);
+    const heightPairs = [
+      [0.2, 0.2],   // ground-level check for low walls
+      [0.9, 1.0],   // mid-body check
+      [1.2, 1.5]    // original head-height ray
+    ];
+    for (const [hFrom, hTo] of heightPairs) {
+      const origin = new THREE.Vector3(fromPos.x, fromPos.y + hFrom, fromPos.z);
+      const target = new THREE.Vector3(targetPos.x, (targetPos.y || 0) + hTo, targetPos.z);
+      const dir = target.clone().sub(origin);
+      const dist = dir.length();
+      if (dist <= 0.0001) continue;
+      dir.normalize();
+      this._raycaster.set(origin, dir);
+      this._raycaster.far = dist - 0.1;
+      const hits = this._raycaster.intersectObjects(objects, false);
+      if (hits && hits.length > 0) return false;
+    }
+    return true;
   }
 
   onHit(damage, _isHead) {
