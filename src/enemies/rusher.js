@@ -118,6 +118,11 @@ export class RusherEnemy {
     this._flinchAccum = 0;        // accumulated damage while dashing
     this._exploded = false;       // whether explosion has been triggered
     this._lastCtx = null;         // last update context for onRemoved
+
+    // Spawn delay: wander briefly before engaging the player
+    this._spawnDelay = 3 + Math.random() * 2; // 3-5s
+    this._wanderDir = new THREE.Vector3(Math.random() * 2 - 1, 0, Math.random() * 2 - 1).normalize();
+    this._wanderTimer = 0.5 + Math.random() * 0.5;
   }
 
   update(dt, ctx) {
@@ -129,6 +134,44 @@ export class RusherEnemy {
       ctx.enemyManager?.remove?.(e);
       return;
     }
+    if (this._spawnDelay > 0) {
+      this._spawnDelay = Math.max(0, this._spawnDelay - dt);
+      this._wanderTimer -= dt;
+      if (this._wanderTimer <= 0) {
+        this._wanderDir.set(Math.random() * 2 - 1, 0, Math.random() * 2 - 1).normalize();
+        this._wanderTimer = 0.6 + Math.random() * 0.8;
+      }
+      const step = this._wanderDir.clone().multiplyScalar(this.speed * 0.4 * dt);
+      const before = e.position.clone();
+      ctx.moveWithCollisions(e, step);
+      const movedVec = e.position.clone().sub(before); movedVec.y = 0;
+      const speedNow = movedVec.length() / Math.max(dt, 0.00001);
+      if (movedVec.lengthSq() > 1e-6) {
+        const desiredYaw = Math.atan2(movedVec.x, movedVec.z);
+        let deltaYaw = desiredYaw - this._yaw; deltaYaw = ((deltaYaw + Math.PI) % (Math.PI * 2)) - Math.PI;
+        const turnRate = 10.0;
+        this._yaw += Math.max(-turnRate * dt, Math.min(turnRate * dt, deltaYaw));
+        e.rotation.set(0, this._yaw, 0);
+      }
+      e.rotation.x = -0.04;
+      this._walkPhase += Math.min(18.0, 7.0 + speedNow * 0.3) * dt;
+      const swing = Math.sin(this._walkPhase) * Math.min(0.8, 0.18 + speedNow * 0.03);
+      if (this._animRefs) {
+        const la = this._animRefs.leftArm, ra = this._animRefs.rightArm;
+        const ll = this._animRefs.leftLeg, rl = this._animRefs.rightLeg;
+        if (la && ra) { la.rotation.x = swing * 1.1; ra.rotation.x = -swing * 1.1; }
+        if (ll && rl) { ll.rotation.x = -swing; rl.rotation.x = swing; }
+      }
+      try {
+        const blade = this._bladeRef?.children?.[1];
+        if (blade && blade.material && blade.material.emissiveIntensity != null) {
+          blade.material.emissiveIntensity = 0.7;
+        }
+      } catch(_){}
+      this._lastPos.copy(e.position);
+      return;
+    }
+
     const playerPos = ctx.player.position.clone();
     const toPlayer = playerPos.clone().sub(e.position);
     const dist = toPlayer.length();
