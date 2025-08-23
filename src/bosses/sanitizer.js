@@ -62,8 +62,10 @@ export class Sanitizer {
 
     // Elite calls (P1)
     this._eliteCd = 9 + Math.random() * 3;
-    this._eliteCap = 3;
+    this._eliteCap = 4;
+    this._tankCap = 4;
     this._eliteRoots = new Set();
+    this._tankRoots = new Set();
 
     // Turret pods (P2)
     this._turretCd = 6.5;
@@ -95,7 +97,7 @@ export class Sanitizer {
       for (const r of Array.from(this._eliteRoots)) if (this.enemyManager.enemies.has(r)) this.enemyManager.remove(r);
       for (const r of Array.from(this._turretRoots)) if (this.enemyManager.enemies.has(r)) this.enemyManager.remove(r);
     }
-    this._eliteRoots.clear(); this._turretRoots.clear();
+    this._eliteRoots.clear(); this._tankRoots.clear(); this._turretRoots.clear();
     for (const t of this._tiles) scene.remove(t.mesh||null);
     this._tiles.length = 0;
   }
@@ -484,6 +486,9 @@ export class Sanitizer {
       for (const r of Array.from(this._eliteRoots)) {
         if (!this.enemyManager.enemies.has(r)) this._eliteRoots.delete(r);
       }
+      for (const r of Array.from(this._tankRoots)) {
+        if (!this.enemyManager.enemies.has(r)) this._tankRoots.delete(r);
+      }
     }
     if (this._eliteCd > 0) { this._eliteCd -= dt; return; }
     if (!this.enemyManager) { this._eliteCd = 2.0; return; }
@@ -492,12 +497,14 @@ export class Sanitizer {
     const count = 1 + (Math.random() < 0.5 ? 1 : 0);
     const spawns = this._spawnOnPerimeter(ctx, count, 16, 19);
     for (const p of spawns) {
-      const root = this.enemyManager.spawnAt('shooter', p, { countsTowardAlive: true });
+      const kind = (Math.random() < 0.5 && this._tankRoots.size < this._tankCap) ? 'tank' : 'shooter';
+      const root = this.enemyManager.spawnAt(kind, p, { countsTowardAlive: true });
       if (root) {
         // small buff so they feel “elite”
         const inst = this.enemyManager.instanceByRoot.get(root);
         if (inst) { inst.speed *= 1.05; inst.cooldownBase = Math.max(0.7, (inst.cooldownBase||1.0)*0.9); }
         this._eliteRoots.add(root);
+        if (kind === 'tank') this._tankRoots.add(root);
       }
       if (this._eliteRoots.size >= this._eliteCap) break;
     }
