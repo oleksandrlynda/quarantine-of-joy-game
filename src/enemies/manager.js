@@ -510,6 +510,12 @@ export class EnemyManager {
     };
   
     const beforeGround = this._groundHeightAt(px, pz);
+
+    // If we've returned to our baseline ground height, clear any climb attempt state
+    if (enemy.userData?.baseGround != null && beforeGround <= enemy.userData.baseGround + 1e-3) {
+      enemy.userData.baseGround = undefined;
+    }
+
     tryAxis(step.x, 0);
     tryAxis(0, step.z);
 
@@ -587,8 +593,25 @@ export class EnemyManager {
     const afterGround = this._groundHeightAt(px, pz);
     const rise = Math.max(0, afterGround - beforeGround);
     const desiredY = afterGround + half.y;
-  
+
     if (rise > 0) {
+      // Mark the starting ground height for cumulative climb checks
+      if (enemy.userData) {
+        if (enemy.userData.baseGround == null) enemy.userData.baseGround = beforeGround;
+      } else {
+        enemy.userData = { baseGround: beforeGround };
+      }
+
+      const cumulative = afterGround - enemy.userData.baseGround;
+      if (cumulative > jumpAssistMax + 1e-3) {
+        // Abort climb and revert horizontal movement
+        px = startX;
+        pz = startZ;
+        py = enemy.userData.baseGround + half.y;
+        enemy.position.set(px, py, pz);
+        return;
+      }
+
       const maxLift = (rise <= stepUpMax + 1e-3) ? stepUpMax : (rise <= jumpAssistMax + 1e-3 ? jumpAssistMax : 0);
       if (maxLift > 0) {
         const lift = Math.min(desiredY - py, maxLift);
@@ -596,10 +619,11 @@ export class EnemyManager {
       }
     } else {
       py = desiredY;
+      if (enemy.userData) enemy.userData.baseGround = undefined;
     }
-  
+
     enemy.position.set(px, py, pz);
-  }  
+  }
 
   // Compute highest ground at XZ from colliders using raycast fallback to AABB top
   _groundHeightAt(x, z) {
