@@ -580,8 +580,11 @@ export class EnemyManager {
 
     const afterGround = this._groundHeightAt(px, pz);
     const rise = Math.max(0, afterGround - beforeGround);
-    const stepUpMax = 0.12 * this.enemyFullHeight;
-    const jumpAssistMax = 0.30 * this.enemyFullHeight;
+    // Allow enemies to climb over obstacles up to roughly half their height.
+    // stepUpMax permits "stepping" over small ledges while jumpAssistMax
+    // provides a bit more vertical boost when the rise is higher.
+    const stepUpMax = 0.40 * this.enemyFullHeight;
+    const jumpAssistMax = 0.50 * this.enemyFullHeight;
     const desiredY = afterGround + half.y;
   
     if (rise > 0) {
