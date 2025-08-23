@@ -20,6 +20,8 @@ export function createGrassMesh({
   const angles = new Float32Array(bladeCount);
   const scales = new Float32Array(bladeCount);
   const colors = new Float32Array(bladeCount * 3);
+  const chunkSize = 10;
+  const chunks = new Map();
 
   // Prepare triangle data for random sampling on the floor geometry
   const posArr = floorGeometry.attributes.position.array;
@@ -58,12 +60,26 @@ export function createGrassMesh({
 
     const c = colorA.clone().lerp(colorB, Math.random());
     colors.set([c.r, c.g, c.b], i * 3);
+
+    const cx = Math.floor(x / chunkSize);
+    const cz = Math.floor(z / chunkSize);
+    const key = `${cx},${cz}`;
+    let chunk = chunks.get(key);
+    if (!chunk) {
+      chunk = {
+        indices: [],
+        center: new THREE.Vector2((cx + 0.5) * chunkSize, (cz + 0.5) * chunkSize)
+      };
+      chunks.set(key, chunk);
+    }
+    chunk.indices.push(i);
   }
 
   geo.setAttribute('offset', new THREE.InstancedBufferAttribute(offsets, 3));
   geo.setAttribute('angle', new THREE.InstancedBufferAttribute(angles, 1));
   geo.setAttribute('scale', new THREE.InstancedBufferAttribute(scales, 1));
   geo.setAttribute('color', new THREE.InstancedBufferAttribute(colors, 3));
+  const baseScales = scales.slice();
 
   const material = new THREE.ShaderMaterial({
     uniforms: {
@@ -125,8 +141,15 @@ export function createGrassMesh({
   const mesh = new THREE.Mesh(geo, material);
   mesh.frustumCulled = false;
   mesh.userData.actor = null;
+  mesh.userData.lod = {
+    chunks,
+    baseScales,
+    near: 15,
+    far: 30
+  };
+  const camVec2 = new THREE.Vector2();
   let last = performance.now() / 1000;
-  mesh.onBeforeRender = (_, __, ___, ____, mat) => {
+  mesh.onBeforeRender = (_, __, camera, geometry, mat) => {
     const now = performance.now() / 1000;
     const dt = now - last;
     last = now;
@@ -134,6 +157,21 @@ export function createGrassMesh({
     const actor = mesh.userData.actor;
     if (actor && actor.position) {
       mat.uniforms.actorPos.value.copy(actor.position);
+    }
+    const lod = mesh.userData.lod;
+    if (lod) {
+      camVec2.set(camera.position.x, camera.position.z);
+      const scalesAttr = geometry.getAttribute('scale');
+      for (const chunk of lod.chunks.values()) {
+        const dist = camVec2.distanceTo(chunk.center);
+        let factor = 0;
+        if (dist < lod.near) factor = 1;
+        else if (dist < lod.far) factor = 0.5;
+        for (const idx of chunk.indices) {
+          scalesAttr.setX(idx, lod.baseScales[idx] * factor);
+        }
+      }
+      scalesAttr.needsUpdate = true;
     }
   };
   return mesh;
@@ -166,6 +204,8 @@ export function cullGrassUnderObjects(grassMesh, obstacles = []) {
         y >= b.min.y && y <= b.max.y
       ) {
         scales.setX(i, 0);
+        const lod = grassMesh.userData.lod;
+        if (lod && lod.baseScales) lod.baseScales[i] = 0;
         break;
       }
     }
