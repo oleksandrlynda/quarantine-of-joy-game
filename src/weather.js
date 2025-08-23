@@ -71,9 +71,12 @@ export class WeatherSystem {
     this.baseDirColor = this.dir.color.clone();
     this.flashColor = new this.THREE.Color(0xffffe0);
 
-    // Auto weather cycle
-    this._nextChangeAt = 0;
-    this._scheduleNextChange(0);
+    // Auto weather cycle tied to waves
+    // _wavesElapsed counts how many waves have used the current weather
+    // _wavesDuration is how many waves the current weather should last
+    this._wavesElapsed = 0;
+    // Start with clear weather lasting 1–3 waves
+    this._wavesDuration = 1 + Math.floor(Math.random()*3);
   }
 
   // ---- Public API ----
@@ -150,6 +153,10 @@ export class WeatherSystem {
       window._SFX?.setWeatherMix?.({ rain: this._mixTarget.rain, snow: this._mixTarget.snow, wind: windMix });
     } catch (_) {}
 
+    // Assign how many waves this mode should last
+    this._setWaveDuration(this.mode);
+    this._wavesElapsed = 0;
+
     // Mark transition start
     this._transitionStartTime = this.uTime.value || 0;
   }
@@ -160,11 +167,6 @@ export class WeatherSystem {
     this._lastTime = elapsedSeconds;
     // center volume to player
     const p = camera.position; this.group.position.set(p.x, 0, p.z);
-
-    // auto change
-    if (elapsedSeconds >= this._nextChangeAt){
-      this._pickNextWeather();
-    }
 
     // Smoothly blend particles and environment
     this._updateTransition(dt);
@@ -177,6 +179,14 @@ export class WeatherSystem {
     } else {
       this.lightning.intensity = 0; this.dir.color.copy(this.baseDirColor);
     }
+  }
+
+  onWave(){
+    if (this._wavesElapsed >= this._wavesDuration){
+      const force = this.mode === 'clear';
+      this._pickNextWeather(force);
+    }
+    this._wavesElapsed++;
   }
 
   // ---- Internals ----
@@ -242,24 +252,28 @@ export class WeatherSystem {
     }
   }
 
-  _scheduleNextChange(now){
-    // Weather probabilities: 41% clear, 18% rain, 8% rain+fog, 17% snow, 7% fog, 5% sandstorm, 4% windy.
-    // Next change after 20–45 seconds.
-    this._nextChangeAt = now + 20 + Math.random()*25;
+  _pickNextWeather(forceNonClear=false){
+    let target;
+    do {
+      const r = Math.random();
+      // 41% clear, 18% rain, 8% rain+fog, 17% snow, 7% fog, 5% sandstorm, 4% windy
+      target = r < 0.41 ? 'clear'
+               : r < 0.59 ? 'rain'
+               : r < 0.67 ? 'rain+fog'
+               : r < 0.84 ? 'snow'
+               : r < 0.91 ? 'fog'
+               : r < 0.96 ? 'sandstorm'
+               : 'windy';
+    } while(forceNonClear && target === 'clear');
+    this.setMode(target);
   }
 
-  _pickNextWeather(){
-    const r = Math.random();
-    // 41% clear, 18% rain, 8% rain+fog, 17% snow, 7% fog, 5% sandstorm, 4% windy
-    const target = r < 0.41 ? 'clear'
-                 : r < 0.59 ? 'rain'
-                 : r < 0.67 ? 'rain+fog'
-                 : r < 0.84 ? 'snow'
-                 : r < 0.91 ? 'fog'
-                 : r < 0.96 ? 'sandstorm'
-                 : 'windy';
-    this.setMode(target);
-    this._scheduleNextChange(this.uTime.value);
+  _setWaveDuration(mode){
+    if (mode === 'clear'){
+      this._wavesDuration = 1 + Math.floor(Math.random()*3); // 1-3 waves
+    } else {
+      this._wavesDuration = 1 + Math.floor(Math.random()*2); // 1-2 waves
+    }
   }
 
   _updateThunder(t, playerPos){
