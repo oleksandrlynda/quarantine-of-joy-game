@@ -812,17 +812,28 @@ function step(){
       const start = 40 - 20;
       const end = 40 + 20;
       grassLODGroups.forEach(g => {
-        const dist = camera.position.distanceTo(g.center);
-        const t = THREE.MathUtils.smoothstep(dist, start, end);
         const near = g.meshes[0];
         const far = g.meshes[1];
-        if (near && near.material.uniforms.opacity) {
+        if (
+          near && far &&
+          near.material.uniforms.opacity &&
+          far.material.uniforms.opacity
+        ) {
+          const dist = camera.position.distanceTo(g.center);
+          const t = THREE.MathUtils.smoothstep(dist, start, end);
           near.material.uniforms.opacity.value = 1 - t;
           near.visible = near.material.uniforms.opacity.value > 0.01;
-        }
-        if (far && far.material.uniforms.opacity) {
           far.material.uniforms.opacity.value = t;
           far.visible = far.material.uniforms.opacity.value > 0.01;
+        } else {
+          if (near && near.material.uniforms.opacity) {
+            near.material.uniforms.opacity.value = 1;
+            near.visible = true;
+          }
+          if (far && far.material.uniforms.opacity) {
+            far.material.uniforms.opacity.value = 1;
+            far.visible = true;
+          }
         }
       });
     }

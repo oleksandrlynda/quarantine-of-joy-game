@@ -50,15 +50,21 @@ export function createGrassMesh({
   }
 
   const activeTiles = tiles.filter(t => t.area > 0);
-  activeTiles.forEach(t => { t.counts = levels.map(()=>0); });
+  activeTiles.forEach(t => { t.counts = levels.map(() => 0); });
   levels.forEach((lvl, li) => {
-    let remaining = lvl.bladeCount;
+    const tilesCount = activeTiles.length;
+    const minPerTile = lvl.bladeCount >= tilesCount ? 1 : 0;
+    const extrasTotal = Math.max(0, lvl.bladeCount - minPerTile * tilesCount);
+    let extrasAssigned = 0;
     activeTiles.forEach((t, i) => {
-      const count = (i === activeTiles.length - 1)
-        ? remaining
-        : Math.floor(lvl.bladeCount * (t.area / totalArea));
-      t.counts[li] = count;
-      remaining -= count;
+      if (i === tilesCount - 1) {
+        const extra = extrasTotal - extrasAssigned;
+        t.counts[li] = minPerTile + extra;
+      } else {
+        const extra = Math.floor(extrasTotal * (t.area / totalArea));
+        extrasAssigned += extra;
+        t.counts[li] = minPerTile + extra;
+      }
     });
   });
 
