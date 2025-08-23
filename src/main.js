@@ -442,10 +442,14 @@ enemyManager.onWave = (_wave, startingAlive) => {
 enemyManager.onRemaining = () => updateHUD();
 
 // Sounds: create music first, then SFX sharing its context and FX bus
-const music = new Music({ bpm: 132, volume: 0.35 });
+const baseMusicVol = 0.35;
+const baseSfxVol = 0.65;
+const storedSound = parseFloat(localStorage.getItem('soundVolume') || '1');
+const music = new Music({ bpm: 132, volume: baseMusicVol * storedSound });
 const S = new SFX({
   audioContextProvider: () => music.getContext(),
   fxBusProvider: () => music.getFxBus(),
+  volume: baseSfxVol * storedSound,
 });
 // Expose for ambient enemy vocals
 try { window._SFX = S; } catch(_) {}
@@ -458,6 +462,17 @@ function loadCurrentSong(){
   lastSongRotateBar = music.barCounter;
 }
 loadCurrentSong();
+
+const soundSlider = document.getElementById('soundVolume');
+if (soundSlider){
+  soundSlider.value = String(storedSound);
+  soundSlider.addEventListener('input', e=>{
+    const v = parseFloat(e.target.value);
+    music.setVolume(baseMusicVol * v);
+    S.setVolume(baseSfxVol * v);
+    localStorage.setItem('soundVolume', String(v));
+  });
+}
 
 const SUNO_TRACKS = [
   'assets/music/suno-remix-1-non-commercial-use-only.mp3',
@@ -899,6 +914,28 @@ const retryBtn = document.getElementById('retry');
 const pauseMenu = document.getElementById('pauseMenu');
 const resumeBtn = document.getElementById('resumeBtn');
 const pauseRestart = document.getElementById('pauseRestart');
+const openSettingsBtn = document.getElementById('openSettings');
+const pauseSettingsBtn = document.getElementById('pauseSettings');
+const settingsMenu = document.getElementById('settingsMenu');
+const settingsBack = document.getElementById('settingsBack');
+let settingsReturn = 'panel';
+
+function openSettings(from){
+  settingsReturn = from;
+  panel.style.display='none';
+  pauseMenu.style.display='none';
+  settingsMenu.style.display='';
+  panel.parentElement.style.display='grid';
+}
+
+function closeSettings(){
+  settingsMenu.style.display='none';
+  if (settingsReturn === 'pause'){
+    pauseMenu.style.display='';
+  } else {
+    panel.style.display='';
+  }
+}
 
 function reset(){ // clear enemies
   stopSuno();
@@ -949,6 +986,9 @@ playBtn.onclick = startGame;
 retryBtn.onclick = startGame;
 if (resumeBtn) resumeBtn.onclick = resumeGame;
 if (pauseRestart) pauseRestart.onclick = startGame;
+if (openSettingsBtn) openSettingsBtn.onclick = ()=>openSettings('panel');
+if (pauseSettingsBtn) pauseSettingsBtn.onclick = ()=>openSettings('pause');
+if (settingsBack) settingsBack.onclick = closeSettings;
 
 // Quality preset buttons: update URL params and reload
 const qLow = document.getElementById('qLow');
