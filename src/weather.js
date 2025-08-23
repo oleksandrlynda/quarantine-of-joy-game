@@ -1,14 +1,15 @@
-// WeatherSystem module: rain, snow, fog (can blend with rain), dynamic cycle, thunder for rain
+// WeatherSystem module: rain, snow, fog (can blend with rain), sandstorm, windy, dynamic cycle, thunder for rain
 export class WeatherSystem {
   constructor(ctx){
-    this.THREE = ctx.THREE; this.scene = ctx.scene; this.skyMat = ctx.skyMat; this.hemi = ctx.hemi; this.dir = ctx.dir;
+    this.THREE = ctx.THREE; this.scene = ctx.scene; this.skyMat = ctx.skyMat; this.hemi = ctx.hemi; this.dir = ctx.dir; this.mats = ctx.mats;
     this.group = new this.THREE.Group(); this.scene.add(this.group);
 
     // Public state
-    this.mode = 'clear'; // 'clear' | 'rain' | 'snow' | 'fog' | 'rain+fog'
+    this.mode = 'clear'; // 'clear' | 'rain' | 'snow' | 'fog' | 'rain+fog' | 'sandstorm' | 'windy'
     this.precip = 'none'; // 'none' | 'rain' | 'snow'
     this.uTime = { value: 0 };
     this.wind = new this.THREE.Vector3(1.2, 0.0, -0.4);
+    this._baseWind = this.wind.clone();
     this.areaSize = 120;
     this.height = 80;
 
@@ -16,11 +17,13 @@ export class WeatherSystem {
     this.rain = this.createRainPoints(6000);
     this.snow = this.createSnowPoints(2600);
     this.fog = this.createFogPoints(1100);
-    this.rain.visible = false; this.snow.visible = false; this.fog.visible = false;
+    this.sand = this.createSandPoints(1200);
+    this.windPoints = this.createWindPoints(1500);
+    this.rain.visible = false; this.snow.visible = false; this.fog.visible = false; this.sand.visible = false; this.windPoints.visible = false;
 
     // Crossfade state for smoother transitions
-    this._mix = { rain: 0, snow: 0, fog: 0 };
-    this._mixTarget = { rain: 0, snow: 0, fog: 0 };
+    this._mix = { rain: 0, snow: 0, fog: 0, sand: 0, wind: 0 };
+    this._mixTarget = { rain: 0, snow: 0, fog: 0, sand: 0, wind: 0 };
     this._transitionTime = 3.5; // seconds to blend between states (longer = smoother)
     this._lastTime = 0;
 
@@ -79,13 +82,17 @@ export class WeatherSystem {
     const hasRain = m.includes('rain');
     const hasSnow = m.includes('snow');
     const hasFog  = m.includes('fog');
+    const hasSand = m.includes('sand');
+    const hasWind = m.includes('wind');
     this.precip = hasRain ? 'rain' : (hasSnow ? 'snow' : 'none');
 
     // Particle targets (capture current as start for easing)
-    this._mixStart = { rain: this._mix.rain, snow: this._mix.snow, fog: this._mix.fog };
+    this._mixStart = { rain: this._mix.rain, snow: this._mix.snow, fog: this._mix.fog, sand: this._mix.sand, wind: this._mix.wind };
     this._mixTarget.rain = hasRain ? 1 : 0;
     this._mixTarget.snow = hasSnow ? 1 : 0;
     this._mixTarget.fog  = hasFog  ? 1 : 0;
+    this._mixTarget.sand = hasSand ? 1 : 0;
+    this._mixTarget.wind = hasWind ? 1 : 0;
 
     // Environment targets (fog/sky/light). Also capture current as start
     this._envStart = {
@@ -113,6 +120,16 @@ export class WeatherSystem {
       this._envTarget.fogNear = 22; this._envTarget.fogFar = 140;
       this._envTarget.skyTop = new C('#cfe9ff'); this._envTarget.skyBottom = new C('#f6f9ff');
       this._envTarget.hemiIntensity = 0.9; this._envTarget.dirIntensity = 0.7;
+    } else if (hasSand) {
+      this._envTarget.fogColor = new C(0xdcc7a4);
+      this._envTarget.fogNear = 12; this._envTarget.fogFar = 90;
+      this._envTarget.skyTop = new C('#d2b98c'); this._envTarget.skyBottom = new C('#f0e4d0');
+      this._envTarget.hemiIntensity = 0.6; this._envTarget.dirIntensity = 0.55;
+    } else if (hasWind) {
+      this._envTarget.fogColor = new C(0xcfe8ff);
+      this._envTarget.fogNear = 18; this._envTarget.fogFar = 150;
+      this._envTarget.skyTop = new C('#b0e5ff'); this._envTarget.skyBottom = new C('#f1e3ff');
+      this._envTarget.hemiIntensity = 0.9; this._envTarget.dirIntensity = 0.85;
     } else if (hasFog) {
       this._envTarget.fogColor = new C(0xd9e6f2);
       this._envTarget.fogNear = 16; this._envTarget.fogFar = 115;
@@ -124,6 +141,12 @@ export class WeatherSystem {
       this._envTarget.skyTop = new C('#aee9ff'); this._envTarget.skyBottom = new C('#f1e3ff');
       this._envTarget.hemiIntensity = 0.9; this._envTarget.dirIntensity = 0.8;
     }
+
+    // Feed ambient weather loops
+    try {
+      const windMix = Math.max(this._mixTarget.fog, this._mixTarget.sand, this._mixTarget.wind);
+      window._SFX?.setWeatherMix?.({ rain: this._mixTarget.rain, snow: this._mixTarget.snow, wind: windMix });
+    } catch (_) {}
 
     // Mark transition start
     this._transitionStartTime = this.uTime.value || 0;
@@ -167,14 +190,23 @@ export class WeatherSystem {
     this._mix.rain = lerp01(this._mixStart?.rain ?? 0, this._mixTarget.rain, s);
     this._mix.snow = lerp01(this._mixStart?.snow ?? 0, this._mixTarget.snow, s);
     this._mix.fog  = lerp01(this._mixStart?.fog  ?? 0, this._mixTarget.fog,  s);
+    this._mix.sand = lerp01(this._mixStart?.sand ?? 0, this._mixTarget.sand, s);
+    this._mix.wind = lerp01(this._mixStart?.wind ?? 0, this._mixTarget.wind, s);
 
     if (this.rain && this.rain.material?.uniforms?.uAlpha){ this.rain.material.uniforms.uAlpha.value = this._mix.rain; }
     if (this.snow && this.snow.material?.uniforms?.uAlpha){ this.snow.material.uniforms.uAlpha.value = this._mix.snow; }
     if (this.fog  && this.fog.material?.uniforms?.uAlpha){ this.fog.material.uniforms.uAlpha.value  = this._mix.fog; }
+    if (this.sand && this.sand.material?.uniforms?.uAlpha){ this.sand.material.uniforms.uAlpha.value = this._mix.sand; }
+    if (this.windPoints && this.windPoints.material?.uniforms?.uAlpha){ this.windPoints.material.uniforms.uAlpha.value = this._mix.wind; }
 
     if (this.rain) this.rain.visible = this._mix.rain > 0.01;
     if (this.snow) this.snow.visible = this._mix.snow > 0.01;
     if (this.fog)  this.fog.visible  = this._mix.fog  > 0.01;
+    if (this.sand) this.sand.visible = this._mix.sand > 0.01;
+    if (this.windPoints) this.windPoints.visible = this._mix.wind > 0.01;
+
+    const wScale = 1 + this._mix.wind * 3.0;
+    this.wind.copy(this._baseWind).multiplyScalar(wScale);
 
     // environment blending using eased t
     this.scene.fog.color.copy(this._envStart.fogColor).lerp(this._envTarget.fogColor, s);
@@ -184,6 +216,10 @@ export class WeatherSystem {
     this.scene.fog.far  = lerp01(this._envStart.fogFar,  this._envTarget.fogFar,  s);
     this.hemi.intensity = lerp01(this._envStart.hemiIntensity, this._envTarget.hemiIntensity, s);
     this.dir.intensity  = lerp01(this._envStart.dirIntensity,  this._envTarget.dirIntensity,  s);
+    if (this.mats && this.mats.weather){
+      this.mats.weather.wetness.value = this._mix.rain;
+      this.mats.weather.snow.value = this._mix.snow;
+    }
   }
 
   _decayThunder(t){
@@ -204,19 +240,21 @@ export class WeatherSystem {
   }
 
   _scheduleNextChange(now){
-    // Clear more often: 60% clear, 25% rain, 15% snow.
+    // Weather probabilities: 41% clear, 18% rain, 8% rain+fog, 17% snow, 7% fog, 5% sandstorm, 4% windy.
     // Next change after 20–45 seconds.
     this._nextChangeAt = now + 20 + Math.random()*25;
   }
 
   _pickNextWeather(){
     const r = Math.random();
-    // 50% clear, 18% rain, 8% rain+fog, 17% snow, 7% fog
-    const target = r < 0.50 ? 'clear'
-                 : r < 0.68 ? 'rain'
-                 : r < 0.76 ? 'rain+fog'
-                 : r < 0.93 ? 'snow'
-                 : 'fog';
+    // 41% clear, 18% rain, 8% rain+fog, 17% snow, 7% fog, 5% sandstorm, 4% windy
+    const target = r < 0.41 ? 'clear'
+                 : r < 0.59 ? 'rain'
+                 : r < 0.67 ? 'rain+fog'
+                 : r < 0.84 ? 'snow'
+                 : r < 0.91 ? 'fog'
+                 : r < 0.96 ? 'sandstorm'
+                 : 'windy';
     this.setMode(target);
     this._scheduleNextChange(this.uTime.value);
   }
@@ -323,6 +361,33 @@ export class WeatherSystem {
       uniforms:{ uTime:this.uTime, uSize:{value:48.0}, uHeight:{value:Math.min(60, this.height)}, uArea:{value:this.areaSize}, uAlpha:{value:0.0} },
       vertexShader:`uniform float uTime; uniform float uHeight; uniform float uSize; uniform float uArea; attribute float aSpeed; attribute float aSeed; varying float vAlpha; void main(){ vec3 pos=position; float s=aSeed*6.283; float halfA=0.5*uArea; float fx=position.x + sin(uTime*0.10 + s)*1.6 + sin(uTime*0.23 + s*1.3)*1.1; float fz=position.z + cos(uTime*0.08 + s)*1.7 + cos(uTime*0.19 + s*0.9)*1.2; pos.x = -halfA + mod(fx + halfA, uArea); pos.z = -halfA + mod(fz + halfA, uArea); pos.y = mod(position.y + sin(uTime*0.12 + s)*0.6, uHeight); vec4 mv = modelViewMatrix * vec4(pos,1.0); gl_Position = projectionMatrix * mv; float dist = max(0.001, -mv.z); gl_PointSize = uSize * clamp(180.0/dist, 10.0, 95.0); float base = clamp(0.06 + fract(aSeed*97.0)*0.14, 0.06, 0.2); float nearFade = clamp((dist - 2.0) / 10.0, 0.0, 1.0); vAlpha = base * nearFade; }`,
       fragmentShader:`precision mediump float; varying float vAlpha; uniform float uAlpha; void main(){ vec2 pc = gl_PointCoord - 0.5; float d2 = dot(pc, pc); float soft = exp(-4.5 * d2); float a = soft * vAlpha * uAlpha; if(a < 0.01) discard; vec3 col = vec3(0.86, 0.92, 0.99); gl_FragColor = vec4(col, a); }`
+    });
+    const points = new THREE.Points(g, material); this.group.add(points); return points;
+  }
+
+  createWindPoints(count){
+    const THREE = this.THREE; const g = this.createBaseGeometry(count);
+    const material = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      uniforms:{ uTime:this.uTime, uSize:{value:1.2}, uHeight:{value:this.height}, uWind:{value:this.wind}, uArea:{value:this.areaSize}, uAlpha:{value:0.0} },
+      vertexShader: `uniform float uTime;uniform float uHeight;uniform vec3 uWind;uniform float uSize;uniform float uArea;attribute float aSeed;varying vec2 vVel;varying float vFade;void main(){vec3 pos=position;vec2 w=uWind.xz*10.5;float t=uTime+aSeed*23.17;float n1=sin((position.x*0.17+aSeed*7.0)+t*0.9);float n2=cos((position.z*0.13-aSeed*5.0)-t*1.2);vec2 noise=vec2(n1,-n2)*0.35+vec2(sin(t*1.3+aSeed*11.0),cos(t*1.1+aSeed*9.0))*0.15;vec2 vel=w+noise;vVel=vel;float halfA=0.5*uArea;float fx=position.x+vel.x*uTime;float fz=position.z+vel.y*uTime;pos.x=-halfA+mod(fx+halfA,uArea);pos.z=-halfA+mod(fz+halfA,uArea);float baseY=position.y;pos.y=clamp(baseY+sin(t*0.7)*0.1,0.0,uHeight);vec4 mv=modelViewMatrix*vec4(pos,1.0);gl_Position=projectionMatrix*mv;float dist=-mv.z;float speed=length(vel);gl_PointSize=uSize*(0.6+clamp(speed*0.25,0.0,2.0))*clamp(180.0/dist,1.0,5.0);vFade=0.45;}`,
+      fragmentShader: `precision mediump float;varying vec2 vVel;varying float vFade;uniform float uAlpha;float hash(float x){return fract(sin(x)*43758.5453);}void main(){vec2 pc=gl_PointCoord-0.5;vec2 dir=normalize(vVel+1e-6);float ang=atan(dir.y,dir.x);float s=sin(ang),c=cos(ang);vec2 q=vec2(c*pc.x+s*pc.y,-s*pc.x+c*pc.y);float longAxis=0.75;float shortAxis=0.12;float d=sqrt((q.x*q.x)/(longAxis*longAxis)+(q.y*q.y)/(shortAxis*shortAxis));float core=smoothstep(1.0,0.0,d);float head=smoothstep(-0.6,0.8,q.x);float profile=core*mix(0.6,1.0,head);float n=hash(q.x*91.7+q.y*57.3);float a=profile*(0.8+0.2*n)*vFade*uAlpha;if(a<0.02)discard;vec3 col=vec3(0.45,0.40,0.35);gl_FragColor=vec4(col,a);}`
+    });
+    material.transparent = true;
+    material.depthWrite = false;
+    material.blending = THREE.NormalBlending;
+    material.uniforms.uAlpha.value = 0.7;
+    const points = new THREE.Points(g, material); this.group.add(points); return points;
+  }
+
+  createSandPoints(count){
+    const THREE = this.THREE; const g = this.createBaseGeometry(count);
+    const speeds = g.getAttribute('aSpeed'); for(let i=0;i<speeds.count;i++) speeds.setX(i, 1.5 + Math.random()*2.0); speeds.needsUpdate = true;
+    const material = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, depthTest: true,
+      uniforms:{ uTime:this.uTime, uSize:{value:42.0}, uHeight:{value:Math.min(60, this.height)}, uArea:{value:this.areaSize}, uAlpha:{value:0.0} },
+      vertexShader:`uniform float uTime; uniform float uHeight; uniform float uSize; uniform float uArea; attribute float aSpeed; attribute float aSeed; varying float vAlpha; void main(){ vec3 pos=position; float s=aSeed*6.283; float halfA=0.5*uArea; float fx=position.x + sin(uTime*0.15 + s)*2.0 + sin(uTime*0.32 + s*1.1)*1.5; float fz=position.z + cos(uTime*0.12 + s)*2.1 + cos(uTime*0.27 + s*0.9)*1.4; pos.x=-halfA+mod(fx+halfA,uArea); pos.z=-halfA+mod(fz+halfA,uArea); pos.y=mod(position.y + sin(uTime*0.18 + s)*0.4, uHeight); vec4 mv=modelViewMatrix*vec4(pos,1.0); gl_Position=projectionMatrix*mv; float dist=max(0.001,-mv.z); gl_PointSize=uSize*clamp(180.0/dist,10.0,95.0); float base=clamp(0.12 + fract(aSeed*53.0)*0.18,0.12,0.3); float nearFade=clamp((dist-2.0)/8.0,0.0,1.0); vAlpha=base*nearFade; }`,
+      fragmentShader:`precision mediump float; varying float vAlpha; uniform float uAlpha; void main(){ vec2 pc=gl_PointCoord-0.5; float d2=dot(pc,pc); float soft=exp(-4.5*d2); float a=soft*vAlpha*uAlpha; if(a<0.01) discard; vec3 col=vec3(0.78,0.70,0.55); gl_FragColor=vec4(col,a); }`
     });
     const points = new THREE.Points(g, material); this.group.add(points); return points;
   }

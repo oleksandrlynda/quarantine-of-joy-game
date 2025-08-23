@@ -48,7 +48,7 @@ export class Music {
     // Mood (environment-driven)
     this.hatCutoffHz = 6000; // dynamic with fog/rain
     this.padBaseBrightnessHz = 2000; // dynamic with weather
-    this._mood = { rain: 0, snow: 0, fog: 0 };
+    this._mood = { rain: 0, snow: 0, fog: 0, sand: 0 };
 
     // Key/scale (default E minor)
     this.baseFreq = 164.81; // E3
@@ -466,6 +466,11 @@ export class Music {
     this.bossIntensity = Math.max(0, Math.min(1, value));
     if (this.delayGain) this.delayGain.gain.setTargetAtTime(0.16 + this.bossIntensity * 0.12, this.ctx.currentTime, 0.25);
     if (this.busses?.drums) this.busses.drums.gain.setTargetAtTime((0.85 + this.bossIntensity * 0.2) * this.busVolumes.drums, this.ctx.currentTime, 0.1);
+  }
+
+  setMood(partial) {
+    if (!partial) return;
+    Object.assign(this._mood, partial);
   }
 
   scheduleStep(stepIndex, time) {

@@ -53,6 +53,51 @@ export class SFX {
     if (!this.isMuted && this.master) this.master.gain.setTargetAtTime(this.volume, this.ctx.currentTime, 0.01);
   }
 
+  // Ambient weather loops (rain, wind, snow)
+  _ensureWeatherLoops(){
+    this.ensure();
+    if (this._weatherLoops) return;
+    const a = this.ctx;
+    // base noise buffer reused for loops
+    const buf = a.createBuffer(1, a.sampleRate * 2, a.sampleRate);
+    const ch = buf.getChannelData(0);
+    for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
+    const makeLoop = (setup) => {
+      const src = a.createBufferSource(); src.buffer = buf; src.loop = true;
+      let node = src;
+      if (setup) node = setup(src);
+      const g = a.createGain(); g.gain.value = 0;
+      node.connect(g).connect(this.master);
+      try { src.start(); } catch(_) {}
+      return g;
+    };
+    this._weatherLoops = {
+      rain: makeLoop((src) => {
+        const bp = a.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1000; bp.Q.value = 0.8;
+        src.connect(bp); return bp;
+      }),
+      wind: makeLoop((src) => {
+        const hp = a.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 80;
+        const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 600;
+        src.connect(hp).connect(lp); return lp;
+      }),
+      snow: makeLoop((src) => {
+        const hp = a.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 120;
+        const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 400;
+        src.connect(hp).connect(lp); return lp;
+      }),
+    };
+  }
+
+  setWeatherMix({ rain = 0, wind = 0, snow = 0 } = {}){
+    this._ensureWeatherLoops();
+    const t = this.ctx.currentTime;
+    const clamp01 = (v)=> Math.max(0, Math.min(1, v));
+    this._weatherLoops.rain.gain.setTargetAtTime(clamp01(rain) * 0.6, t, 0.5);
+    this._weatherLoops.wind.gain.setTargetAtTime(clamp01(wind) * 0.5, t, 0.5);
+    this._weatherLoops.snow.gain.setTargetAtTime(clamp01(snow) * 0.2, t, 0.5);
+  }
+
   // Utility: make a gain with AR envelope
   _env({ a = 0.005, d = 0.12, g = 1.0, t0 }) {
     const aCtx = this.ctx;

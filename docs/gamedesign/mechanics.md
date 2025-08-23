@@ -112,7 +112,7 @@ Small, frequent bonuses awarded at combo tier‑ups and periodic milestones to k
   - Thick Fog: fog density up; enemy aggro range −20%
   - Double Drops: +50% pickup drop chance, capped
   - Heavy Armor: tanks +20% HP, −10% speed
-- Modifiers synergize with current weather affixes where applicable.
+- Modifiers synergize with current weather affixes where applicable; sandstorm affix can amplify dust‑centric modifiers, and windy affix compounds projectile spread.
 
 ## Powerups (timed)
 - Drop from enemies or appear as rare spawns. Duration 10–20s, one active at a time.
