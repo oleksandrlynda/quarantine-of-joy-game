@@ -203,6 +203,7 @@ camera.getWorldDirection = function(target){
 const player = new PlayerController(THREE, camera, document.body, objects, arenaRadius);
 const controls = player.controls;
 scene.add(controls.getObject());
+if (grassMesh) grassMesh.userData.actor = controls.getObject();
 // Ensure player colliders include maze/destructibles
 if (player.refreshColliders) player.refreshColliders(objects);
 

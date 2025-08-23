@@ -71,7 +71,9 @@ export function createGrassMesh({
       windStrength: { value: windStrength },
       windDirection: { value: new THREE.Vector2(1, 0) },
       heightFactor: { value: 1 },
-      snowMix: { value: 0 }
+      snowMix: { value: 0 },
+      actorPos: { value: new THREE.Vector3() },
+      actorRadius: { value: 1.5 }
     },
     vertexShader: `
       attribute vec3 offset;
@@ -82,6 +84,8 @@ export function createGrassMesh({
       uniform float windStrength;
       uniform vec2 windDirection;
       uniform float heightFactor;
+      uniform vec3 actorPos;
+      uniform float actorRadius;
       varying vec3 vColor;
       void main(){
         vColor = color;
@@ -91,6 +95,11 @@ export function createGrassMesh({
         float disp = (windStrength * 0.6 + max(0.0, sway) * windStrength +
           min(0.0, sway) * windStrength * 0.1) * position.y;
         pos.xz += windDirection * disp;
+        vec2 actorVec = offset.xz - actorPos.xz;
+        float dist = length(actorVec);
+        float influence = max(0.0, 1.0 - dist / actorRadius);
+        if (dist > 0.0001) actorVec /= dist; else actorVec = vec2(0.0);
+        pos.xz += actorVec * influence * 0.2 * position.y;
         float c = cos(angle);
         float s = sin(angle);
         pos = vec3(
@@ -115,12 +124,17 @@ export function createGrassMesh({
 
   const mesh = new THREE.Mesh(geo, material);
   mesh.frustumCulled = false;
+  mesh.userData.actor = null;
   let last = performance.now() / 1000;
   mesh.onBeforeRender = (_, __, ___, ____, mat) => {
     const now = performance.now() / 1000;
     const dt = now - last;
     last = now;
     mat.uniforms.time.value += dt * (0.8 + mat.uniforms.windStrength.value);
+    const actor = mesh.userData.actor;
+    if (actor && actor.position) {
+      mat.uniforms.actorPos.value.copy(actor.position);
+    }
   };
   return mesh;
 }
