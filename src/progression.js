@@ -15,6 +15,8 @@ export class Progression {
     this._offerHandlersBound = false;
     this.bossKills = 0;             // track number of defeated bosses this run
     this.sidearmOfferShown = false; // show once per run
+    this.selectedPick = null;
+    this.declineSelected = false;
 
     this._bindOfferUI();
   }
@@ -84,7 +86,12 @@ export class Progression {
     this.offerEl = this.doc.getElementById('offer');
     this.choicesEl = this.doc.getElementById('offerChoices');
     this.declineBtn = this.doc.getElementById('offerDecline');
-    if (this.declineBtn) this.declineBtn.onclick = () => this._decline();
+    this.acceptBtn = this.doc.getElementById('offerAccept');
+    if (this.declineBtn) this.declineBtn.onclick = () => this._selectDecline();
+    if (this.acceptBtn) this.acceptBtn.onclick = () => {
+      if (this.selectedPick) this._accept(this.selectedPick);
+      else if (this.declineSelected) this._decline();
+    };
   }
 
   // ---------- Offer helpers ----------
@@ -126,6 +133,23 @@ export class Progression {
     return picks;
   }
 
+  _selectPick(p, el){
+    this.selectedPick = p;
+    this.declineSelected = false;
+    Array.from(this.choicesEl.children).forEach(c => c.classList.remove('selected'));
+    this.declineBtn?.classList.remove('selected');
+    el.classList.add('selected');
+    if (this.acceptBtn) this.acceptBtn.disabled = false;
+  }
+
+  _selectDecline(){
+    this.selectedPick = null;
+    this.declineSelected = true;
+    Array.from(this.choicesEl.children).forEach(c => c.classList.remove('selected'));
+    this.declineBtn?.classList.add('selected');
+    if (this.acceptBtn) this.acceptBtn.disabled = false;
+  }
+
   // ---------- Primary offers ----------
   _presentOffer(restrictNames, unlockOverrides){
     if (!this.offerEl || !this.choicesEl) return;
@@ -157,12 +181,16 @@ export class Progression {
 
     // Build UI
     this.choicesEl.innerHTML = '';
+    if (this.acceptBtn) this.acceptBtn.disabled = true;
+    this.selectedPick = null;
+    this.declineSelected = false;
+    this.declineBtn?.classList.remove('selected');
     for (const p of picks){
       const d = this.doc.createElement('div'); d.className = 'choice';
       const img = this.doc.createElement('img'); img.alt = p.name; img.src = this._iconFor(p.name);
       const label = this.doc.createElement('div'); label.textContent = p.name;
       d.appendChild(img); d.appendChild(label);
-      d.onclick = () => this._accept(p);
+      d.onclick = () => this._selectPick(p, d);
       this.choicesEl.appendChild(d);
     }
 
@@ -179,13 +207,14 @@ export class Progression {
       if (center) center.style.display = 'none';
     } catch {}
 
-    // Key bindings 1/2 to choose, Esc/F to decline
+    // Key bindings: 1/2 select options, Enter/Space confirm, Esc/F select decline
     if (!this._offerHandlersBound){
       this._offerKeyHandler = (e)=>{
         if (!this.offerOpen) return;
         if (e.code === 'Digit1') { const n = this.choicesEl.children[0]; if (n) n.click(); }
         else if (e.code === 'Digit2') { const n = this.choicesEl.children[1]; if (n) n.click(); }
-        else if (e.code === 'Escape' || e.code === 'KeyF') { this._decline(); }
+        else if (e.code === 'Escape' || e.code === 'KeyF') { this.declineBtn?.click(); }
+        else if (e.code === 'Enter' || e.code === 'Space') { if (this.acceptBtn && !this.acceptBtn.disabled) this.acceptBtn.click(); }
       };
       window.addEventListener('keydown', this._offerKeyHandler);
       this._offerHandlersBound = true;
@@ -210,6 +239,10 @@ export class Progression {
     if (!sidearms.length) return;
 
     this.choicesEl.innerHTML = '';
+    if (this.acceptBtn) this.acceptBtn.disabled = true;
+    this.selectedPick = null;
+    this.declineSelected = false;
+    this.declineBtn?.classList.remove('selected');
     for (const p of sidearms){
       const d = this.doc.createElement('div'); d.className = 'choice';
       const img = this.doc.createElement('img'); img.alt = p.name;
@@ -217,15 +250,7 @@ export class Progression {
       img.src = this._iconFor(p.name === 'Grenade' ? 'Pistol' : p.name);
       const label = this.doc.createElement('div'); label.textContent = p.name;
       d.appendChild(img); d.appendChild(label);
-      d.onclick = () => {
-        // Replace sidearm slot (slot 2). Ensure inventory has at least 2
-        const cur = this.ws.inventory;
-        if (cur.length === 1) cur.push(new (p.make().constructor)());
-        else cur[1] = p.make();
-        this.ws.currentIndex = Math.min(this.ws.currentIndex, 0); // keep primary selected
-        this.ws.updateHUD?.();
-        this._closeOffer(true);
-      };
+      d.onclick = () => this._selectPick({ ...p, sidearm:true }, d);
       this.choicesEl.appendChild(d);
     }
 
@@ -244,6 +269,16 @@ export class Progression {
   }
 
   _accept(pick){
+    if (pick?.sidearm){
+      const cur = this.ws.inventory;
+      const inst = pick.make();
+      if (cur.length === 1) cur.push(new (inst.constructor)());
+      else cur[1] = inst;
+      this.ws.currentIndex = Math.min(this.ws.currentIndex, 0);
+      this.ws.updateHUD?.();
+      this._closeOffer(true);
+      return;
+    }
     this.ws.swapPrimary(pick.make);
     this.offerCooldown = 1; // skip next even-wave offer
     this._closeOffer(true);
@@ -253,6 +288,11 @@ export class Progression {
     if (this.offerEl) this.offerEl.style.display = 'none';
     this.offerOpen = false;
     this.onPause(false);
+    this.selectedPick = null;
+    this.declineSelected = false;
+    this.declineBtn?.classList.remove('selected');
+    if (this.acceptBtn) this.acceptBtn.disabled = true;
+    Array.from(this.choicesEl?.children || []).forEach(c => c.classList.remove('selected'));
     // Try to re-lock pointer immediately after interaction (valid user gesture)
     try { this.controls?.lock?.(); } catch {}
   }
