@@ -900,15 +900,16 @@ spawnBulletImpact(position, normal){
   }
 
   // Composite explosion: shockwave, fireball, sparks, smoke, light flash
-  spawnExplosion(center, radius=3.0){
+  spawnExplosion(center, radius=3.0, color=0xffb347){
     const THREE = this.THREE;
+    const tint = new THREE.Color(color);
     // 1) Shockwave ring on ground (reuse shared geometry and clone material)
     const ringMat = this._ringSharedMatProto.clone();
     ringMat.uniforms.uElapsed.value = 0;
     ringMat.uniforms.uLife.value = 0.5;
     ringMat.uniforms.uStart.value = radius*0.22;
     ringMat.uniforms.uEnd.value = radius*1.4;
-    ringMat.uniforms.uColor.value.copy(new THREE.Color(0xfff1a1));
+    ringMat.uniforms.uColor.value.copy(tint.clone().multiplyScalar(1.2));
     const ring = new THREE.Mesh(this._ringSharedGeo, ringMat); 
     ring.position.copy(center.clone().setY(0.05)); 
     ring.rotation.x = -Math.PI/2; 
@@ -918,7 +919,7 @@ spawnBulletImpact(position, normal){
     // 2) Fireball core (reuse shared geometry and clone material)
     const coreMat = this._explCoreMatProto.clone();
     coreMat.uniforms.uAlpha.value = 0.95;
-    coreMat.uniforms.uTint.value.copy(new THREE.Color(0xffb347));
+    coreMat.uniforms.uTint.value.copy(tint.clone());
     coreMat.uniforms.uTime.value = 0;
     const core = new THREE.Mesh(this._explCoreGeo, coreMat); 
     core.position.copy(center.clone().setY(center.y + 0.6)); 

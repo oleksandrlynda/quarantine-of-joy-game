@@ -311,14 +311,22 @@ export class RusherEnemy {
     const pos = this.root.position.clone();
     const radius = this.cfg.explosionRadius || 3;
     const dmg = this.cfg.explosionDamage || 40;
-    try { window?._EFFECTS?.spawnExplosion?.(pos.clone(), radius); } catch(_){ }
+    if (window?._EFFECTS?.spawnExplosion) {
+      try {
+        window._EFFECTS.spawnExplosion(pos.clone(), radius, this.cfg.color);
+      } catch (err) {
+        console.warn('spawnExplosion failed', err);
+      }
+    }
     // damage player
     try {
       const pPos = ctx?.player?.position;
       if (pPos && pos.distanceTo(pPos) <= radius) {
         ctx?.onPlayerDamage?.(dmg, 'explosion');
       }
-    } catch(_){ }
+    } catch (_err) {
+      console.warn('player damage during explosion failed', _err);
+    }
     // damage nearby enemies (exclude self and other explosive variants)
     const em = ctx?.enemyManager;
     if (em) {
