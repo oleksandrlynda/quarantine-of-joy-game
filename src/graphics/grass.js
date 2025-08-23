@@ -83,10 +83,18 @@ export function createGrassMesh({
     chunk.indices.push(i);
   }
 
-  geo.setAttribute('offset', new THREE.InstancedBufferAttribute(offsets, 3));
-  geo.setAttribute('angle', new THREE.InstancedBufferAttribute(angles, 1));
-  geo.setAttribute('scale', new THREE.InstancedBufferAttribute(scales, 1));
-  geo.setAttribute('color', new THREE.InstancedBufferAttribute(colors, 3));
+  const offsetAttr = new THREE.InstancedBufferAttribute(offsets, 3);
+  const angleAttr = new THREE.InstancedBufferAttribute(angles, 1);
+  const scaleAttr = new THREE.InstancedBufferAttribute(scales, 1);
+  const colorAttr = new THREE.InstancedBufferAttribute(colors, 3);
+  offsetAttr.setUsage(THREE.DynamicDrawUsage);
+  angleAttr.setUsage(THREE.DynamicDrawUsage);
+  scaleAttr.setUsage(THREE.DynamicDrawUsage);
+  colorAttr.setUsage(THREE.DynamicDrawUsage);
+  geo.setAttribute('offset', offsetAttr);
+  geo.setAttribute('angle', angleAttr);
+  geo.setAttribute('scale', scaleAttr);
+  geo.setAttribute('color', colorAttr);
   geo.instanceCount = bladeCount;
   const baseOffsets = offsets.slice();
   const baseAngles = angles.slice();
@@ -181,12 +189,16 @@ export function createGrassMesh({
       const colorsAttr = geometry.getAttribute('color');
       const scalesAttr = geometry.getAttribute('scale');
       let write = 0;
+      // Fade chunk density smoothly based on camera distance to avoid popping
       for (const chunk of lod.chunks.values()) {
         const dist = camVec2.distanceTo(chunk.center);
         let factor = 0;
-        if (dist < lod.near) factor = 1;
-        else if (dist < lod.far) factor = 0.5;
-        if (factor <= 0) continue;
+        if (dist < lod.near) {
+          factor = 1;
+        } else if (dist < lod.far) {
+          factor = (lod.far - dist) / (lod.far - lod.near);
+        }
+        if (factor <= 0.001) continue;
         for (const idx of chunk.indices) {
           const baseScale = lod.baseScales[idx];
           if (baseScale <= 0) continue;
