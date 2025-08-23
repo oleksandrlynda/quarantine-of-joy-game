@@ -87,7 +87,7 @@ export function createGrassMesh({
         vColor = color;
         vec3 pos = position;
         pos.y *= scale * heightFactor;
-        float sway = sin((time * (0.8 + windStrength)) + offset.x + offset.z);
+        float sway = sin(time + offset.x + offset.z);
         float disp = (windStrength * 0.6 + max(0.0, sway) * windStrength +
           min(0.0, sway) * windStrength * 0.1) * position.y;
         pos.xz += windDirection * disp;
@@ -115,8 +115,12 @@ export function createGrassMesh({
 
   const mesh = new THREE.Mesh(geo, material);
   mesh.frustumCulled = false;
+  let last = performance.now() / 1000;
   mesh.onBeforeRender = (_, __, ___, ____, mat) => {
-    mat.uniforms.time.value = performance.now() / 1000;
+    const now = performance.now() / 1000;
+    const dt = now - last;
+    last = now;
+    mat.uniforms.time.value += dt * (0.8 + mat.uniforms.windStrength.value);
   };
   return mesh;
 }
