@@ -8,6 +8,7 @@ import { BailiffEnemy } from './bailiff.js';
 import { SwarmWarden } from './warden.js';
 import { BossManager } from '../bosses/manager.js';
 import { Hydraclone } from '../bosses/hydraclone.js';
+import { PathFinder } from '../path.js';
 
 function containsExtrudeGeometry(obj){
   if (obj.geometry?.isExtrudeGeometry) return true;
@@ -43,6 +44,9 @@ export class EnemyManager {
     this.up = new this.THREE.Vector3(0,1,0);
     this.enemyHalf = new this.THREE.Vector3(0.6, 0.8, 0.6);
     this.enemyFullHeight = this.enemyHalf.y * 2;
+    this.stepUpMax = 0.12 * this.enemyFullHeight;
+    this.jumpAssistMax = 0.30 * this.enemyFullHeight;
+    this.pathFinder = new PathFinder(this.objectBBs, { climbable: this.jumpAssistMax });
     this.spawnRings = this._computeSpawnRings();
     this.customSpawnPoints = null; // optional override from map
     this._advancingWave = false;
@@ -85,6 +89,13 @@ export class EnemyManager {
     this.objectBBs = this.objects
       .filter(o => !containsExtrudeGeometry(o))
       .map(o => new this.THREE.Box3().setFromObject(o));
+    if (this.pathFinder) this.pathFinder.setObstacles(this.objectBBs);
+  }
+
+  findPath(start, goal) {
+    if (!this.pathFinder) return [];
+    const pts = this.pathFinder.findPath(start, goal);
+    return pts.map(p => new this.THREE.Vector3(p.x, start.y || 0, p.z));
   }
 
   _initBulletPools() {
@@ -487,27 +498,37 @@ export class EnemyManager {
     let pz = enemy.position.z;
     let py = enemy.position.y;
   
+    const stepUpMax = 0.12 * this.enemyFullHeight;
+    const jumpAssistMax = 0.30 * this.enemyFullHeight;
+    let pendingLift = 0;
+
     const tryAxis = (dx, dz) => {
       const nx = px + dx, nz = pz + dz;
       const feetY = py - half.y;
       t.min.set(nx - half.x, Math.max(0.0, feetY + 0.05), nz - half.z);
       t.max.set(nx + half.x, feetY + (half.y*2),            nz + half.z);
       t.boxA.set(t.min, t.max);
-      for (const obb of this.objectBBs) { if (t.boxA.intersectsBox(obb)) return false; }
+      for (const obb of this.objectBBs) {
+        if (!t.boxA.intersectsBox(obb)) continue;
+        const need = obb.max.y - feetY;
+        if (need > jumpAssistMax + 1e-3) return false;
+        if (need > pendingLift) pendingLift = need;
+      }
       // accept & update running position for next axis
       px = nx; pz = nz; return true;
     };
-  
+
     const beforeGround = this._groundHeightAt(px, pz);
     tryAxis(step.x, 0);
     tryAxis(0, step.z);
-  
-    const afterGround = this._groundHeightAt(px, pz);
+
+    py += pendingLift;
+
+    let afterGround = this._groundHeightAt(px, pz);
+    afterGround = Math.max(afterGround, beforeGround + pendingLift);
     const rise = Math.max(0, afterGround - beforeGround);
-    const stepUpMax = 0.12 * this.enemyFullHeight;
-    const jumpAssistMax = 0.30 * this.enemyFullHeight;
     const desiredY = afterGround + half.y;
-  
+
     if (rise > 0) {
       const maxLift = (rise <= stepUpMax + 1e-3) ? stepUpMax : (rise <= jumpAssistMax + 1e-3 ? jumpAssistMax : 0);
       if (maxLift > 0) {
@@ -517,9 +538,21 @@ export class EnemyManager {
     } else {
       py = desiredY;
     }
-  
+
+    const startX = enemy.position.x, startY = enemy.position.y, startZ = enemy.position.z;
+    const feetY = py - half.y;
+    t.min.set(px - half.x, Math.max(0.0, feetY + 0.05), pz - half.z);
+    t.max.set(px + half.x, feetY + (half.y*2),            pz + half.z);
+    t.boxA.set(t.min, t.max);
+    for (const obb of this.objectBBs) {
+      if (t.boxA.intersectsBox(obb)) {
+        enemy.position.set(startX, startY, startZ);
+        return;
+      }
+    }
+
     enemy.position.set(px, py, pz);
-  }  
+  }
 
   // Compute highest ground at XZ from colliders using raycast fallback to AABB top
   _groundHeightAt(x, z) {
@@ -729,6 +762,9 @@ export class EnemyManager {
     }
     if (!ctx.moveWithCollisions) {
       ctx.moveWithCollisions = (enemy, step) => this._moveWithCollisions(enemy, step);
+    }
+    if (!ctx.findPath) {
+      ctx.findPath = (start, goal) => this.findPath(start, goal);
     }
     if (!ctx.applyKnockback) {
       ctx.applyKnockback = (enemy, vec) => this.applyKnockback(enemy, vec);

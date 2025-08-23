@@ -51,13 +51,26 @@ export class RusherEnemy {
     this._dashCooldown = 0;        // until next dash available
     this._dashDir = new THREE.Vector3();
     this._lastPos = body.position.clone();
+    this._stuckTime = 0;
+    this._path = null;
   }
 
   update(dt, ctx) {
     const THREE = this.THREE;
     const e = this.root;
     const playerPos = ctx.player.position.clone();
-    const toPlayer = playerPos.clone().sub(e.position);
+    let targetPos = playerPos;
+    if (this._path && this._path.length > 0) {
+      const pt = this._path[0];
+      const dx = pt.x - e.position.x;
+      const dz = pt.z - e.position.z;
+      if ((dx*dx + dz*dz) < 0.25) this._path.shift();
+      if (this._path && this._path.length > 0) {
+        const next = this._path[0];
+        targetPos = new THREE.Vector3(next.x, playerPos.y, next.z);
+      }
+    }
+    const toPlayer = targetPos.clone().sub(e.position);
     const dist = toPlayer.length();
     if (dist < 2.0 && ctx.onPlayerDamage) ctx.onPlayerDamage(16 * dt, 'melee');
     if (dist > 70) return;
@@ -73,13 +86,18 @@ export class RusherEnemy {
     }
     this._prevPlayerPos = playerPos.clone();
 
-    // Desired direction with intercept prediction
-    const toPlayerFlat = playerPos.clone().setY(0).sub(new THREE.Vector3(e.position.x, 0, e.position.z));
-    const horizDist = toPlayerFlat.length();
-    const leadTime = Math.max(0, Math.min(0.5, (horizDist / Math.max(0.1, this.speed)) * 0.25));
-    const predicted = playerPos.clone().add(this._playerVel.clone().multiplyScalar(leadTime));
-    const toPred = predicted.sub(e.position); toPred.y = 0;
-    let desired = toPred.lengthSq() > 0 ? toPred.normalize() : toPlayer.clone();
+    let desired;
+    if (this._path && this._path.length > 0) {
+      desired = toPlayer.clone(); desired.y = 0; if (desired.lengthSq() > 0) desired.normalize();
+    } else {
+      // Desired direction with intercept prediction
+      const toPlayerFlat = playerPos.clone().setY(0).sub(new THREE.Vector3(e.position.x, 0, e.position.z));
+      const horizDist = toPlayerFlat.length();
+      const leadTime = Math.max(0, Math.min(0.5, (horizDist / Math.max(0.1, this.speed)) * 0.25));
+      const predicted = playerPos.clone().add(this._playerVel.clone().multiplyScalar(leadTime));
+      const toPred = predicted.sub(e.position); toPred.y = 0;
+      desired = toPred.lengthSq() > 0 ? toPred.normalize() : toPlayer.clone();
+    }
 
     // Avoid obstacles and separation
     const avoid = ctx.avoidObstacles(e.position, desired, 2.2);
@@ -122,6 +140,16 @@ export class RusherEnemy {
       const ll = this._animRefs.leftLeg, rl = this._animRefs.rightLeg;
       if (la && ra) { la.rotation.x = swing * 1.1; ra.rotation.x = -swing * 1.1; }
       if (ll && rl) { ll.rotation.x = -swing; rl.rotation.x = swing; }
+    }
+    const moved = e.position.clone().sub(this._lastPos).length();
+    if (moved < 0.01) {
+      this._stuckTime += dt;
+      if (this._stuckTime > 0.6 && ctx.findPath) {
+        this._path = ctx.findPath(e.position, playerPos);
+        this._stuckTime = 0;
+      }
+    } else {
+      this._stuckTime = 0;
     }
     this._lastPos.copy(e.position);
   }
