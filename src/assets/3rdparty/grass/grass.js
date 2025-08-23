@@ -214,7 +214,7 @@ const createPositionNode = (options) => {
 
   // Vertex 0: left base, Vertex 1: top center, Vertex 2: right base
   // This is a workaround because mod(int(vertexIndex), 3) doesn't work
-  const vertIdx = vertexIndex.sub(mul(vertexIndex.div(3).toInt(), 3))
+  const vertIdx = vertexIndex.sub(mul(vertexIndex.div(3).floor(), 3))
 
   // Calculate billboard direction (from grass to camera) for blade orientation
   const worldPos = positionWorld
