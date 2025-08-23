@@ -61,12 +61,9 @@ export function createGrassMesh({
     const n = noise2D(x * 0.1, z * 0.1);
     offsets.set([x, y, z], i * 3);
     angles[i] = Math.random() * Math.PI * 2;
-    if (n < 0.25) {
-      scales[i] = 0;
-      colors.set([0, 0, 0], i * 3);
-      continue;
-    }
-    scales[i] = THREE.MathUtils.randFloat(heightRange[0], heightRange[1]) * (0.7 + n * 0.6);
+    const minScale = heightRange[0];
+    const maxScale = heightRange[1];
+    scales[i] = Math.max(minScale, n * maxScale);
 
     const c = colorA.clone().lerp(colorB, Math.random());
     colors.set([c.r, c.g, c.b], i * 3);
