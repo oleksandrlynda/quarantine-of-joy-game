@@ -185,7 +185,7 @@ export class RusherEnemy {
       if (this._dashTimer > 0) {
         this._dashTimer = Math.max(0, this._dashTimer - dt);
         if (this._dashTimer === 0 && !this._hasDealtHit) {
-          const overrunFrac = 0.1 + Math.random() * 0.1;
+          const overrunFrac = 0.2 + Math.random() * 0.2;
           this._overrunTimer = this._dashTotal * overrunFrac;
         }
       } else if (this._overrunTimer > 0) {
@@ -194,16 +194,16 @@ export class RusherEnemy {
       if (this._dashTimer === 0 && this._overrunTimer === 0) {
         this._charging = false;
         this._dashTotal = 0;
-        this._recoverTimer = 0.5 + Math.random() * 0.3;
-        if (!this._hasDealtHit) this._stunTimer = 0.6 + Math.random() * 0.3;
+        this._recoverTimer = 0.7 + Math.random() * 0.4;
+        if (!this._hasDealtHit) this._stunTimer = 1.0 + Math.random() * 0.4;
         this._flinchAccum = 0;
       }
     }
-    const canDash = (dist >= 5 && dist <= 12) && !this._charging && this._dashCooldown <= 0 && this._recoverTimer <= 0 && this._windUpTimer <= 0 && this._stunTimer <= 0 && this._flinchTimer <= 0 && this._hasLineOfSight(e.position, playerPos, ctx.objects);
+    const canDash = (dist >= 8 && dist <= 18) && !this._charging && this._dashCooldown <= 0 && this._recoverTimer <= 0 && this._windUpTimer <= 0 && this._stunTimer <= 0 && this._flinchTimer <= 0 && this._hasLineOfSight(e.position, playerPos, ctx.objects);
     if (canDash && Math.random() < 1.2 * dt) {
       this._windUpTimer = 0.3;
       this._dashDir.copy(desired);
-      try { this._windUpSound?.stop?.(); this._windUpSound = window?._SFX?.saberCharge?.(); } catch(_){}
+      try { this._windUpSound?.stop?.(); this._windUpSound = window?._SFX?.dashWindup?.(); } catch(_){}
       // face dash direction immediately
       const desiredYaw = Math.atan2(this._dashDir.x, this._dashDir.z);
       this._yaw = desiredYaw; e.rotation.set(0, this._yaw, 0);
@@ -226,8 +226,8 @@ export class RusherEnemy {
       this._dashTimer = 0;
       this._overrunTimer = 0;
       this._dashTotal = 0;
-      this._recoverTimer = 0.5 + Math.random() * 0.3;
-      this._stunTimer = 0.6 + Math.random() * 0.3;
+      this._recoverTimer = 0.7 + Math.random() * 0.4;
+      this._stunTimer = 1.0 + Math.random() * 0.4;
       try {
         window?._EFFECTS?.spawnDashImpact?.(e.position.clone(), this.cfg.color);
       } catch(_){}

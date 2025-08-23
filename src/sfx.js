@@ -213,6 +213,27 @@ export class SFX {
     };
   }
 
+  dashWindup(){
+    if (this.isMuted) return null; this.ensure();
+    const a = this.ctx; const t0 = a.currentTime + 0.001;
+    const o = a.createOscillator(); o.type = 'triangle';
+    o.frequency.setValueAtTime(180, t0);
+    o.frequency.linearRampToValueAtTime(260, t0 + 0.3);
+    const g = a.createGain(); g.gain.setValueAtTime(0.0001, t0);
+    o.connect(g).connect(this.master); this._tapFx(g, 0.05);
+    g.gain.linearRampToValueAtTime(0.2, t0 + 0.06);
+    g.gain.setTargetAtTime(0.0001, t0 + 0.3, 0.05);
+    o.start(t0);
+    return {
+      stop: ()=>{
+        const now = a.currentTime;
+        g.gain.cancelScheduledValues(now);
+        g.gain.linearRampToValueAtTime(0.0001, now + 0.05);
+        try { o.stop(now + 0.06); } catch(_){}
+      }
+    };
+  }
+
   dashWhoosh(opts = {}) {
     if (this.isMuted) return; this.ensure();
     const a = this.ctx; const t0 = a.currentTime + 0.001;
