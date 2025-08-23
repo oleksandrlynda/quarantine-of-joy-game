@@ -8,6 +8,7 @@ import { BailiffEnemy } from './bailiff.js';
 import { SwarmWarden } from './warden.js';
 import { BossManager } from '../bosses/manager.js';
 import { Hydraclone } from '../bosses/hydraclone.js';
+import { nextWaypoint as pathNext, recomputeIfStale as pathRecompute, clear as pathClear } from '../path.js';
 
 function containsExtrudeGeometry(obj){
   if (obj.geometry?.isExtrudeGeometry) return true;
@@ -811,6 +812,13 @@ export class EnemyManager {
     }
     if (!ctx.applyPlayerKnockback) {
       ctx.applyPlayerKnockback = (vec) => playerObject?.applyKnockback?.(vec);
+    }
+    if (!ctx.pathfind) {
+      ctx.pathfind = {
+        recomputeIfStale: (enemy, goal) => pathRecompute(enemy, goal, this.objectBBs, { cacheFor: 4.5 }),
+        nextWaypoint: (enemy) => pathNext(enemy),
+        clear: (enemy) => pathClear(enemy)
+      };
     }
     if (!ctx.alliesNearbyCount) {
       // Count allies within a radius around a position, excluding an optional self root

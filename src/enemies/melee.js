@@ -235,11 +235,24 @@ cur = cur.children[idx]; }
       if (toPred.lengthSq() > 0) desired = toPred.normalize();
     }
 
+    const hasLOS = this._hasLineOfSight(e.position, playerPos, ctx.objects);
+    const isStuck = this._stuckTime > 0.4;
+    if ((!hasLOS || isStuck) && ctx.pathfind) {
+      ctx.pathfind.recomputeIfStale(this, playerPos).then(p => { this._path = p; });
+      const wp = ctx.pathfind.nextWaypoint(this);
+      if (wp) {
+        const dir = new this.THREE.Vector3(wp.x - e.position.x, 0, wp.z - e.position.z);
+        if (dir.lengthSq() > 0) desired = dir.normalize();
+      }
+    } else if (hasLOS && !isStuck && ctx.pathfind) {
+      ctx.pathfind.clear(this);
+      this._path = null;
+    }
+
     // Anti-kite zigzag/jukes when mid-range and LOS is clear
     if (this._jukeCooldown > 0) this._jukeCooldown = Math.max(0, this._jukeCooldown - dt);
     if (this._jukeTime > 0) this._jukeTime = Math.max(0, this._jukeTime - dt);
     const inMidRange = dist >= 6 && dist <= 12;
-    const hasLOS = this._hasLineOfSight(e.position, playerPos, ctx.objects);
     if (inMidRange && hasLOS && this._jukeCooldown <= 0 && this._jukeTime <= 0) {
       if (Math.random() < 0.9 * dt) {
         const fwd = desired.lengthSq()>0 ? desired.clone() : toPlayer.clone();
@@ -301,6 +314,7 @@ cur = cur.children[idx]; }
       steer.add(this._hitJukeDir.clone().multiplyScalar(1.2));
     }
 
+    let step = new this.THREE.Vector3();
     if (steer.lengthSq() > 0) {
       steer.y = 0; steer.normalize();
       // slow when recently hit (for tanks), and decay DR timer
@@ -315,7 +329,7 @@ cur = cur.children[idx]; }
       const staggerMul = this._staggerTimer > 0 ? 0.15 : 1.0;
       const burstMul = this._burstTimer > 0 ? 1.5 : 1.0;
       if (this._slowTimer > 0) this._slowTimer = Math.max(0, this._slowTimer - dt);
-      let step = steer.multiplyScalar(this.speed * slowMul * regroupMul * staggerMul * burstMul * dt);
+      step.copy(steer).multiplyScalar(this.speed * slowMul * regroupMul * staggerMul * burstMul * dt);
 
       // Prevent entering the player's personal space; slide tangentially instead
       const minRadius = 1.2; // meters from player center
@@ -371,7 +385,8 @@ cur = cur.children[idx]; }
 
     const moved = e.position.clone().sub(this._lastPos).length();
     if (this._nudgeCooldown > 0) this._nudgeCooldown = Math.max(0, this._nudgeCooldown - dt);
-    if (moved < 0.006) {
+    const attempted = step.length();
+    if (attempted > 0.001 && moved < 0.006) {
       this._stuckTime += dt;
       if (this._stuckTime > 0.8 && this._nudgeCooldown <= 0) {
         const lateral = new this.THREE.Vector3(-toPlayer.z, 0, toPlayer.x).normalize().multiplyScalar((Math.random() < 0.5 ? -1 : 1) * 0.35);
@@ -612,16 +627,24 @@ cur = cur.children[idx]; }
 
   _hasLineOfSight(fromPos, targetPos, objects) {
     const THREE = this.THREE;
-    const origin = new THREE.Vector3(fromPos.x, fromPos.y + 1.2, fromPos.z);
-    const target = new THREE.Vector3(targetPos.x, 1.5, targetPos.z);
-    const dir = target.clone().sub(origin);
-    const dist = dir.length();
-    if (dist <= 0.0001) return true;
-    dir.normalize();
-    this._raycaster.set(origin, dir);
-    this._raycaster.far = dist - 0.1;
-    const hits = this._raycaster.intersectObjects(objects, false);
-    return !(hits && hits.length > 0);
+    const heightPairs = [
+      [0.2, 0.2],
+      [0.9, 1.0],
+      [1.2, 1.5]
+    ];
+    for (const [hFrom, hTo] of heightPairs) {
+      const origin = new THREE.Vector3(fromPos.x, fromPos.y + hFrom, fromPos.z);
+      const target = new THREE.Vector3(targetPos.x, (targetPos.y || 0) + hTo, targetPos.z);
+      const dir = target.clone().sub(origin);
+      const dist = dir.length();
+      if (dist <= 0.0001) continue;
+      dir.normalize();
+      this._raycaster.set(origin, dir);
+      this._raycaster.far = dist - 0.1;
+      const hits = this._raycaster.intersectObjects(objects, false);
+      if (hits && hits.length > 0) return false;
+    }
+    return true;
   }
 
   // NEW: space check to avoid slamming under low ceilings

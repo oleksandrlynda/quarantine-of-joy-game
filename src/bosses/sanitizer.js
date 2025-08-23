@@ -171,13 +171,25 @@ export class Sanitizer {
   _updateMovement(dt, ctx) {
     if (this._jumpState && this._jumpState !== 'idle') return;
     const e = this.root;
-    const toPlayer = ctx.player.position.clone().sub(e.position);
+    const playerPos = ctx.player.position.clone();
+    const toPlayer = playerPos.clone().sub(e.position);
     const dist = toPlayer.length();
     toPlayer.y = 0; if (toPlayer.lengthSq() === 0) return;
     toPlayer.normalize();
     const desired = new this.THREE.Vector3();
     if (dist > 10) desired.add(toPlayer);
     else desired.add(new this.THREE.Vector3(-toPlayer.z, 0, toPlayer.x).multiplyScalar(0.7));
+    const hasLOS = this._hasLineOfSight(e.position, playerPos, ctx.objects);
+    if (!hasLOS && ctx.pathfind) {
+      ctx.pathfind.recomputeIfStale(this, playerPos);
+      const wp = ctx.pathfind.nextWaypoint(this);
+      if (wp) {
+        const dir = new this.THREE.Vector3(wp.x - e.position.x, 0, wp.z - e.position.z);
+        if (dir.lengthSq() > 0) desired.copy(dir.normalize());
+      }
+    } else if (hasLOS && ctx.pathfind) {
+      ctx.pathfind.clear(this);
+    }
     if (desired.lengthSq() > 0) {
       desired.normalize();
       const step = desired.multiplyScalar(this.speed * dt);
@@ -640,6 +652,28 @@ export class Sanitizer {
   }
 
   // ------------- helpers -------------
+  _hasLineOfSight(fromPos, targetPos, objects) {
+    const THREE = this.THREE;
+    const heightPairs = [
+      [0.2, 0.2],
+      [0.9, 1.0],
+      [1.2, 1.5]
+    ];
+    for (const [hFrom, hTo] of heightPairs) {
+      const origin = new THREE.Vector3(fromPos.x, fromPos.y + hFrom, fromPos.z);
+      const target = new THREE.Vector3(targetPos.x, (targetPos.y || 0) + hTo, targetPos.z);
+      const dir = target.clone().sub(origin);
+      const dist = dir.length();
+      if (dist <= 0.0001) continue;
+      dir.normalize();
+      this._raycaster.set(origin, dir);
+      this._raycaster.far = dist - 0.1;
+      const hits = this._raycaster.intersectObjects(objects, false);
+      if (hits && hits.length > 0) return false;
+    }
+    return true;
+  }
+
   _rotateY(v, angle) {
     const c = Math.cos(angle), s = Math.sin(angle);
     return new this.THREE.Vector3(v.x * c - v.z * s, 0, v.x * s + v.z * c).normalize();

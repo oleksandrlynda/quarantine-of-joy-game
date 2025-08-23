@@ -85,6 +85,7 @@ export class BailiffEnemy {
     this._dashCooldown = 0;
     this._dashDir = new THREE.Vector3();
     this._lastPos = body.position.clone();
+    this._stuckTime = 0;
   }
 
   update(dt, ctx) {
@@ -116,13 +117,27 @@ export class BailiffEnemy {
     toPred.y = 0;
     let desired = toPred.lengthSq() > 0 ? toPred.normalize() : toPlayer.clone();
 
+    const hasLOS = this._hasLineOfSight(e.position, playerPos, ctx.objects);
+    const isStuck = this._stuckTime > 0.4;
+    if ((!hasLOS || isStuck) && ctx.pathfind) {
+      ctx.pathfind.recomputeIfStale(this, playerPos).then(p => { this._path = p; });
+      const wp = ctx.pathfind.nextWaypoint(this);
+      if (wp) {
+        const dir = new THREE.Vector3(wp.x - e.position.x, 0, wp.z - e.position.z);
+        if (dir.lengthSq() > 0) desired = dir.normalize();
+      }
+    } else if (hasLOS && !isStuck && ctx.pathfind) {
+      ctx.pathfind.clear(this);
+      this._path = null;
+    }
+
     const avoid = ctx.avoidObstacles(e.position, desired, 2.2);
     const sep = ctx.separation(e.position, 1.0, e);
     desired = desired.multiplyScalar(1.0).add(avoid.multiplyScalar(1.2)).add(sep.multiplyScalar(0.6)).normalize();
 
     if (this._dashCooldown > 0) this._dashCooldown = Math.max(0, this._dashCooldown - dt);
     if (this._dashTimer > 0) this._dashTimer = Math.max(0, this._dashTimer - dt);
-    const canDash = (dist >= 5 && dist <= 12) && this._dashCooldown <= 0 && this._hasLineOfSight(e.position, playerPos, ctx.objects);
+    const canDash = (dist >= 5 && dist <= 12) && this._dashCooldown <= 0 && hasLOS;
     if (canDash && Math.random() < 1.2 * dt) {
       this._dashTimer = 0.35 + Math.random() * 0.15;
       this._dashCooldown = 1.2 + Math.random() * 0.8;
@@ -155,21 +170,35 @@ export class BailiffEnemy {
       if (la && ra) { la.rotation.x = swing * 1.1; ra.rotation.x = -swing * 1.1; }
       if (ll && rl) { ll.rotation.x = -swing; rl.rotation.x = swing; }
     }
+    const movedLen = movedVec.length();
+    if (step.lengthSq() > 1e-4 && movedLen < 0.01) {
+      this._stuckTime += dt;
+    } else {
+      this._stuckTime = 0;
+    }
     this._lastPos.copy(e.position);
   }
 
   _hasLineOfSight(fromPos, targetPos, objects) {
     const THREE = this.THREE;
-    const origin = new THREE.Vector3(fromPos.x, fromPos.y + 1.2, fromPos.z);
-    const target = new THREE.Vector3(targetPos.x, 1.5, targetPos.z);
-    const dir = target.clone().sub(origin);
-    const dist = dir.length();
-    if (dist <= 0.0001) return true;
-    dir.normalize();
-    this._raycaster.set(origin, dir);
-    this._raycaster.far = dist - 0.1;
-    const hits = this._raycaster.intersectObjects(objects, false);
-    return !(hits && hits.length > 0);
+    const heightPairs = [
+      [0.2, 0.2],
+      [0.9, 1.0],
+      [1.2, 1.5]
+    ];
+    for (const [hFrom, hTo] of heightPairs) {
+      const origin = new THREE.Vector3(fromPos.x, fromPos.y + hFrom, fromPos.z);
+      const target = new THREE.Vector3(targetPos.x, (targetPos.y || 0) + hTo, targetPos.z);
+      const dir = target.clone().sub(origin);
+      const dist = dir.length();
+      if (dist <= 0.0001) continue;
+      dir.normalize();
+      this._raycaster.set(origin, dir);
+      this._raycaster.far = dist - 0.1;
+      const hits = this._raycaster.intersectObjects(objects, false);
+      if (hits && hits.length > 0) return false;
+    }
+    return true;
   }
 
   onHit(_dmg, _isHead) {}
