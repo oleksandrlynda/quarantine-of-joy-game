@@ -1111,7 +1111,7 @@ export class EnemyManager {
     if (wave >= 25 && totalRusher > 0) {
       // Groups of five: 1 bomber, 1 elite, 3 common
       const groups = Math.floor(totalRusher / 5);
-      needRusherExplosive = groups;
+      needRusherExplosive = Math.max(1, groups);
       needRusherElite = groups;
       needRusher -= groups * 2; // remaining are commons
     } else if (wave >= 15 && totalRusher > 0) {
