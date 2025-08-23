@@ -205,7 +205,8 @@ export class WeatherSystem {
     if (this.sand) this.sand.visible = this._mix.sand > 0.01;
     if (this.windPoints) this.windPoints.visible = this._mix.wind > 0.01;
 
-    const wScale = 1 + this._mix.wind * 3.0;
+    const wIntensity = Math.max(this._mix.wind, this._mix.sand);
+    const wScale = 1 + wIntensity * 3.0;
     this.wind.copy(this._baseWind).multiplyScalar(wScale);
 
     // environment blending using eased t

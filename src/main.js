@@ -167,7 +167,11 @@ const weather = new WeatherSystem({ THREE, scene, skyMat, hemi, dir, mats });
 const _origGetDir = camera.getWorldDirection.bind(camera);
 camera.getWorldDirection = function(target){
   _origGetDir(target);
-  const windLevel = weather && (weather._mix?.wind || (weather.mode && weather.mode.includes('wind') ? 1 : 0));
+  const windLevel = weather && Math.max(
+    weather._mix?.wind || 0,
+    weather._mix?.sand || 0,
+    weather.mode && (weather.mode.includes('wind') || weather.mode.includes('sand')) ? 1 : 0
+  );
   if (windLevel > 0.01){
     const yaw = weather.wind.x * 0.03 * windLevel;
     target.applyAxisAngle(new THREE.Vector3(0,1,0), yaw).normalize();
@@ -792,7 +796,7 @@ function step(){
       grassMesh.material.uniforms.heightFactor.value = heightFactor;
       grassMesh.material.uniforms.snowMix.value = snowMix;
 
-      const windMix = weather._mix?.wind || 0;
+      const windMix = Math.max(weather._mix?.wind || 0, weather._mix?.sand || 0);
       const wind = weather.wind || { x: 1, z: 0 };
       const len = Math.hypot(wind.x, wind.z) || 1;
       grassMesh.material.uniforms.windDirection.value.set(wind.x / len, wind.z / len);

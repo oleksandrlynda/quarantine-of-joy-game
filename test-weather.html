@@ -67,7 +67,7 @@
       grassMesh.material.uniforms.heightFactor.value = heightFactor;
       grassMesh.material.uniforms.snowMix.value = snowMix;
 
-      const windMix = weather._mix?.wind || 0;
+      const windMix = Math.max(weather._mix?.wind || 0, weather._mix?.sand || 0);
       const wind = weather.wind || { x: 1, z: 0 };
       const len = Math.hypot(wind.x, wind.z) || 1;
       grassMesh.material.uniforms.windDirection.value.set(wind.x / len, wind.z / len);
