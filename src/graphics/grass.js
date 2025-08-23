@@ -30,6 +30,10 @@ export function createGrassMesh({
 
   const colorA = new THREE.Color(colorRange[0]);
   const colorB = new THREE.Color(colorRange[1]);
+  const noise2D = (x, z) => {
+    const s = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453;
+    return s - Math.floor(s);
+  };
 
   for (let i = 0; i < bladeCount; i++) {
     // Pick a random triangle on the floor
@@ -54,21 +58,27 @@ export function createGrassMesh({
     const y = u * ay + v * by + w * cy + 0.01; // Offset slightly above floor
     const z = u * az + v * bz + w * cz;
 
+    const n = noise2D(x * 0.1, z * 0.1);
     offsets.set([x, y, z], i * 3);
     angles[i] = Math.random() * Math.PI * 2;
-    scales[i] = THREE.MathUtils.randFloat(heightRange[0], heightRange[1]);
+    if (n < 0.25) {
+      scales[i] = 0;
+      colors.set([0, 0, 0], i * 3);
+      continue;
+    }
+    scales[i] = THREE.MathUtils.randFloat(heightRange[0], heightRange[1]) * (0.7 + n * 0.6);
 
     const c = colorA.clone().lerp(colorB, Math.random());
     colors.set([c.r, c.g, c.b], i * 3);
 
-    const cx = Math.floor(x / chunkSize);
-    const cz = Math.floor(z / chunkSize);
-    const key = `${cx},${cz}`;
+    const cellX = Math.floor(x / chunkSize);
+    const cellZ = Math.floor(z / chunkSize);
+    const key = `${cellX},${cellZ}`;
     let chunk = chunks.get(key);
     if (!chunk) {
       chunk = {
         indices: [],
-        center: new THREE.Vector2((cx + 0.5) * chunkSize, (cz + 0.5) * chunkSize)
+        center: new THREE.Vector2((cellX + 0.5) * chunkSize, (cellZ + 0.5) * chunkSize)
       };
       chunks.set(key, chunk);
     }
