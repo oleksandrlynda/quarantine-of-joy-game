@@ -146,12 +146,27 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
       const g = floor.geometry.clone();
       floor.updateMatrixWorld();
       g.applyMatrix4(floor.matrixWorld);
+      const size = 16;
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#5f9e32';
+      ctx.fillRect(0, 0, size, size);
+      ctx.fillStyle = '#6dbb3c';
+      for (let i = 0; i < 40; i++) {
+        const x = Math.random() * size;
+        const y = Math.random() * size;
+        ctx.fillRect(x, y, 1, 1);
+      }
+      const proxyTexture = new THREE.CanvasTexture(canvas);
+      proxyTexture.wrapS = proxyTexture.wrapT = THREE.RepeatWrapping;
       const grass = createGrassMesh({
         floorGeometry: g,
         bladeCount: 60000,
         colorRange: [0x6dbb3c, 0x4c8a2f],
         heightRange: [0.8, 1.6],
-        windStrength: 0.3
+        windStrength: 0.3,
+        proxyTexture
       });
       scene.add(grass);
       grassMesh = grass;

@@ -7,7 +7,8 @@ export function createGrassMesh({
   heightRange = [0.8, 1.6],
   windStrength = 0.3,
   noiseFreq = 0.2,
-  tiltRange = 0.3
+  tiltRange = 0.3,
+  proxyTexture = null
 } = {}) {
   // Base geometry for a single blade
   const blade = new THREE.PlaneGeometry(0.1, 1, 1, 3);
@@ -36,6 +37,14 @@ export function createGrassMesh({
 
   const colorA = new THREE.Color(colorRange[0]);
   const colorB = new THREE.Color(colorRange[1]);
+  const proxyColor = colorA.clone().lerp(colorB, 0.5);
+  const proxyMat = new THREE.MeshBasicMaterial({
+    color: proxyColor,
+    map: proxyTexture,
+    transparent: true,
+    opacity: 0,
+    side: THREE.DoubleSide
+  });
   const noise2D = (x, z) => {
     const s = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453;
     return s - Math.floor(s);
@@ -208,6 +217,13 @@ export function createGrassMesh({
     near: 15,
     far: 30
   };
+  for (const chunk of chunks.values()) {
+    const proxy = new THREE.Mesh(new THREE.PlaneGeometry(chunkSize, chunkSize), proxyMat.clone());
+    proxy.rotation.x = -Math.PI / 2;
+    proxy.position.set(chunk.center.x, 0.01, chunk.center.y);
+    mesh.add(proxy);
+    chunk.proxy = proxy;
+  }
   const camVec2 = new THREE.Vector2();
   let last = performance.now() / 1000;
   mesh.onBeforeRender = (_, __, camera, geometry, mat) => {
@@ -231,7 +247,7 @@ export function createGrassMesh({
       const swayPhaseAttr = geometry.getAttribute('swayPhase');
       const swayAmpAttr = geometry.getAttribute('swayAmp');
       let write = 0;
-      // Fade chunk density smoothly based on camera distance to avoid popping
+      // Fade chunk density smoothly based on camera distance and crossfade to proxies
       for (const chunk of lod.chunks.values()) {
         const dist = camVec2.distanceTo(chunk.center);
         let factor = 0;
@@ -239,6 +255,11 @@ export function createGrassMesh({
           factor = 1;
         } else if (dist < lod.far) {
           factor = (lod.far - dist) / (lod.far - lod.near);
+        }
+        const proxyOpacity = 1 - factor;
+        if (chunk.proxy) {
+          chunk.proxy.material.opacity = proxyOpacity;
+          chunk.proxy.visible = proxyOpacity > 0.001;
         }
         if (factor <= 0.001) continue;
         for (const idx of chunk.indices) {
