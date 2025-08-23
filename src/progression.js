@@ -273,6 +273,7 @@ export class Progression {
         bonus = Math.min(bonus, allowed);
       }
       cur.addReserve(bonus);
+      this.ws.updateHUD?.();
     }
     this._closeOffer(false);
   }
