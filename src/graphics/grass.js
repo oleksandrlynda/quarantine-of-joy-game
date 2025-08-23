@@ -89,6 +89,10 @@ export function createGrassMesh({
   geo.setAttribute('angle', new THREE.InstancedBufferAttribute(angles, 1));
   geo.setAttribute('scale', new THREE.InstancedBufferAttribute(scales, 1));
   geo.setAttribute('color', new THREE.InstancedBufferAttribute(colors, 3));
+  geo.instanceCount = bladeCount;
+  const baseOffsets = offsets.slice();
+  const baseAngles = angles.slice();
+  const baseColors = colors.slice();
   const baseScales = scales.slice();
 
   const material = new THREE.ShaderMaterial({
@@ -153,6 +157,9 @@ export function createGrassMesh({
   mesh.userData.actor = null;
   mesh.userData.lod = {
     chunks,
+    baseOffsets,
+    baseAngles,
+    baseColors,
     baseScales,
     near: 15,
     far: 30
@@ -171,16 +178,32 @@ export function createGrassMesh({
     const lod = mesh.userData.lod;
     if (lod) {
       camVec2.set(camera.position.x, camera.position.z);
+      const offsetsAttr = geometry.getAttribute('offset');
+      const anglesAttr = geometry.getAttribute('angle');
+      const colorsAttr = geometry.getAttribute('color');
       const scalesAttr = geometry.getAttribute('scale');
+      let write = 0;
       for (const chunk of lod.chunks.values()) {
         const dist = camVec2.distanceTo(chunk.center);
         let factor = 0;
         if (dist < lod.near) factor = 1;
         else if (dist < lod.far) factor = 0.5;
+        if (factor <= 0) continue;
         for (const idx of chunk.indices) {
-          scalesAttr.setX(idx, lod.baseScales[idx] * factor);
+          const baseScale = lod.baseScales[idx];
+          if (baseScale <= 0) continue;
+          const i3 = idx * 3;
+          offsetsAttr.setXYZ(write, lod.baseOffsets[i3], lod.baseOffsets[i3 + 1], lod.baseOffsets[i3 + 2]);
+          anglesAttr.setX(write, lod.baseAngles[idx]);
+          colorsAttr.setXYZ(write, lod.baseColors[i3], lod.baseColors[i3 + 1], lod.baseColors[i3 + 2]);
+          scalesAttr.setX(write, baseScale * factor);
+          write++;
         }
       }
+      geometry.instanceCount = write;
+      offsetsAttr.needsUpdate = true;
+      anglesAttr.needsUpdate = true;
+      colorsAttr.needsUpdate = true;
       scalesAttr.needsUpdate = true;
     }
   };
@@ -191,9 +214,12 @@ export function createGrassMesh({
 // `obstacles` should be an array of THREE.Object3D already added to the scene.
 export function cullGrassUnderObjects(grassMesh, obstacles = []) {
   if (!grassMesh || !obstacles.length) return;
-  const offsets = grassMesh.geometry.getAttribute('offset');
+  const lod = grassMesh.userData.lod;
+  if (!lod) return;
+  const offsets = lod.baseOffsets;
   const scales = grassMesh.geometry.getAttribute('scale');
-  if (!offsets || !scales) return;
+  const baseScales = lod.baseScales;
+  if (!offsets || !scales || !baseScales) return;
 
   // Precompute bounding boxes to avoid repeated allocations in the loop
   const boxes = [];
@@ -203,19 +229,18 @@ export function cullGrassUnderObjects(grassMesh, obstacles = []) {
     } catch (_) {}
   }
 
-  for (let i = 0; i < offsets.count; i++) {
-    const x = offsets.getX(i);
-    const y = offsets.getY(i);
-    const z = offsets.getZ(i);
+  for (let i = 0; i < baseScales.length; i++) {
+    const x = offsets[i * 3];
+    const y = offsets[i * 3 + 1];
+    const z = offsets[i * 3 + 2];
     for (const b of boxes) {
       if (
         x >= b.min.x && x <= b.max.x &&
         z >= b.min.z && z <= b.max.z &&
         y >= b.min.y && y <= b.max.y
       ) {
-        scales.setX(i, 0);
-        const lod = grassMesh.userData.lod;
-        if (lod && lod.baseScales) lod.baseScales[i] = 0;
+        if (i < scales.count) scales.setX(i, 0);
+        baseScales[i] = 0;
         break;
       }
     }
