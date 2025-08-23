@@ -39,6 +39,9 @@ export const RUSHER_VARIANTS = {
 
 const _rusherCache = { models: {} };
 
+// Mild screen shake when a dash connects
+const IMPACT_SHAKE = { strength: 0.1, duration: 0.15 };
+
 export class RusherEnemy {
   constructor({ THREE, mats, cfg, spawnPos }) {
     this.THREE = THREE;
@@ -144,7 +147,7 @@ export class RusherEnemy {
       this._hitCooldown = 0.8;
       this._hasDealtHit = true;
       try {
-        window?._EFFECTS?.screenShake?.(0.25, 0.25);
+        window?._EFFECTS?.screenShake?.(IMPACT_SHAKE.strength, IMPACT_SHAKE.duration);
         window?._EFFECTS?.spawnDashImpact?.(e.position.clone(), this.cfg.color);
       } catch(_){}
     }
