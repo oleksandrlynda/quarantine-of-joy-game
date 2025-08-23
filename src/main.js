@@ -26,19 +26,38 @@ const isMobile = (typeof window !== 'undefined' && 'IS_MOBILE' in window && wind
   : window.matchMedia?.('(pointer:coarse)').matches === true;
 
 // --- Music selection ---
+const MUSIC_KEY = 'bs3d_music';
 const musicSelect = document.getElementById('musicSelect');
-let musicChoice = musicSelect ? musicSelect.value : 'library';
+let musicChoice = 'library';
+try {
+  const saved = localStorage.getItem(MUSIC_KEY);
+  if (saved) musicChoice = saved;
+} catch (_) {}
 let sunoAudio = null; // HTMLAudioElement for Suno playback
 let sunoTrackIndex = 0; // rotate through SUNO_TRACKS
 if (musicSelect) {
+  musicSelect.value = musicChoice;
   musicSelect.addEventListener('change', e => {
     musicChoice = e.target.value;
+    try { localStorage.setItem(MUSIC_KEY, musicChoice); } catch (_) {}
+    if (musicChoice === 'suno') {
+      playSuno();
+    } else {
+      stopSuno();
+      music.start();
+    }
   });
 }
 
 // ------ Seeded RNG + URL persistence ------
 const url = new URL(window.location.href);
 const params = url.searchParams;
+const QUALITY_KEY = 'bs3d_quality';
+let startQuality = null;
+try {
+  const savedQ = localStorage.getItem(QUALITY_KEY);
+  if (savedQ && !['aa','shadows','tone','autoDPR'].some(k => params.has(k))) startQuality = savedQ;
+} catch (_) {}
 const shapeSelect = document.getElementById('arenaShape');
 // TODO: Implement later different arena shapes
 // let arenaShape = params.get('shape') || (shapeSelect ? shapeSelect.value : 'box');
@@ -995,15 +1014,48 @@ const qLow = document.getElementById('qLow');
 const qMed = document.getElementById('qMed');
 const qHigh = document.getElementById('qHigh');
 const qUltra = document.getElementById('qUltra');
+const qualityPresets = {
+  low: { aa: 0, shadows: 0, autoDPR: 1, tone: 0, debug: 1 },
+  med: { aa: 0, shadows: 0, autoDPR: 1, tone: 1, debug: 1 },
+  high: { aa: 1, shadows: 1, autoDPR: 0, tone: 1, debug: 1 },
+  ultra: { aa: 1, shadows: 1, autoDPR: 0, tone: 1, debug: 1 },
+};
+function highlightQuality(which){
+  qLow?.classList.toggle('selected', which === 'low');
+  qMed?.classList.toggle('selected', which === 'med');
+  qHigh?.classList.toggle('selected', which === 'high');
+  qUltra?.classList.toggle('selected', which === 'ultra');
+}
+try { highlightQuality(localStorage.getItem(QUALITY_KEY)); } catch (_) {}
 function setParams(obj){
   const u = new URL(window.location.href);
   Object.entries(obj).forEach(([k,v])=>{ if (v==null) u.searchParams.delete(k); else u.searchParams.set(k, String(v)); });
   window.location.href = `${u.pathname}?${u.searchParams.toString()}`;
 }
-if (qLow) qLow.onclick = ()=> setParams({ aa: 0, shadows: 0, autoDPR: 1, tone: 0, debug: 1 });
-if (qMed) qMed.onclick = ()=> setParams({ aa: 0, shadows: 0, autoDPR: 1, tone: 1, debug: 1 });
-if (qHigh) qHigh.onclick = ()=> setParams({ aa: 1, shadows: 1, autoDPR: 0, tone: 1, debug: 1 });
-if (qUltra) qUltra.onclick = ()=> setParams({ aa: 1, shadows: 1, autoDPR: 0, tone: 1, debug: 1 });
+if (qLow) qLow.onclick = () => {
+  try { localStorage.setItem(QUALITY_KEY, 'low'); } catch (_) {}
+  highlightQuality('low');
+  setParams(qualityPresets.low);
+};
+if (qMed) qMed.onclick = () => {
+  try { localStorage.setItem(QUALITY_KEY, 'med'); } catch (_) {}
+  highlightQuality('med');
+  setParams(qualityPresets.med);
+};
+if (qHigh) qHigh.onclick = () => {
+  try { localStorage.setItem(QUALITY_KEY, 'high'); } catch (_) {}
+  highlightQuality('high');
+  setParams(qualityPresets.high);
+};
+if (qUltra) qUltra.onclick = () => {
+  try { localStorage.setItem(QUALITY_KEY, 'ultra'); } catch (_) {}
+  highlightQuality('ultra');
+  setParams(qualityPresets.ultra);
+};
+if (startQuality && qualityPresets[startQuality]) {
+  highlightQuality(startQuality);
+  setParams(qualityPresets[startQuality]);
+}
 
 controls.addEventListener('unlock', ()=>{
   if (gameOver) {
