@@ -40,3 +40,14 @@ test('nextWaypoint advances along the cached path', async () => {
   clear(enemy);
 });
 
+test('recomputeIfStale handles empty paths gracefully', async () => {
+  const enemy = { position: { x: 0, z: 0 } };
+  const player = { x: 5, z: 0 };
+  const blocker = { min: { x: -1, z: -1 }, max: { x: 6, z: 1 } }; // spans entire route
+  const path = await recomputeIfStale(enemy, player, [blocker], { cacheFor: 1 });
+  assert.deepStrictEqual(path, []);
+  const again = await recomputeIfStale(enemy, player, [blocker], { cacheFor: 1 });
+  assert.deepStrictEqual(again, []);
+  clear(enemy);
+});
+

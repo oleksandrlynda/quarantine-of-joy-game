@@ -148,6 +148,7 @@ export function recomputeIfStale(enemy, playerPos, obstacles, opts = {}) {
   let need = false;
   if (!entry || !entry.path) need = true;
   else if (now > entry.expires) need = true;
+  else if (entry.path.length === 0) need = true;
   else {
     const last = entry.path[entry.path.length - 1];
     const dx = last.x - playerPos.x; const dz = last.z - playerPos.z;
