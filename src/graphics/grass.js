@@ -115,12 +115,17 @@ export function createGrassMesh({
     levels.forEach((lvl, li) => {
       const count = tile.counts[li];
       if (!count) return;
-      const maxDisp = heightRange[1] * (lvl.windStrength || 0);
       const box = new THREE.Box3(
-        new THREE.Vector3(minX - maxDisp, 0, minZ - maxDisp),
-        new THREE.Vector3(maxX + maxDisp, heightRange[1], maxZ + maxDisp)
+        new THREE.Vector3(minX, 0, minZ),
+        new THREE.Vector3(maxX, heightRange[1], maxZ)
       );
-      const sphere = box.getBoundingSphere(new THREE.Sphere());
+      const inflate = heightRange[1] * windStrength;
+      box.min.x -= inflate;
+      box.max.x += inflate;
+      box.min.z -= inflate;
+      box.max.z += inflate;
+      const sphere = new THREE.Sphere();
+      box.getBoundingSphere(sphere);
       const material = new THREE.ShaderMaterial({
         uniforms: {
           time: { value: 0 },
