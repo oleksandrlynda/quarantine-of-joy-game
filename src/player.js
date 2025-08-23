@@ -371,6 +371,12 @@ export class PlayerController {
     this.recoilPitchVel += pitchRad * this.recoilImpulse;
   }
 
+  // Allow external systems to push the player horizontally
+  applyKnockback(vec){
+    if (!vec) return;
+    this.velXZ.add(vec);
+  }
+
   // Public helpers for HUD
   getStamina01(){ return Math.max(0, Math.min(1, this.stamina / this.staminaMax)); }
   getStamina(){ return this.stamina; }

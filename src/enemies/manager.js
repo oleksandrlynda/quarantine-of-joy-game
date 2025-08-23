@@ -544,6 +544,12 @@ export class EnemyManager {
         px += nx * 0.05;
         pz += nz * 0.05;
 
+        // push player back slightly to emphasize impact
+        if (this._ctx?.applyPlayerKnockback) {
+          t.v3.set(-nx * 0.18, 0, -nz * 0.18);
+          this._ctx.applyPlayerKnockback(t.v3);
+        }
+
         // Trigger rusher contact damage once and end dash
         const inst = this.instanceByRoot?.get(enemy);
         if (inst instanceof RusherEnemy) {
@@ -791,6 +797,9 @@ export class EnemyManager {
     }
     if (!ctx.applyKnockback) {
       ctx.applyKnockback = (enemy, vec) => this.applyKnockback(enemy, vec);
+    }
+    if (!ctx.applyPlayerKnockback) {
+      ctx.applyPlayerKnockback = (vec) => playerObject?.applyKnockback?.(vec);
     }
     if (!ctx.alliesNearbyCount) {
       // Count allies within a radius around a position, excluding an optional self root
