@@ -35,7 +35,7 @@ export const RUSHER_VARIANTS = {
     color: 0xfacc15,
     explodesOnDeath: true,
     explosionRadius: 3.5,
-    explosionDamage: 40,
+    explosionDamage: 55,
     palette: {
       accent: 0xfacc15,
       glow: 0xfacc15
@@ -310,7 +310,7 @@ export class RusherEnemy {
     this._exploded = true;
     const pos = this.root.position.clone();
     const radius = this.cfg.explosionRadius || 3;
-    const dmg = this.cfg.explosionDamage || 40;
+    const dmg = this.cfg.explosionDamage || 55;
     if (window?._EFFECTS?.spawnExplosion) {
       try {
         window._EFFECTS.spawnExplosion(pos.clone(), radius, this.cfg.color);
