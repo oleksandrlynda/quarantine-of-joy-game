@@ -30,6 +30,9 @@ export const RUSHER_VARIANTS = {
     speedMax: 7.0,
     dashDuration: 0.55,
     color: 0xfacc15,
+    explodesOnDeath: true,
+    explosionRadius: 3.5,
+    explosionDamage: 40,
     palette: {
       accent: 0xfacc15,
       glow: 0xfacc15
@@ -110,11 +113,19 @@ export class RusherEnemy {
     this._flinchTimer = 0;        // time after being interrupted by damage
     this._flinchThreshold = 25;   // damage needed during dash to interrupt
     this._flinchAccum = 0;        // accumulated damage while dashing
+    this._exploded = false;       // whether explosion has been triggered
+    this._lastCtx = null;         // last update context for onRemoved
   }
 
   update(dt, ctx) {
     const THREE = this.THREE;
+    this._lastCtx = ctx;
     const e = this.root;
+    if (this.cfg.explodesOnDeath && e.userData.hp <= 0 && !this._exploded) {
+      this._explode(ctx);
+      ctx.enemyManager?.remove?.(e);
+      return;
+    }
     const playerPos = ctx.player.position.clone();
     const toPlayer = playerPos.clone().sub(e.position);
     const dist = toPlayer.length();
@@ -228,9 +239,15 @@ export class RusherEnemy {
 
     // Move and face motion
     const before = e.position.clone();
+    const wasCharging = this._charging;
     ctx.moveWithCollisions(e, step);
     const movedVec = e.position.clone().sub(before); movedVec.y = 0;
-    if (this._charging && movedVec.lengthSq() + 1e-6 < step.lengthSq()) {
+    if (wasCharging && movedVec.lengthSq() + 1e-6 < step.lengthSq()) {
+      if (this.cfg.explodesOnDeath) {
+        this._explode(ctx);
+        ctx.enemyManager?.remove?.(e);
+        return;
+      }
       this._charging = false;
       this._dashTimer = 0;
       this._overrunTimer = 0;
@@ -285,6 +302,39 @@ export class RusherEnemy {
     this._lastPos.copy(e.position);
   }
 
+  _explode(ctx) {
+    if (this._exploded) return;
+    this._exploded = true;
+    const pos = this.root.position.clone();
+    const radius = this.cfg.explosionRadius || 3;
+    const dmg = this.cfg.explosionDamage || 40;
+    try { window?._EFFECTS?.spawnExplosion?.(pos.clone(), radius); } catch(_){ }
+    // damage player
+    try {
+      const pPos = ctx?.player?.position;
+      if (pPos && pos.distanceTo(pPos) <= radius) {
+        ctx?.onPlayerDamage?.(dmg, 'explosion');
+      }
+    } catch(_){ }
+    // damage nearby enemies (exclude self and other explosive variants)
+    const em = ctx?.enemyManager;
+    if (em) {
+      for (const other of Array.from(em.enemies || [])) {
+        if (other === this.root) continue;
+        if (other.position.distanceTo(pos) <= radius) {
+          const inst = em.instanceByRoot?.get?.(other);
+          if (inst?.cfg?.explodesOnDeath) continue; // avoid chain reactions
+          other.userData.hp = (other.userData.hp || 0) - dmg;
+          if (inst && typeof inst.onHit === 'function') inst.onHit(dmg, false);
+          if (other.userData.hp <= 0) {
+            try { window?._EFFECTS?.enemyDeath?.(other.position.clone()); } catch(_){ }
+            em.remove(other);
+          }
+        }
+      }
+    }
+  }
+
   _hasLineOfSight(fromPos, targetPos, objects) {
     const THREE = this.THREE;
     const origin = new THREE.Vector3(fromPos.x, fromPos.y + 1.2, fromPos.z);
@@ -308,6 +358,12 @@ export class RusherEnemy {
         this._flinchTimer = 0.45;
         this._flinchAccum = 0;
       }
+    }
+  }
+
+  onRemoved(_scene) {
+    if (this.cfg.explodesOnDeath && !this._exploded) {
+      this._explode(this._lastCtx || {});
     }
   }
 }

@@ -707,6 +707,7 @@ export class EnemyManager {
       this._healReg = new Map();
       this._ctx = {
         player: null, objects: this.objects, scene: this.scene, onPlayerDamage: null,
+        enemyManager: this,
         _spawnBullet: (kind, origin, velocity, maxLife, damage) =>
           this._spawnBullet(kind, origin, velocity, maxLife, damage),
         separation: (position, radius, selfRoot) => this.separation(position, radius, selfRoot),
