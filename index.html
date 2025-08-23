@@ -92,10 +92,6 @@
     <div class="pill" data-i18n="feature.procedural">Procedural arena</div>
   </div>
   <div style="display:flex; justify-content:center; gap:8px; margin:12px 0; flex-wrap:wrap">
-    <select id="musicSelect" class="secondary startSelect" style="cursor:pointer; border:0; border-radius:14px; padding:12px 16px; font-weight:900; box-shadow:0 12px 36px #0000002a;">
-      <option value="library" data-i18n="music.library">chatGPT 5 music</option>
-      <option value="suno" data-i18n="music.suno">Suno Remix</option>
-    </select>
     <!-- <select id="arenaShape" class="secondary startSelect" style="cursor:pointer; border:0; border-radius:14px; padding:12px 16px; font-weight:900; box-shadow:0 12px 36px #0000002a;"> -->
     <select id="arenaShape" class="secondary startSelect" style="display: none !important">
       <option value="box" data-i18n="arena.box">Box Arena</option>
@@ -103,7 +99,7 @@
       <option value="diamond" data-i18n="arena.diamond">Diamond Arena</option>
       <option value="triangle" data-i18n="arena.triangle">Triangle Arena</option>
       <option value="pi" data-i18n="arena.pi">П Arena</option>
-    </select>
+      </select>
     <select id="langSelect" class="secondary startSelect" style="cursor:pointer; border:0; border-radius:14px; padding:12px 16px; font-weight:900; box-shadow:0 12px 36px #0000002a;">
       <option value="en" data-i18n="lang.english">English</option>
       <option value="uk" data-i18n="lang.ukrainian">Ukrainian</option>
@@ -144,6 +140,13 @@
     <div class="pill setting">
       <label for="soundVolume" data-i18n="settings.volume">Volume</label>
       <input type="range" id="soundVolume" min="0" max="1" step="0.05" />
+    </div>
+    <div class="pill setting">
+      <label for="musicSelect" data-i18n="settings.music">Music</label>
+      <select id="musicSelect" class="secondary">
+        <option value="library" data-i18n="music.library">chatGPT 5 music</option>
+        <option value="suno" data-i18n="music.suno">Suno Remix</option>
+      </select>
     </div>
   </div>
   <div class="settingsGroup">
