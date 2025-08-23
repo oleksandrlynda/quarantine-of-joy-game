@@ -8,6 +8,7 @@ import { BailiffEnemy } from './bailiff.js';
 import { SwarmWarden } from './warden.js';
 import { BossManager } from '../bosses/manager.js';
 import { Hydraclone } from '../bosses/hydraclone.js';
+import { PathFinder } from '../path.js';
 
 function containsExtrudeGeometry(obj){
   if (obj.geometry?.isExtrudeGeometry) return true;
@@ -43,6 +44,9 @@ export class EnemyManager {
     this.up = new this.THREE.Vector3(0,1,0);
     this.enemyHalf = new this.THREE.Vector3(0.6, 0.8, 0.6);
     this.enemyFullHeight = this.enemyHalf.y * 2;
+    this.stepUpMax = 0.12 * this.enemyFullHeight;
+    this.jumpAssistMax = 0.30 * this.enemyFullHeight;
+    this.pathFinder = new PathFinder(this.objectBBs, { climbable: this.jumpAssistMax });
     this.spawnRings = this._computeSpawnRings();
     this.customSpawnPoints = null; // optional override from map
     this._advancingWave = false;
@@ -85,6 +89,13 @@ export class EnemyManager {
     this.objectBBs = this.objects
       .filter(o => !containsExtrudeGeometry(o))
       .map(o => new this.THREE.Box3().setFromObject(o));
+    if (this.pathFinder) this.pathFinder.setObstacles(this.objectBBs);
+  }
+
+  findPath(start, goal) {
+    if (!this.pathFinder) return [];
+    const pts = this.pathFinder.findPath(start, goal);
+    return pts.map(p => new this.THREE.Vector3(p.x, start.y || 0, p.z));
   }
 
   _initBulletPools() {
@@ -741,6 +752,9 @@ export class EnemyManager {
     }
     if (!ctx.moveWithCollisions) {
       ctx.moveWithCollisions = (enemy, step) => this._moveWithCollisions(enemy, step);
+    }
+    if (!ctx.findPath) {
+      ctx.findPath = (start, goal) => this.findPath(start, goal);
     }
     if (!ctx.applyKnockback) {
       ctx.applyKnockback = (enemy, vec) => this.applyKnockback(enemy, vec);
