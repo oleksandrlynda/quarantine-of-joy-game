@@ -137,7 +137,8 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
   // Collidable objects
   const objects = [];
   let arenaRadius = Infinity;
-  let grassMesh = null;
+  let grassMeshes = [];
+  let grassLODGroups = [];
 
   function makeArena(shape){
     const wallH = 6, wallT = 1;
@@ -146,15 +147,18 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
       const g = floor.geometry.clone();
       floor.updateMatrixWorld();
       g.applyMatrix4(floor.matrixWorld);
-      const grass = createGrassMesh({
+      const { meshes: grasses, lodGroups } = createGrassMesh({
         floorGeometry: g,
-        bladeCount: 20000,
         colorRange: [0x6dbb3c, 0x4c8a2f],
         heightRange: [0.8, 1.6],
-        windStrength: 0.3
+        lodLevels: [
+          { bladeCount: 20000, segments: 3, windStrength: 1 },
+          { bladeCount: 5000, segments: 1, windStrength: 0 }
+        ]
       });
-      scene.add(grass);
-      grassMesh = grass;
+      grasses.forEach(m => scene.add(m));
+      grassMeshes = grasses;
+      grassLODGroups = lodGroups;
     };
 
     const buildPoly = (pts, skipFn) => {
@@ -219,7 +223,7 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
 
   makeArena(arenaShape);
 
-  return { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius, grassMesh };
+  return { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius, grassMeshes, grassLODGroups, grassMesh: grassMeshes[0] };
 }
 
 

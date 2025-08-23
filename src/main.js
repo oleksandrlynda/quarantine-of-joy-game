@@ -91,7 +91,7 @@ const mobileControlsEl = document.getElementById('mobileControls');
 if (mobileControlsEl) mobileControlsEl.style.display = isMobile ? '' : 'none';
 
 // ------ World (renderer, scene, camera, lights, sky, materials, arena) ------
-const { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius, grassMesh } = createWorld(THREE, rng, arenaShape);
+const { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius, grassMeshes, grassLODGroups } = createWorld(THREE, rng, arenaShape);
 const wantEditor = (new URL(window.location.href)).searchParams.get('editor') === '1';
 const storyParam = (new URL(window.location.href)).searchParams.get('story');
 const storyDisabled = storyParam === '0' || storyParam === 'false';
@@ -156,7 +156,7 @@ if (levelParam) {
 } else {
   obstacleManager.generate(seed, objects);
 }
-cullGrassUnderObjects(grassMesh, objects);
+cullGrassUnderObjects(grassMeshes[0], objects);
 // Update player collider list now that obstacles have been added
 // (player constructed below will read from updated objects)
 
@@ -791,18 +791,40 @@ function step(){
     weather.update(gameTime, controls.getObject());
 
     // Update grass appearance based on precipitation and wind
-    if (grassMesh && grassMesh.material && grassMesh.material.uniforms) {
+    if (grassMeshes && grassMeshes.length) {
       const rainMix = weather._mix?.rain || 0;
       const snowMix = weather._mix?.snow || 0;
       const heightFactor = Math.max(0.2, 1 - 0.3 * rainMix - 0.6 * snowMix);
-      grassMesh.material.uniforms.heightFactor.value = heightFactor;
-      grassMesh.material.uniforms.snowMix.value = snowMix;
-
       const windMix = Math.max(weather._mix?.wind || 0, weather._mix?.sand || 0);
       const wind = weather.wind || { x: 1, z: 0 };
       const len = Math.hypot(wind.x, wind.z) || 1;
-      grassMesh.material.uniforms.windDirection.value.set(wind.x / len, wind.z / len);
-      grassMesh.material.uniforms.windStrength.value = 0.2 + 3.0 * windMix;
+      const windStrength = 0.2 + 3.0 * windMix;
+      grassMeshes.forEach(grassMesh => {
+        if (!grassMesh.material || !grassMesh.material.uniforms) return;
+        grassMesh.material.uniforms.heightFactor.value = heightFactor;
+        grassMesh.material.uniforms.snowMix.value = snowMix;
+        grassMesh.material.uniforms.windDirection.value.set(wind.x / len, wind.z / len);
+        const base = grassMesh.material.userData.windBase ?? 1;
+        grassMesh.material.uniforms.windStrength.value = base * windStrength;
+      });
+    }
+    if (grassLODGroups && grassLODGroups.length) {
+      const start = 40 - 20;
+      const end = 40 + 20;
+      grassLODGroups.forEach(g => {
+        const dist = camera.position.distanceTo(g.center);
+        const t = THREE.MathUtils.smoothstep(dist, start, end);
+        const near = g.meshes[0];
+        const far = g.meshes[1];
+        if (near && near.material.uniforms.opacity) {
+          near.material.uniforms.opacity.value = 1 - t;
+          near.visible = near.material.uniforms.opacity.value > 0.01;
+        }
+        if (far && far.material.uniforms.opacity) {
+          far.material.uniforms.opacity.value = t;
+          far.visible = far.material.uniforms.opacity.value > 0.01;
+        }
+      });
     }
 
     // Feed music mood from weather for subtle DNA
