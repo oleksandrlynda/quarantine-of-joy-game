@@ -9,6 +9,10 @@ import { SwarmWarden } from './warden.js';
 import { BossManager } from '../bosses/manager.js';
 import { Hydraclone } from '../bosses/hydraclone.js';
 
+// Allow a small epsilon when comparing step height to mitigate floating point error.
+// Exported so tests or tuning tools can override if needed.
+export const STEP_TOLERANCE = 1e-3;
+
 function containsExtrudeGeometry(obj){
   if (obj.geometry?.isExtrudeGeometry) return true;
   for (const child of obj.children || []){
@@ -59,19 +63,19 @@ export class EnemyManager {
 
     // Stats/colors; note type names map to classes below
     this.typeConfig = {
-      grunt:  { type: 'grunt',  hp: 100, speedMin: 2.4, speedMax: 3.2, color: 0xef4444, kind: 'melee' },
-      rusher: { type: 'rusher', variant: 'basic', hp:  60, speedMin: 6.4, speedMax: 7.9, color: 0xf97316, kind: 'melee' },
-      rusher_elite: { type: 'rusher', variant: 'elite', hp: 90, speedMin: 7.4, speedMax: 8.8, color: 0x6366f1, kind: 'melee' },
-      rusher_explosive: { type: 'rusher', variant: 'explosive', hp: 70, speedMin: 6.0, speedMax: 7.0, color: 0xfacc15, kind: 'melee' },
-      bailiff:{ type: 'bailiff',hp:  80, speedMin: 3.8, speedMax: 4.4, color: 0x60a5fa, kind: 'melee' },
-      tank:   { type: 'tank',   hp: 450, speedMin: 1.6, speedMax: 2.4, color: 0x2563eb, kind: 'melee' },
-      shooter:{ type: 'shooter',hp:   80, speedMin: 2.6, speedMax: 3.8, color: 0x10b981, kind: 'shooter' },
-      flyer:  { type: 'flyer',  hp:  40, speedMin: 12.4, speedMax: 16.7, color: 0xa855f7, kind: 'flyer' },
-      healer: { type: 'healer', hp:   90, speedMin: 2.2, speedMax: 2.6, color: 0x84cc16, kind: 'healer' },
-      sniper: { type: 'sniper', hp:   135, speedMin: 2.0, speedMax: 2.4, color: 0x444444, kind: 'sniper' },
-      warden: { type: 'warden', hp: 420, speedMin: 1.9, speedMax: 2.2, color: 0x22d3ee, kind: 'warden' },
+      grunt:  { type: 'grunt',  hp: 100, speedMin: 2.4, speedMax: 3.2, color: 0xef4444, kind: 'melee', stepFactor: 0.40 },
+      rusher: { type: 'rusher', variant: 'basic', hp:  60, speedMin: 6.4, speedMax: 7.9, color: 0xf97316, kind: 'melee', stepFactor: 0.40 },
+      rusher_elite: { type: 'rusher', variant: 'elite', hp: 90, speedMin: 7.4, speedMax: 8.8, color: 0x6366f1, kind: 'melee', stepFactor: 0.40 },
+      rusher_explosive: { type: 'rusher', variant: 'explosive', hp: 70, speedMin: 6.0, speedMax: 7.0, color: 0xfacc15, kind: 'melee', stepFactor: 0.40 },
+      bailiff:{ type: 'bailiff',hp:  80, speedMin: 3.8, speedMax: 4.4, color: 0x60a5fa, kind: 'melee', stepFactor: 0.40 },
+      tank:   { type: 'tank',   hp: 450, speedMin: 1.6, speedMax: 2.4, color: 0x2563eb, kind: 'melee', stepFactor: 0.30 },
+      shooter:{ type: 'shooter',hp:   80, speedMin: 2.6, speedMax: 3.8, color: 0x10b981, kind: 'shooter', stepFactor: 0.40 },
+      flyer:  { type: 'flyer',  hp:  40, speedMin: 12.4, speedMax: 16.7, color: 0xa855f7, kind: 'flyer', stepFactor: 0.40 },
+      healer: { type: 'healer', hp:   90, speedMin: 2.2, speedMax: 2.6, color: 0x84cc16, kind: 'healer', stepFactor: 0.40 },
+      sniper: { type: 'sniper', hp:   135, speedMin: 2.0, speedMax: 2.4, color: 0x444444, kind: 'sniper', stepFactor: 0.40 },
+      warden: { type: 'warden', hp: 420, speedMin: 1.9, speedMax: 2.2, color: 0x22d3ee, kind: 'warden', stepFactor: 0.40 },
       // Boss adds
-      gruntling: { type: 'gruntling', hp: 20, speedMin: 3.2, speedMax: 4.0, color: 0x3d355d, kind: 'melee' }
+      gruntling: { type: 'gruntling', hp: 20, speedMin: 3.2, speedMax: 4.0, color: 0x3d355d, kind: 'melee', stepFactor: 0.40 }
     };
 
     // Boss system
@@ -579,17 +583,15 @@ export class EnemyManager {
 
     const afterGround = this._groundHeightAt(px, pz);
     const rise = Math.max(0, afterGround - beforeGround);
-    const stepUpMax = 0.12 * this.enemyFullHeight;
-    const jumpAssistMax = 0.30 * this.enemyFullHeight;
+    const type = enemy.userData?.type;
+    const stepFactor = this.typeConfig[type]?.stepFactor ?? 0.40;
+    const stepUpMax = stepFactor * this.enemyFullHeight;
     const desiredY = afterGround + half.y;
-  
-    if (rise > 0) {
-      const maxLift = (rise <= stepUpMax + 1e-3) ? stepUpMax : (rise <= jumpAssistMax + 1e-3 ? jumpAssistMax : 0);
-      if (maxLift > 0) {
-        const lift = Math.min(desiredY - py, maxLift);
-        py = py + Math.max(0, lift);
-      }
-    } else {
+
+    if (rise > 0 && rise <= stepUpMax + STEP_TOLERANCE) {
+      const lift = Math.min(desiredY - py, stepUpMax);
+      py = py + Math.max(0, lift);
+    } else if (rise <= 0) {
       py = desiredY;
     }
   
