@@ -69,6 +69,7 @@ See `bosses.md` for detailed boss designs and implementation plan.
 
 ### Behavior (baseline)
 - Pursue when within ~40 units (flat‑ground chase; fliers use 3D pursuit)
+- Ground enemies step up obstacles up to 40% of their height (tanks 30%). They can chain-step successive rises within that limit but have no jump-assist for higher ledges.
 - Deal damage when closer than ~2.1 units: ~15 DPS (continuous while in range)
 - On lethal damage taken, removed from scene; progression continues
 
