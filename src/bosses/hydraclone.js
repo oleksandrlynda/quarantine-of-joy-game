@@ -243,6 +243,18 @@ export class Hydraclone {
     const dist = toPlayer.length();
     toPlayer.y = 0; if (toPlayer.lengthSq() === 0) return new this.THREE.Vector3();
 
+    const hasLOS = this._hasLineOfSight(e.position, player, ctx.objects);
+    if (!hasLOS && ctx.pathfind) {
+      ctx.pathfind.recomputeIfStale(this, player);
+      const wp = ctx.pathfind.nextWaypoint(this);
+      if (wp) {
+        const dir = new this.THREE.Vector3(wp.x - e.position.x, 0, wp.z - e.position.z);
+        if (dir.lengthSq() > 0) return dir;
+      }
+    } else if (hasLOS && ctx.pathfind) {
+      ctx.pathfind.clear(this);
+    }
+
     // Compute an anchor point on a ring around player
     const pfwd = (ctx.blackboard?.playerForward || toPlayer.clone().multiplyScalar(-1)).setY(0).normalize();
     const right = new this.THREE.Vector3(-pfwd.z, 0, pfwd.x);
@@ -425,6 +437,20 @@ export class Hydraclone {
       HydraGlobal.registerDeath(this.bossId);
       this._didRegisterDeath = true;
     }
+  }
+
+  _hasLineOfSight(fromPos, targetPos, objects) {
+    const THREE = this.THREE;
+    const origin = new THREE.Vector3(fromPos.x, fromPos.y + 1.2, fromPos.z);
+    const target = new THREE.Vector3(targetPos.x, 1.5, targetPos.z);
+    const dir = target.clone().sub(origin);
+    const dist = dir.length();
+    if (dist <= 0.0001) return true;
+    dir.normalize();
+    this._raycaster.set(origin, dir);
+    this._raycaster.far = dist - 0.1;
+    const hits = this._raycaster.intersectObjects(objects, false);
+    return !(hits && hits.length > 0);
   }
 
   // Utility for external systems to spawn initial boss

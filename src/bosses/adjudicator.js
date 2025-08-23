@@ -142,7 +142,8 @@ export class StrikeAdjudicator {
   // ---------- Movement ----------
   _updateMovement(dt, ctx) {
     const e = this.root;
-    const toP = ctx.player.position.clone().sub(e.position);
+    const playerPos = ctx.player.position.clone();
+    const toP = playerPos.clone().sub(e.position);
     const dist = toP.length();
     toP.y = 0; if (toP.lengthSq() === 0) return; toP.normalize();
 
@@ -152,6 +153,17 @@ export class StrikeAdjudicator {
       // orbit a bit
       const side = new this.THREE.Vector3(-toP.z, 0, toP.x);
       desired.add(side.multiplyScalar(0.7));
+    }
+    const hasLOS = this._hasLineOfSight(e.position, playerPos, ctx.objects);
+    if (!hasLOS && ctx.pathfind) {
+      ctx.pathfind.recomputeIfStale(this, playerPos);
+      const wp = ctx.pathfind.nextWaypoint(this);
+      if (wp) {
+        const dir = new this.THREE.Vector3(wp.x - e.position.x, 0, wp.z - e.position.z);
+        if (dir.lengthSq() > 0) desired.copy(dir.normalize());
+      }
+    } else if (hasLOS && ctx.pathfind) {
+      ctx.pathfind.clear(this);
     }
     if (desired.lengthSq() > 0) {
       desired.normalize();
@@ -445,6 +457,20 @@ export class StrikeAdjudicator {
     const mesh = new this.THREE.Mesh(g, m);
     mesh.userData = { start: startAng, end: endAng };
     return mesh;
+  }
+
+  _hasLineOfSight(fromPos, targetPos, objects) {
+    const THREE = this.THREE;
+    const origin = new THREE.Vector3(fromPos.x, fromPos.y + 1.2, fromPos.z);
+    const target = new THREE.Vector3(targetPos.x, 1.5, targetPos.z);
+    const dir = target.clone().sub(origin);
+    const dist = dir.length();
+    if (dist <= 0.0001) return true;
+    dir.normalize();
+    this._ray.set(origin, dir);
+    this._ray.far = dist - 0.1;
+    const hits = this._ray.intersectObjects(objects, false);
+    return !(hits && hits.length > 0);
   }
 
   _angleWithin(a, start, end) {

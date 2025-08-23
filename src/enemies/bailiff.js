@@ -116,13 +116,26 @@ export class BailiffEnemy {
     toPred.y = 0;
     let desired = toPred.lengthSq() > 0 ? toPred.normalize() : toPlayer.clone();
 
+    const hasLOS = this._hasLineOfSight(e.position, playerPos, ctx.objects);
+    if (!hasLOS && ctx.pathfind) {
+      ctx.pathfind.recomputeIfStale(this, playerPos).then(p => { this._path = p; });
+      const wp = ctx.pathfind.nextWaypoint(this);
+      if (wp) {
+        const dir = new THREE.Vector3(wp.x - e.position.x, 0, wp.z - e.position.z);
+        if (dir.lengthSq() > 0) desired = dir.normalize();
+      }
+    } else if (hasLOS && ctx.pathfind) {
+      ctx.pathfind.clear(this);
+      this._path = null;
+    }
+
     const avoid = ctx.avoidObstacles(e.position, desired, 2.2);
     const sep = ctx.separation(e.position, 1.0, e);
     desired = desired.multiplyScalar(1.0).add(avoid.multiplyScalar(1.2)).add(sep.multiplyScalar(0.6)).normalize();
 
     if (this._dashCooldown > 0) this._dashCooldown = Math.max(0, this._dashCooldown - dt);
     if (this._dashTimer > 0) this._dashTimer = Math.max(0, this._dashTimer - dt);
-    const canDash = (dist >= 5 && dist <= 12) && this._dashCooldown <= 0 && this._hasLineOfSight(e.position, playerPos, ctx.objects);
+    const canDash = (dist >= 5 && dist <= 12) && this._dashCooldown <= 0 && hasLOS;
     if (canDash && Math.random() < 1.2 * dt) {
       this._dashTimer = 0.35 + Math.random() * 0.15;
       this._dashCooldown = 1.2 + Math.random() * 0.8;
