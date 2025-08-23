@@ -4,6 +4,7 @@
 import { createGrassMesh, cullGrassUnderObjects } from './graphics/grass.js';
 import { createVegetationMesh } from './graphics/vegetation.js';
 import { createAmbientParticles } from './graphics/ambientParticles.js';
+import { createWaterMesh } from './graphics/water.js';
 import { BiomeManager } from './biome.js';
 import { createFauna } from './fauna.js';
 
@@ -147,6 +148,23 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box', biome 
   BiomeManager.init({ scene, skyMat, mats });
   const fauna = createFauna({ scene, THREE });
   BiomeManager.attachFauna(fauna);
+  const water = { meshes: [], setConfig(list){
+    for (const m of this.meshes) {
+      scene.remove(m);
+      const i = objects.indexOf(m);
+      if (i >= 0) objects.splice(i,1);
+    }
+    this.meshes.length = 0;
+    if (!floorGeo) return;
+    for (const cfg of list){
+      const mesh = createWaterMesh({ floorGeometry: floorGeo, size: cfg.radius });
+      mesh.position.set(cfg.position[0], 0.02, cfg.position[1]);
+      scene.add(mesh);
+      objects.push(mesh);
+      this.meshes.push(mesh);
+    }
+  }};
+  BiomeManager.attachWater(water);
   const vegetation = { meshes: [], setConfig(list){
     for (const m of this.meshes) scene.remove(m);
     this.meshes.length = 0;
@@ -218,6 +236,7 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box', biome 
       floorGeo = g;
       vegetation.setConfig(BiomeManager._biomes[BiomeManager.getCurrentBiome()]?.vegetation || []);
       ambient.setConfig(BiomeManager._biomes[BiomeManager.getCurrentBiome()]?.particles || []);
+      water.setConfig(BiomeManager._biomes[BiomeManager.getCurrentBiome()]?.waterBodies || []);
     };
 
     const buildPoly = (pts, skipFn) => {
@@ -282,7 +301,7 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box', biome 
 
   makeArena(arenaShape);
 
-  return { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius, grassMesh, vegetation: vegetation.meshes, fauna, ambient, updateDayNight };
+  return { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius, grassMesh, vegetation: vegetation.meshes, fauna, ambient, water: water.meshes, updateDayNight };
 }
 
 

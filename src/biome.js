@@ -13,6 +13,9 @@ export const BiomeManager = {
         { type: 'bush', count: 80 }
       ],
       particles: [],
+      waterBodies: [
+        { position: [12, -8], radius: 6 }
+      ],
       night: {
         skyTop: '#0b0d33',
         skyBottom: '#1a0d26',
@@ -36,6 +39,9 @@ export const BiomeManager = {
         { type: 'cactus', count: 80 }
       ],
       particles: [{ type: 'dust', count: 40 }],
+      waterBodies: [
+        { position: [-15, 15], radius: 4 }
+      ],
       night: {
         skyTop: '#332211',
         skyBottom: '#1f1408',
@@ -57,6 +63,7 @@ export const BiomeManager = {
       fauna: 10,
       vegetation: [],
       particles: [],
+      waterBodies: [],
       night: {
         skyTop: '#1a1a2a',
         skyBottom: '#0f0f18',
@@ -89,6 +96,9 @@ export const BiomeManager = {
   attachParticles(p){
     this.particles = p;
   },
+  attachWater(w){
+    this.water = w;
+  },
   getCurrentBiome(){
     return this.current;
   },
@@ -118,5 +128,6 @@ export const BiomeManager = {
     }
     if (this.vegetation && this.vegetation.setConfig) this.vegetation.setConfig(cfg.vegetation || []);
     if (this.particles && this.particles.setConfig) this.particles.setConfig(cfg.particles || []);
+    if (this.water && this.water.setConfig) this.water.setConfig(cfg.waterBodies || []);
   }
 };

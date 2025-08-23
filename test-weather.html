@@ -41,7 +41,7 @@
     import { BiomeManager } from './src/biome.js';
     import { SFX } from './src/sfx.js';
 
-    const { renderer, scene, camera, skyMat, hemi, dir, mats, grassMesh, fauna, ambient, updateDayNight } = createWorld(THREE, Math.random);
+    const { renderer, scene, camera, skyMat, hemi, dir, mats, grassMesh, fauna, ambient, water, updateDayNight } = createWorld(THREE, Math.random);
     camera.position.set(0, 18, 36);
     camera.lookAt(0, 1.6, 0);
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -97,6 +97,15 @@
             mat.uniforms.snowMix.value = snowMix;
             mat.uniforms.windDirection.value.set(wind.x / len, wind.z / len);
             mat.uniforms.windStrength.value = 0.2 + 3.0 * windMix;
+          }
+        }
+      }
+      if (water) {
+        for (const m of water) {
+          const mat = m.material;
+          if (mat && mat.uniforms) {
+            mat.uniforms.wetness.value = rainMix;
+            mat.uniforms.snowMix.value = snowMix;
           }
         }
       }

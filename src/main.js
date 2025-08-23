@@ -1,7 +1,7 @@
 import * as THREE from 'https://unpkg.com/three@0.159.0/build/three.module.js';
 import { PointerLockControls } from 'https://unpkg.com/three@0.159.0/examples/jsm/controls/PointerLockControls.js?module';
 import { WeatherSystem } from './weather.js';
-import { createWorld } from './world.js?v=3';
+import { createWorld } from './world.js?v=4';
 import { BiomeManager } from './biome.js';
 import { makeSeededRng, makeNamespacedRng, generateSeedString } from './util/rng.js';
 import { EnemyManager } from './enemies.js';
@@ -114,7 +114,7 @@ const mobileControlsEl = document.getElementById('mobileControls');
 if (mobileControlsEl) mobileControlsEl.style.display = isMobile ? '' : 'none';
 
 // ------ World (renderer, scene, camera, lights, sky, materials, arena) ------
-const { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius, grassMesh, vegetation, fauna, ambient, updateDayNight } = createWorld(THREE, rng, arenaShape, biomeOrder[0]);
+const { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius, grassMesh, vegetation, fauna, ambient, water, updateDayNight } = createWorld(THREE, rng, arenaShape, biomeOrder[0]);
 const wantEditor = (new URL(window.location.href)).searchParams.get('editor') === '1';
 const storyParam = (new URL(window.location.href)).searchParams.get('story');
 const storyDisabled = storyParam === '0' || storyParam === 'false';
@@ -871,6 +871,15 @@ function step(){
             mat.uniforms.snowMix.value = snowMix;
             mat.uniforms.windDirection.value.set(wind.x / len, wind.z / len);
             mat.uniforms.windStrength.value = 0.2 + 3.0 * windMix;
+          }
+        }
+      }
+      if (water) {
+        for (const mesh of water) {
+          const mat = mesh.material;
+          if (mat && mat.uniforms) {
+            mat.uniforms.wetness.value = rainMix;
+            mat.uniforms.snowMix.value = snowMix;
           }
         }
       }
