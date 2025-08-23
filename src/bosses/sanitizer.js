@@ -490,8 +490,7 @@ export class Sanitizer {
     const count = 1 + (Math.random() < 0.5 ? 1 : 0);
     const spawns = this._spawnOnPerimeter(ctx, count, 16, 19);
     for (const p of spawns) {
-      const root = this.enemyManager.spawnAt('rusher', p, { countsTowardAlive: true }) ||
-                   this.enemyManager.spawnAt('shooter', p, { countsTowardAlive: true });
+      const root = this.enemyManager.spawnAt('shooter', p, { countsTowardAlive: true });
       if (root) {
         // small buff so they feel “elite”
         const inst = this.enemyManager.instanceByRoot.get(root);
