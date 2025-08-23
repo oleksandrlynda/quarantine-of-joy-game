@@ -15,6 +15,13 @@
   <meta name="theme-color" content="#0b1220" />
   <meta name="robots" content="noindex, nofollow" />
   <meta http-equiv="Cache-Control" content="no-store" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.159.0/build/three.module.js"
+    }
+  }
+  </script>
 </head>
 <body>
   <div id="hudLite">
@@ -44,7 +51,7 @@
 
   <script type="module">
     import * as THREE from 'https://unpkg.com/three@0.159.0/build/three.module.js';
-    import { OrbitControls } from 'https://unpkg.com/three@0.159.0/examples/jsm/controls/OrbitControls.js?module';
+    import { OrbitControls } from 'https://unpkg.com/three@0.159.0/examples/jsm/controls/OrbitControls.js';
     import { createWorld } from './src/world.js';
     import { EnemyManager } from './src/enemies.js';
     import { loadAllModels, prewarmAllShaders } from './loader.js';

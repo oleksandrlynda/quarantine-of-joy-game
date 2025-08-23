@@ -13,10 +13,10 @@
 //   So we warm each material variant once per session.
 
 import * as THREE from 'https://unpkg.com/three@0.159.0/build/three.module.js';
-import { GLTFLoader } from 'https://unpkg.com/three@0.159.0/examples/jsm/loaders/GLTFLoader.js?module';
-import { DRACOLoader } from 'https://unpkg.com/three@0.159.0/examples/jsm/loaders/DRACOLoader.js?module';
-import { MeshoptDecoder } from 'https://unpkg.com/three@0.159.0/examples/jsm/libs/meshopt_decoder.module.js?module';
-import * as SkeletonUtils from 'https://unpkg.com/three@0.159.0/examples/jsm/utils/SkeletonUtils.js?module';
+import { GLTFLoader } from 'https://unpkg.com/three@0.159.0/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'https://unpkg.com/three@0.159.0/examples/jsm/loaders/DRACOLoader.js';
+import { MeshoptDecoder } from 'https://unpkg.com/three@0.159.0/examples/jsm/libs/meshopt_decoder.module.js';
+import * as SkeletonUtils from 'https://unpkg.com/three@0.159.0/examples/jsm/utils/SkeletonUtils.js';
 
 // ---------- Manifest ----------
 // Map a stable key to a GLB path under /src/assets.

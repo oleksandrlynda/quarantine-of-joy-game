@@ -14,7 +14,7 @@ import {
   cross,
   attribute,
   div,
-} from 'https://unpkg.com/three@0.159.0/examples/jsm/nodes/Nodes.js?module'
+} from 'https://unpkg.com/three@0.159.0/examples/jsm/nodes/Nodes.js'
 
 /**
  * Build a geometry containing many grass blades.

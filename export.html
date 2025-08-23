@@ -4,6 +4,13 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title data-i18n="export.pageTitle">Quarantine of Joy — Export Assets to GLB</title>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.159.0/build/three.module.js"
+    }
+  }
+  </script>
   <style>
     body{ margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, "Apple Color Emoji","Segoe UI Emoji"; background:#0b1220; color:#fff }
     #ui{ padding:16px; max-width:1000px; margin:0 auto }
@@ -30,7 +37,7 @@
 
   <script type="module">
     import * as THREE from 'https://unpkg.com/three@0.159.0/build/three.module.js';
-    import { GLTFExporter } from 'https://unpkg.com/three@0.159.0/examples/jsm/exporters/GLTFExporter.js?module';
+    import { GLTFExporter } from 'https://unpkg.com/three@0.159.0/examples/jsm/exporters/GLTFExporter.js';
     import { initI18n, applyTranslations, t } from './src/i18n/index.js';
 
     // Import our procedural factories (add more as needed)

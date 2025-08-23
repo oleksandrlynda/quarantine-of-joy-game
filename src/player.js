@@ -1,4 +1,4 @@
-import { PointerLockControls } from 'https://unpkg.com/three@0.159.0/examples/jsm/controls/PointerLockControls.js?module';
+import { PointerLockControls } from 'https://unpkg.com/three@0.159.0/examples/jsm/controls/PointerLockControls.js';
 
 function containsExtrudeGeometry(obj){
   if (obj.geometry?.isExtrudeGeometry) return true;

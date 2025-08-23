@@ -1,4 +1,4 @@
-import { MeshBasicNodeMaterial, attribute } from 'https://unpkg.com/three@0.159.0/examples/jsm/nodes/Nodes.js?module';
+import { MeshBasicNodeMaterial, attribute } from 'https://unpkg.com/three@0.159.0/examples/jsm/nodes/Nodes.js';
 import { grass as createGrass } from './assets/3rdparty/grass/grass.js';
 
 // World setup: renderer, scene, camera, sky, lights, arena, materials
