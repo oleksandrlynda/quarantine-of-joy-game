@@ -109,15 +109,10 @@
       <option value="uk" data-i18n="lang.ukrainian">Ukrainian</option>
     </select>
   </div>
-  <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:6px">
-    <button class="secondary" id="qLow" data-i18n="quality.low" data-i18n-title="quality.lowTitle" title="aa=off, shadows=off, auto DPR">Low</button>
-    <button class="secondary" id="qMed" data-i18n="quality.medium" data-i18n-title="quality.medTitle" title="aa=off, shadows=off, auto DPR + ACES">Medium</button>
-    <button class="secondary" id="qHigh" data-i18n="quality.high" data-i18n-title="quality.highTitle" title="aa=on, shadows=on">High</button>
-    <button class="secondary" id="qUltra" data-i18n="quality.ultra" data-i18n-title="quality.ultraTitle" title="aa=on, shadows=on (max)" >Ultra</button>
-  </div>
   <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap">
     <button class="primary" id="play" data-i18n="start.play">▶️ Play</button>
     <button class="secondary" id="retry" style="display:none" data-i18n="start.retry">🔁 Retry</button>
+    <button class="secondary" id="openSettings" data-i18n="settings.title">Settings</button>
   </div>
   <div class="tiny" style="margin-top:8px" id="startTip" data-i18n="start.tipDesktop">Click Play, then click to lock the mouse.</div>
   <div class="tiny" style="margin-top:8px">
@@ -130,6 +125,40 @@
   <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap">
     <button class="primary" id="resumeBtn" data-i18n="pause.resume">Resume</button>
     <button class="secondary" id="pauseRestart" data-i18n="start.retry">🔁 Retry</button>
+    <button class="secondary" id="pauseSettings" data-i18n="settings.title">Settings</button>
+  </div>
+</div>
+<div id="settingsMenu" style="display:none">
+  <h2 data-i18n="settings.title">Settings</h2>
+  <div class="settingsGroup">
+    <h3 data-i18n="settings.quality">Quality</h3>
+    <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:6px">
+      <button class="secondary" id="qLow" data-i18n="quality.low" data-i18n-title="quality.lowTitle" title="aa=off, shadows=off, auto DPR">Low</button>
+      <button class="secondary" id="qMed" data-i18n="quality.medium" data-i18n-title="quality.medTitle" title="aa=off, shadows=off, auto DPR + ACES">Medium</button>
+      <button class="secondary" id="qHigh" data-i18n="quality.high" data-i18n-title="quality.highTitle" title="aa=on, shadows=on">High</button>
+      <button class="secondary" id="qUltra" data-i18n="quality.ultra" data-i18n-title="quality.ultraTitle" title="aa=on, shadows=on (max)" >Ultra</button>
+    </div>
+  </div>
+  <div class="settingsGroup">
+    <h3 data-i18n="settings.sound">Sound</h3>
+    <div class="pill setting">
+      <label for="soundVolume" data-i18n="settings.volume">Volume</label>
+      <input type="range" id="soundVolume" min="0" max="1" step="0.05" />
+    </div>
+  </div>
+  <div class="settingsGroup">
+    <h3 data-i18n="settings.mouse">Mouse</h3>
+    <div class="pill setting">
+      <label for="mouseSensitivity" data-i18n="settings.sensitivity">Sensitivity</label>
+      <input type="range" id="mouseSensitivity" min="0.2" max="2" step="0.1" />
+    </div>
+    <div class="pill setting">
+      <label for="invertLook" data-i18n="settings.invert">Invert look</label>
+      <input type="checkbox" id="invertLook" />
+    </div>
+  </div>
+  <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap">
+    <button class="secondary" id="settingsBack" data-i18n="settings.back">Back</button>
   </div>
 </div>
 </div>
