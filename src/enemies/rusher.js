@@ -1,14 +1,67 @@
 import { createRunnerBot } from '../assets/runnerbot.js';
-const _rusherCache = { model: null };
+
+// Variant definitions with unique palettes and stats
+export const RUSHER_VARIANTS = {
+  basic: {
+    hp: 60,
+    speedMin: 6.4,
+    speedMax: 7.9,
+    dashDuration: 0.5,
+    windUp: 0.25,
+    color: 0xf97316,
+    palette: {
+      accent: 0xf97316,
+      glow: 0xf97316
+    }
+  },
+  elite: {
+    hp: 90,
+    speedMin: 7.4,
+    speedMax: 8.8,
+    dashDuration: 0.6,
+    windUp: 0.45,
+    color: 0x6366f1,
+    palette: {
+      accent: 0x6366f1,
+      glow: 0x6366f1
+    }
+  },
+  explosive: {
+    hp: 70,
+    speedMin: 6.0,
+    speedMax: 7.0,
+    dashDuration: 0.55,
+    windUp: 0.35,
+    color: 0xfacc15,
+    explodesOnDeath: true,
+    explosionRadius: 3.5,
+    explosionDamage: 55,
+    palette: {
+      accent: 0xfacc15,
+      glow: 0xfacc15
+    }
+  }
+};
+
+const _rusherCache = { models: {} };
+
+// Mild screen shake when a dash connects
+const IMPACT_SHAKE = { strength: 0.1, duration: 0.15 };
 
 export class RusherEnemy {
   constructor({ THREE, mats, cfg, spawnPos }) {
     this.THREE = THREE;
-    this.cfg = cfg;
 
-    // Slim, agile runner model
-    if (!_rusherCache.model) _rusherCache.model = createRunnerBot({ THREE, mats, scale: 0.6 });
-    const src = _rusherCache.model;
+    const variantName = cfg.variant || 'basic';
+    const v = RUSHER_VARIANTS[variantName] || RUSHER_VARIANTS.basic;
+    this.variant = variantName;
+    this.cfg = { ...cfg, ...v };
+
+    // Slim, agile runner model per variant
+    if (!_rusherCache.models[variantName]) {
+      _rusherCache.models[variantName] = createRunnerBot({ THREE, mats, scale: 0.6, palette: v.palette });
+    }
+    const src = _rusherCache.models[variantName];
     const clone = src.root.clone(true);
     // Remap anim refs from asset to this clone so gait/arm anims work
     const remapRefs = (srcRoot, cloneRoot, refs) => {
@@ -37,11 +90,11 @@ export class RusherEnemy {
     }
 
     // Keep compatibility with existing hit logic
-    body.userData = { type: cfg.type, head, hp: cfg.hp, maxHp: cfg.hp };
+    body.userData = { type: cfg.type, head, hp: v.hp, maxHp: v.hp };
     this.root = body;
 
     // Movement parameters
-    this.speed = cfg.speedMin + Math.random() * (cfg.speedMax - cfg.speedMin);
+    this.speed = v.speedMin + Math.random() * (v.speedMax - v.speedMin);
     this._prevPlayerPos = null;
     this._playerVel = new THREE.Vector3();
     this._raycaster = new THREE.Raycaster();
@@ -50,16 +103,67 @@ export class RusherEnemy {
     this._dashTimer = 0;           // active dash time left
     this._dashCooldown = 0;        // until next dash available
     this._dashDir = new THREE.Vector3();
+    this._charging = false;       // currently charging forward
+    this._dashTotal = 0;          // total dash duration at launch
+    this._overrunTimer = 0;       // extra run time after dash if missed
+    this._hitCooldown = 0;        // time until next hit allowed
+    this._hasDealtHit = false;    // whether we hit during current dash
     this._lastPos = body.position.clone();
+    this._recoverTimer = 0;       // post-dash recovery time
+    this._windUpTimer = 0;        // pre-dash wind-up time
+    this._windUpSound = null;     // handle to charging audio
+    this._stunTimer = 0;          // self-stun time after failed dash
+    this._flinchTimer = 0;        // time after being interrupted by damage
+    this._flinchThreshold = 25;   // damage needed during dash to interrupt
+    this._flinchAccum = 0;        // accumulated damage while dashing
+    this._exploded = false;       // whether explosion has been triggered
+    this._lastCtx = null;         // last update context for onRemoved
   }
 
   update(dt, ctx) {
     const THREE = this.THREE;
+    this._lastCtx = ctx;
     const e = this.root;
+    if (this.cfg.explodesOnDeath && e.userData.hp <= 0 && !this._exploded) {
+      this._explode(ctx);
+      ctx.enemyManager?.remove?.(e);
+      return;
+    }
     const playerPos = ctx.player.position.clone();
     const toPlayer = playerPos.clone().sub(e.position);
     const dist = toPlayer.length();
-    if (dist < 2.0 && ctx.onPlayerDamage) ctx.onPlayerDamage(16 * dt, 'melee');
+    if (this._hitCooldown > 0) this._hitCooldown = Math.max(0, this._hitCooldown - dt);
+    if (this._recoverTimer > 0) this._recoverTimer = Math.max(0, this._recoverTimer - dt);
+    if (this._stunTimer > 0) this._stunTimer = Math.max(0, this._stunTimer - dt);
+    if (this._flinchTimer > 0) this._flinchTimer = Math.max(0, this._flinchTimer - dt);
+    if (this._windUpTimer > 0) {
+      this._windUpTimer = Math.max(0, this._windUpTimer - dt);
+      if (this._windUpTimer === 0) {
+        // wind-up finished -> start dash
+        this._dashTimer = (this.cfg.dashDuration ?? 0.5) + Math.random() * 0.2;
+        this._dashTotal = this._dashTimer;
+        this._overrunTimer = 0;
+        this._charging = true;
+        this._hitCooldown = 0;
+        this._hasDealtHit = false;
+        this._flinchAccum = 0;
+        try {
+          this._windUpSound?.stop?.();
+          window?._SFX?.dashWhoosh?.();
+          window?._EFFECTS?.spawnDashTrail?.(e.position.clone(), this._dashDir.clone(), this.cfg.color);
+        } catch(_){}
+        this._windUpSound = null;
+      }
+    }
+    if (dist < 2.0 && this._charging && ctx.onPlayerDamage && this._hitCooldown <= 0 && !this._hasDealtHit) {
+      ctx.onPlayerDamage(20, 'melee');
+      this._hitCooldown = 0.8;
+      this._hasDealtHit = true;
+      try {
+        window?._EFFECTS?.screenShake?.(IMPACT_SHAKE.strength, IMPACT_SHAKE.duration);
+        window?._EFFECTS?.spawnDashImpact?.(e.position.clone(), this.cfg.color);
+      } catch(_){}
+    }
     if (dist > 70) return;
 
     toPlayer.y = 0; if (toPlayer.lengthSq() === 0) return; toPlayer.normalize();
@@ -81,28 +185,84 @@ export class RusherEnemy {
     const toPred = predicted.sub(e.position); toPred.y = 0;
     let desired = toPred.lengthSq() > 0 ? toPred.normalize() : toPlayer.clone();
 
-    // Avoid obstacles and separation
-    const avoid = ctx.avoidObstacles(e.position, desired, 2.2);
-    const sep = ctx.separation(e.position, 1.0, e);
-    desired = desired.multiplyScalar(1.0).add(avoid.multiplyScalar(1.2)).add(sep.multiplyScalar(0.6)).normalize();
+    // Avoid obstacles and separation unless currently charging
+    if (!this._charging) {
+      const avoid = ctx.avoidObstacles(e.position, desired, 2.2);
+      const sep = ctx.separation(e.position, 1.0, e);
+      desired = desired.multiplyScalar(1.0).add(avoid.multiplyScalar(1.2)).add(sep.multiplyScalar(0.6)).normalize();
+    }
+
+    if (!this._charging && dist < 5 && this._windUpTimer <= 0 && this._recoverTimer <= 0 && this._stunTimer <= 0 && this._flinchTimer <= 0) {
+      desired.negate();
+    }
+
+    if (!this._charging && dist < 2) {
+      const repel = toPlayer.clone().negate().normalize();
+      desired = desired.add(repel.multiplyScalar(0.5)).normalize();
+    }
 
     // Dash logic: burst when mid-range and LOS is clear
     if (this._dashCooldown > 0) this._dashCooldown = Math.max(0, this._dashCooldown - dt);
-    if (this._dashTimer > 0) this._dashTimer = Math.max(0, this._dashTimer - dt);
-    const canDash = (dist >= 5 && dist <= 12) && this._dashCooldown <= 0 && this._hasLineOfSight(e.position, playerPos, ctx.objects);
+    if (this._charging) {
+      if (this._dashTimer > 0) {
+        this._dashTimer = Math.max(0, this._dashTimer - dt);
+        if (this._dashTimer === 0 && !this._hasDealtHit) {
+          const overrunFrac = 0.2 + Math.random() * 0.2;
+          this._overrunTimer = this._dashTotal * overrunFrac;
+        }
+      } else if (this._overrunTimer > 0) {
+        this._overrunTimer = Math.max(0, this._overrunTimer - dt);
+      }
+      if (this._dashTimer === 0 && this._overrunTimer === 0) {
+        this._charging = false;
+        this._dashTotal = 0;
+        this._recoverTimer = 0.7 + Math.random() * 0.4;
+        if (!this._hasDealtHit) this._stunTimer = 1.0 + Math.random() * 0.4;
+        this._flinchAccum = 0;
+        this._dashCooldown = 1.2 + Math.random() * 0.8;
+      }
+    }
+    const canDash = (dist >= 5 && dist <= 20) && !this._charging && this._dashCooldown <= 0 && this._recoverTimer <= 0 && this._windUpTimer <= 0 && this._stunTimer <= 0 && this._flinchTimer <= 0 && this._hasLineOfSight(e.position, playerPos, ctx.objects);
     if (canDash && Math.random() < 1.2 * dt) {
-      this._dashTimer = 0.35 + Math.random() * 0.15;      // 0.35–0.5s burst
-      this._dashCooldown = 1.2 + Math.random() * 0.8;     // 1.2–2.0s cooldown
+      this._windUpTimer = this.cfg.windUp || 0.3;
       this._dashDir.copy(desired);
+      try { this._windUpSound?.stop?.(); this._windUpSound = window?._SFX?.dashWindup?.(); } catch(_){}
+      // face dash direction immediately
+      const desiredYaw = Math.atan2(this._dashDir.x, this._dashDir.z);
+      this._yaw = desiredYaw; e.rotation.set(0, this._yaw, 0);
     }
 
-    const dashMul = this._dashTimer > 0 ? 2.4 : 1.0;
-    const step = desired.clone().multiplyScalar(this.speed * dashMul * dt);
+    const dashMul = this._charging ? 2.4 : 1.0;
+    const recoverMul = this._recoverTimer > 0 ? 0.35 : 1.0;
+    const windMul = this._windUpTimer > 0 ? 0.0 : 1.0;
+    const stunMul = this._stunTimer > 0 ? 0.0 : 1.0;
+    const flinchMul = this._flinchTimer > 0 ? 0.0 : 1.0;
+    const moveDir = this._charging ? this._dashDir : desired;
+    const step = moveDir.clone().multiplyScalar(this.speed * dashMul * recoverMul * windMul * stunMul * flinchMul * dt);
 
     // Move and face motion
     const before = e.position.clone();
+    const wasCharging = this._charging;
     ctx.moveWithCollisions(e, step);
     const movedVec = e.position.clone().sub(before); movedVec.y = 0;
+    if (wasCharging && movedVec.lengthSq() + 1e-6 < step.lengthSq()) {
+      if (this.cfg.explodesOnDeath) {
+        this._explode(ctx);
+        ctx.enemyManager?.remove?.(e);
+        return;
+      }
+      this._charging = false;
+      this._dashTimer = 0;
+      this._overrunTimer = 0;
+      this._dashTotal = 0;
+      this._recoverTimer = 0.7 + Math.random() * 0.4;
+      this._stunTimer = 1.0 + Math.random() * 0.4;
+      try {
+        window?._EFFECTS?.spawnDashImpact?.(e.position.clone(), this.cfg.color);
+      } catch(_){}
+      this._flinchAccum = 0;
+      this._dashCooldown = 1.2 + Math.random() * 0.8;
+    }
     const speedNow = movedVec.length() / Math.max(dt, 0.00001);
     if (movedVec.lengthSq() > 1e-6) {
       const desiredYaw = Math.atan2(movedVec.x, movedVec.z);
@@ -111,19 +271,79 @@ export class RusherEnemy {
       this._yaw += Math.max(-turnRate * dt, Math.min(turnRate * dt, deltaYaw));
       e.rotation.set(0, this._yaw, 0);
     }
-    // Aggressive forward lean while dashing
-    e.rotation.x = this._dashTimer > 0 ? -0.12 : -0.04;
+    // Aggressive forward lean while dashing; slight raise during wind-up or flinch pose
+    e.rotation.x = this._flinchTimer > 0 ? 0.2 : (this._windUpTimer > 0 ? 0.04 : (this._charging ? -0.12 : -0.04));
 
-    // Arm/leg swing
+    // Arm/leg swing or wind-up pose
     this._walkPhase += Math.min(18.0, 7.0 + speedNow * 0.3) * dt;
     const swing = Math.sin(this._walkPhase) * Math.min(0.8, 0.18 + speedNow * 0.03);
     if (this._animRefs) {
       const la = this._animRefs.leftArm, ra = this._animRefs.rightArm;
       const ll = this._animRefs.leftLeg, rl = this._animRefs.rightLeg;
-      if (la && ra) { la.rotation.x = swing * 1.1; ra.rotation.x = -swing * 1.1; }
-      if (ll && rl) { ll.rotation.x = -swing; rl.rotation.x = swing; }
+      if (this._flinchTimer > 0) {
+        if (ra) ra.rotation.x = 0.6;
+        if (la) la.rotation.x = -0.6;
+        if (ll) ll.rotation.x = 0;
+        if (rl) rl.rotation.x = 0;
+      } else if (this._windUpTimer > 0) {
+        if (ra) ra.rotation.x = -0.8;
+        if (la) la.rotation.x = 0.4;
+        if (ll) ll.rotation.x = 0;
+        if (rl) rl.rotation.x = 0;
+      } else {
+        if (la && ra) { la.rotation.x = swing * 1.1; ra.rotation.x = -swing * 1.1; }
+        if (ll && rl) { ll.rotation.x = -swing; rl.rotation.x = swing; }
+      }
     }
+    // Blade glow during wind-up / dash
+    try {
+      const blade = this._bladeRef?.children?.[1];
+      if (blade && blade.material && blade.material.emissiveIntensity != null) {
+        blade.material.emissiveIntensity = (this._windUpTimer > 0 || this._charging) ? 1.4 : 0.7;
+      }
+    } catch(_){}
     this._lastPos.copy(e.position);
+  }
+
+  _explode(ctx) {
+    if (this._exploded) return;
+    this._exploded = true;
+    const pos = this.root.position.clone();
+    const radius = this.cfg.explosionRadius || 3;
+    const dmg = this.cfg.explosionDamage || 55;
+    if (window?._EFFECTS?.spawnExplosion) {
+      try {
+        window._EFFECTS.spawnExplosion(pos.clone(), radius, this.cfg.color);
+      } catch (err) {
+        console.warn('spawnExplosion failed', err);
+      }
+    }
+    // damage player
+    try {
+      const pPos = ctx?.player?.position;
+      if (pPos && pos.distanceTo(pPos) <= radius) {
+        ctx?.onPlayerDamage?.(dmg, 'explosion');
+      }
+    } catch (_err) {
+      console.warn('player damage during explosion failed', _err);
+    }
+    // damage nearby enemies (exclude self and other explosive variants)
+    const em = ctx?.enemyManager;
+    if (em) {
+      for (const other of Array.from(em.enemies || [])) {
+        if (other === this.root) continue;
+        if (other.position.distanceTo(pos) <= radius) {
+          const inst = em.instanceByRoot?.get?.(other);
+          if (inst?.cfg?.explodesOnDeath) continue; // avoid chain reactions
+          other.userData.hp = (other.userData.hp || 0) - dmg;
+          if (inst && typeof inst.onHit === 'function') inst.onHit(dmg, false);
+          if (other.userData.hp <= 0) {
+            try { window?._EFFECTS?.enemyDeath?.(other.position.clone()); } catch(_){ }
+            em.remove(other);
+          }
+        }
+      }
+    }
   }
 
   _hasLineOfSight(fromPos, targetPos, objects) {
@@ -138,8 +358,24 @@ export class RusherEnemy {
     return !(hits && hits.length > 0);
   }
 
-  onHit(_damage, _isHead) {
-    // Rushers shrug off tiny flinches; no special handling for now
+  onHit(damage, _isHead) {
+    if (this._charging) {
+      this._flinchAccum += damage;
+      if (this._flinchAccum >= this._flinchThreshold) {
+        this._charging = false;
+        this._dashTimer = 0;
+        this._overrunTimer = 0;
+        this._dashTotal = 0;
+        this._flinchTimer = 0.45;
+        this._flinchAccum = 0;
+      }
+    }
+  }
+
+  onRemoved(_scene) {
+    if (this.cfg.explodesOnDeath && !this._exploded) {
+      this._explode(this._lastCtx || {});
+    }
   }
 }
 

@@ -258,6 +258,44 @@ export class SFX {
     };
   }
 
+  dashWindup(){
+    if (this.isMuted) return null; this.ensure();
+    const a = this.ctx; const t0 = a.currentTime + 0.001;
+    const o = a.createOscillator(); o.type = 'triangle';
+    o.frequency.setValueAtTime(180, t0);
+    o.frequency.linearRampToValueAtTime(260, t0 + 0.3);
+    const g = a.createGain(); g.gain.setValueAtTime(0.0001, t0);
+    o.connect(g).connect(this.master); this._tapFx(g, 0.05);
+    g.gain.linearRampToValueAtTime(0.2, t0 + 0.06);
+    g.gain.setTargetAtTime(0.0001, t0 + 0.3, 0.05);
+    o.start(t0);
+    return {
+      stop: ()=>{
+        const now = a.currentTime;
+        g.gain.cancelScheduledValues(now);
+        g.gain.linearRampToValueAtTime(0.0001, now + 0.05);
+        try { o.stop(now + 0.06); } catch(_){}
+      }
+    };
+  }
+
+  dashWhoosh(opts = {}) {
+    if (this.isMuted) return; this.ensure();
+    const a = this.ctx; const t0 = a.currentTime + 0.001;
+    const pan = this._makePan(opts.pan);
+    const vol = opts.volume != null ? opts.volume : 1;
+    const dur = 0.15;
+    const nb = a.createBuffer(1, (dur * a.sampleRate) | 0, a.sampleRate);
+    const ch = nb.getChannelData(0);
+    for (let i = 0; i < ch.length; i++) ch[i] = (Math.random() * 2 - 1) * (1 - i / ch.length);
+    const src = a.createBufferSource(); src.buffer = nb; src.playbackRate.value = this._rv(1.0, 1.1);
+    const hp = a.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 180;
+    const env = this._env({ a: 0.01, d: 0.25, g: 0.5 * vol, t0 });
+    src.connect(hp).connect(env.node).connect(pan).connect(this.master);
+    this._tapFx(env.node, 0.1);
+    src.start(t0); src.stop(env.endTime + 0.01);
+  }
+
   reload() {
     if (this.isMuted) return; this.ensure();
     const a = this.ctx; const t0 = a.currentTime + 0.001;

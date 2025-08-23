@@ -60,7 +60,9 @@ export class EnemyManager {
     // Stats/colors; note type names map to classes below
     this.typeConfig = {
       grunt:  { type: 'grunt',  hp: 100, speedMin: 2.4, speedMax: 3.2, color: 0xef4444, kind: 'melee' },
-      rusher: { type: 'rusher', hp:  60, speedMin: 6.4, speedMax: 7.9, color: 0xf97316, kind: 'melee' },
+      rusher: { type: 'rusher', variant: 'basic', hp:  60, speedMin: 6.4, speedMax: 7.9, color: 0xf97316, kind: 'melee' },
+      rusher_elite: { type: 'rusher', variant: 'elite', hp: 90, speedMin: 7.4, speedMax: 8.8, color: 0x6366f1, kind: 'melee' },
+      rusher_explosive: { type: 'rusher', variant: 'explosive', hp: 70, speedMin: 6.0, speedMax: 7.0, color: 0xfacc15, kind: 'melee' },
       bailiff:{ type: 'bailiff',hp:  80, speedMin: 3.8, speedMax: 4.4, color: 0x60a5fa, kind: 'melee' },
       tank:   { type: 'tank',   hp: 450, speedMin: 1.6, speedMax: 2.4, color: 0x2563eb, kind: 'melee' },
       shooter:{ type: 'shooter',hp:   80, speedMin: 2.6, speedMax: 3.8, color: 0x10b981, kind: 'shooter' },
@@ -482,10 +484,12 @@ export class EnemyManager {
     }
     const half = this.enemyHalf;
     const t = this._tmp;
-  
+
     let px = enemy.position.x;
     let pz = enemy.position.z;
     let py = enemy.position.y;
+    const startX = px;
+    const startZ = pz;
   
     const tryAxis = (dx, dz) => {
       const nx = px + dx, nz = pz + dz;
@@ -501,7 +505,78 @@ export class EnemyManager {
     const beforeGround = this._groundHeightAt(px, pz);
     tryAxis(step.x, 0);
     tryAxis(0, step.z);
-  
+
+    // --- Player collision check ---
+    const player = this._ctx?.player;
+    if (player && player.position) {
+      const pr = 0.6; // player feet radius
+      const sumR = pr + half.x;
+      const playerX = player.position.x;
+      const playerZ = player.position.z;
+      const dx = px - startX;
+      const dz = pz - startZ;
+      const fx = startX - playerX;
+      const fz = startZ - playerZ;
+      const a = dx*dx + dz*dz;
+      const b = 2*(fx*dx + fz*dz);
+      const c = fx*fx + fz*fz - sumR*sumR;
+      let collided = false;
+      let tHit = null;
+      if (c <= 0) { collided = true; tHit = 0; }
+      else {
+        const disc = b*b - 4*a*c;
+        if (disc >= 0) {
+          const sqrt = Math.sqrt(disc);
+          const t0 = (-b - sqrt) / (2*a);
+          const t1 = (-b + sqrt) / (2*a);
+          if (t0 >= 0 && t0 <= 1) { collided = true; tHit = t0; }
+          else if (t1 >= 0 && t1 <= 1) { collided = true; tHit = t1; }
+        }
+      }
+      if (!collided) {
+        const ex = px - playerX;
+        const ez = pz - playerZ;
+        if (ex*ex + ez*ez < sumR*sumR) collided = true;
+      }
+      if (collided) {
+        if (tHit != null) {
+          px = startX + dx * tHit;
+          pz = startZ + dz * tHit;
+        }
+        let ex = px - playerX;
+        let ez = pz - playerZ;
+        const len = Math.hypot(ex, ez) || 1e-6;
+        const nx = ex / len, nz = ez / len;
+        px = playerX + nx * sumR;
+        pz = playerZ + nz * sumR;
+
+        // small knockback to enemy to avoid overlap
+        px += nx * 0.05;
+        pz += nz * 0.05;
+
+        // push player back slightly to emphasize impact
+        if (this._ctx?.applyPlayerKnockback) {
+          t.v3.set(-nx * 0.18, 0, -nz * 0.18);
+          this._ctx.applyPlayerKnockback(t.v3);
+        }
+
+        // Trigger rusher contact damage once and end dash
+        const inst = this.instanceByRoot?.get(enemy);
+        if (inst instanceof RusherEnemy) {
+          if (inst._charging && !inst._hasDealtHit && inst._hitCooldown <= 0) {
+            this._ctx?.onPlayerDamage?.(20, 'melee');
+            inst._hitCooldown = 0.8;
+            inst._hasDealtHit = true;
+          }
+          if (inst._charging) {
+            inst._charging = false;
+            inst._dashTimer = 0;
+            inst._recoverTimer = 0.5 + Math.random() * 0.3;
+          }
+        }
+      }
+    }
+
     const afterGround = this._groundHeightAt(px, pz);
     const rise = Math.max(0, afterGround - beforeGround);
     const stepUpMax = 0.12 * this.enemyFullHeight;
@@ -642,6 +717,7 @@ export class EnemyManager {
       this._healReg = new Map();
       this._ctx = {
         player: null, objects: this.objects, scene: this.scene, onPlayerDamage: null,
+        enemyManager: this,
         _spawnBullet: (kind, origin, velocity, maxLife, damage) =>
           this._spawnBullet(kind, origin, velocity, maxLife, damage),
         separation: (position, radius, selfRoot) => this.separation(position, radius, selfRoot),
@@ -732,6 +808,9 @@ export class EnemyManager {
     }
     if (!ctx.applyKnockback) {
       ctx.applyKnockback = (enemy, vec) => this.applyKnockback(enemy, vec);
+    }
+    if (!ctx.applyPlayerKnockback) {
+      ctx.applyPlayerKnockback = (vec) => playerObject?.applyKnockback?.(vec);
     }
     if (!ctx.alliesNearbyCount) {
       // Count allies within a radius around a position, excluding an optional self root
@@ -1033,7 +1112,23 @@ export class EnemyManager {
 
     const minFlyer  = wave >= 5 ? 2 : 0;
     let needFlyer   = wave >= 5 ? Math.max(minFlyer, Math.floor(total * pctFlyer)) : 0;
-    let needRusher  = Math.floor(total * pctRusher);
+    // Base rusher pool, later split into variant tiers
+    let totalRusher = Math.floor(total * pctRusher);
+    let needRusher = totalRusher;           // commons
+    let needRusherElite = 0;
+    let needRusherExplosive = 0;
+
+    if (wave >= 25 && totalRusher > 0) {
+      // Groups of five: 1 bomber, 1 elite, 3 common
+      const groups = Math.floor(totalRusher / 5);
+      needRusherExplosive = Math.max(1, groups);
+      needRusherElite = groups;
+      needRusher -= groups * 2; // remaining are commons
+    } else if (wave >= 15 && totalRusher > 0) {
+      // 1 elite per 3 common (group of four)
+      needRusherElite = Math.floor(totalRusher / 4);
+      needRusher -= needRusherElite;
+    }
     let needShooter = Math.floor(total * pctShooter);
     let needTank    = Math.max(wave >= 6 ? 1 : 0, Math.floor(total * pctTank));
     let needHealer  = Math.floor(total * pctHealer);
@@ -1041,11 +1136,13 @@ export class EnemyManager {
     let needWarden  = Math.floor(total * pctWarden);
 
     // Cap total replacements to total count
-    let requested = needFlyer + needRusher + needShooter + needTank + needHealer + needSniper + needWarden;
+    let requested = needFlyer + needRusher + needRusherElite + needRusherExplosive + needShooter + needTank + needHealer + needSniper + needWarden;
     if (requested > total) {
       const scale = total / requested;
       needFlyer = Math.floor(needFlyer * scale);
       needRusher = Math.floor(needRusher * scale);
+      needRusherElite = Math.floor(needRusherElite * scale);
+      needRusherExplosive = Math.floor(needRusherExplosive * scale);
       needShooter = Math.floor(needShooter * scale);
       needTank = Math.floor(needTank * scale);
       needHealer = Math.floor(needHealer * scale);
@@ -1076,6 +1173,8 @@ export class EnemyManager {
     assignRandom(needSniper, 'sniper');
     assignRandom(needHealer, 'healer');
     assignRandom(needShooter, 'shooter');
+    assignRandom(needRusherElite, 'rusher_elite');
+    assignRandom(needRusherExplosive, 'rusher_explosive');
     assignRandom(needRusher, 'rusher');
     assignRandom(needFlyer, 'flyer');
 

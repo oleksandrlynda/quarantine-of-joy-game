@@ -2,6 +2,9 @@
 window._EFFECTS = window._EFFECTS || {};
 window._EFFECTS.spawnBulletTracer = window._EFFECTS.spawnBulletTracer || (()=>{});
 window._EFFECTS.spawnBulletImpact = window._EFFECTS.spawnBulletImpact || (()=>{});
+window._EFFECTS.spawnDashTrail = window._EFFECTS.spawnDashTrail || (()=>{});
+window._EFFECTS.spawnDashImpact = window._EFFECTS.spawnDashImpact || (()=>{});
+window._EFFECTS.screenShake = window._EFFECTS.screenShake || (()=>{});
 
 export class Effects {
   constructor(THREE, scene, camera){
@@ -49,6 +52,12 @@ export class Effects {
     // Tracer tint control for bullet tracers
     this._tracerTintMix = 0; // 0..1 mix factor
     this._tracerTintColor = new THREE.Color(0x16a34a);
+
+    // Camera shake state
+    this._shakeTime = 0;
+    this._shakeDur = 0;
+    this._shakeStrength = 0;
+    this._shakeOffset = new THREE.Vector3();
 
     // --- Init pooled resources for tracers, flashes, and decals ---
     // Tracer (beam) shared geo + material prototype and pools
@@ -164,6 +173,24 @@ export class Effects {
     window._EFFECTS.spawnSaberSlash = (start, end, options={})=>{
       this.spawnSaberSlash(start, end, options);
     };
+    window._EFFECTS.spawnDashTrail = (pos, dir, tint=0xffffff)=>{
+      const start = pos.clone().add(new this.THREE.Vector3(0,0.8,0));
+      const end = start.clone().add(dir.clone().setY(0).normalize().multiplyScalar(2.5));
+      this.spawnBulletTracer(start, end, { tint: new this.THREE.Color(tint) });
+    };
+    window._EFFECTS.spawnDashImpact = (pos, tint=0xffffff)=>{
+      this.spawnBulletImpact(pos, new this.THREE.Vector3(0,1,0));
+      this.spawnGroundRing(pos, 2.0, tint);
+    };
+    window._EFFECTS.screenShake = (strength=0.2, duration=0.25)=>{
+      this.shake(strength, duration);
+    };
+  }
+
+  shake(strength=0.2, duration=0.25){
+    this._shakeStrength = Math.max(0, strength);
+    this._shakeTime = Math.max(0, duration);
+    this._shakeDur = this._shakeTime;
   }
 
   // --- Tracer pool internals ---
@@ -255,6 +282,19 @@ export class Effects {
   }
 
   update(dt){
+    // Camera shake
+    if (this._shakeTime > 0 && this.camera) {
+      this._shakeTime -= dt;
+      try { this.camera.position.sub(this._shakeOffset); } catch(_) {}
+      const k = this._shakeDur > 0 ? this._shakeTime / this._shakeDur : 0;
+      const m = this._shakeStrength * Math.max(0, k);
+      this._shakeOffset.set((Math.random()*2-1)*m, (Math.random()*2-1)*m, (Math.random()*2-1)*m);
+      try { this.camera.position.add(this._shakeOffset); } catch(_) {}
+    } else if (this._shakeOffset.lengthSq() > 0 && this.camera) {
+      try { this.camera.position.sub(this._shakeOffset); } catch(_) {}
+      this._shakeOffset.set(0,0,0);
+    }
+
     // Update transient particle and mesh effects
     for(let i=this._alive.length-1;i>=0;i--){
       const fx = this._alive[i];
@@ -362,6 +402,13 @@ export class Effects {
     }
     this._decals.length = 0;
     // overlays + muzzle get reset implicitly next frame
+
+    if (this.camera && this._shakeOffset.lengthSq() > 0){
+      try { this.camera.position.sub(this._shakeOffset); } catch(_){}
+    }
+    this._shakeOffset.set(0,0,0);
+    this._shakeTime = 0;
+    this._shakeDur = 0;
   }
 
   prewarm(counts = {}){
@@ -856,15 +903,16 @@ spawnBulletImpact(position, normal){
   }
 
   // Composite explosion: shockwave, fireball, sparks, smoke, light flash
-  spawnExplosion(center, radius=3.0){
+  spawnExplosion(center, radius=3.0, color=0xffb347){
     const THREE = this.THREE;
+    const tint = new THREE.Color(color);
     // 1) Shockwave ring on ground (reuse shared geometry and clone material)
     const ringMat = this._ringSharedMatProto.clone();
     ringMat.uniforms.uElapsed.value = 0;
     ringMat.uniforms.uLife.value = 0.5;
     ringMat.uniforms.uStart.value = radius*0.22;
     ringMat.uniforms.uEnd.value = radius*1.4;
-    ringMat.uniforms.uColor.value.copy(new THREE.Color(0xfff1a1));
+    ringMat.uniforms.uColor.value.copy(tint.clone().multiplyScalar(1.2));
     const ring = new THREE.Mesh(this._ringSharedGeo, ringMat); 
     ring.position.copy(center.clone().setY(0.05)); 
     ring.rotation.x = -Math.PI/2; 
@@ -874,7 +922,7 @@ spawnBulletImpact(position, normal){
     // 2) Fireball core (reuse shared geometry and clone material)
     const coreMat = this._explCoreMatProto.clone();
     coreMat.uniforms.uAlpha.value = 0.95;
-    coreMat.uniforms.uTint.value.copy(new THREE.Color(0xffb347));
+    coreMat.uniforms.uTint.value.copy(tint.clone());
     coreMat.uniforms.uTime.value = 0;
     const core = new THREE.Mesh(this._explCoreGeo, coreMat); 
     core.position.copy(center.clone().setY(center.y + 0.6)); 
