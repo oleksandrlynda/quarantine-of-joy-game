@@ -900,7 +900,7 @@ function resumeGame(){
 }
 
 function showPauseMenu(){
-  if (panel.parentElement.style.display !== 'none') return;
+  if (paused || gameOver) return;
   panel.style.display='none';
   pauseMenu.style.display='';
   panel.parentElement.style.display='grid';
@@ -928,9 +928,6 @@ if (qHigh) qHigh.onclick = ()=> setParams({ aa: 1, shadows: 1, autoDPR: 0, tone:
 if (qUltra) qUltra.onclick = ()=> setParams({ aa: 1, shadows: 1, autoDPR: 0, tone: 1, debug: 1 });
 
 controls.addEventListener('unlock', ()=>{
-  // If an offer/modal unlocked the pointer, don't show the start panel
-  if (offerActive) return;
-  if (story && story.active) return;
   if (gameOver) {
     pauseMenu.style.display='none';
     panel.style.display='';
@@ -946,7 +943,7 @@ window.addEventListener('blur', ()=>{
 });
 
 document.addEventListener('visibilitychange', ()=>{
-  if (document.visibilityState === 'hidden' && !gameOver) showPauseMenu();
+  if (!gameOver) showPauseMenu();
 });
 
 // Start with a wave ready so there's action immediately after lock (skip in editor)
