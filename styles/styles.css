@@ -23,6 +23,10 @@ button{ cursor:pointer; border:0; border-radius:14px; padding:12px 16px; font-we
 .primary{ background:linear-gradient(180deg,#22c55e,#86efac); color:#062e12 }
 .secondary{ background:linear-gradient(180deg,#60a5fa,#a5b4fc); color:#0b2458 }
 .tiny{ font-size:12px; opacity:.8 }
+#settingsPanel{ display:flex; flex-direction:column; gap:10px; margin:12px auto 0; width:fit-content; }
+#settingsPanel .setting{ display:flex; align-items:center; gap:8px; }
+#settingsPanel .setting label{ font-weight:800; }
+#settingsPanel .setting input[type="range"]{ width:120px; }
 #crosshair{ position:fixed; left:50%; top:50%; width:20px; height:20px; margin-left:-10px; margin-top:-10px; pointer-events:none; opacity: var(--xh-alpha); transform: rotate(var(--xh-rot)) scale(var(--xh-scale)); transform-origin: center center; transition: transform 90ms linear, opacity 90ms linear }
 #crosshair .seg{ position:absolute; background: var(--xh); transition: top 90ms linear, left 90ms linear, width 90ms linear, height 90ms linear }
 #crosshair .seg.top{ left:50%; top: calc(50% - var(--xh-gap) - var(--xh-len)); width: var(--xh-thick); height: var(--xh-len); transform: translateX(-50%); }

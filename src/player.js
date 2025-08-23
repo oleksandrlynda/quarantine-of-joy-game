@@ -97,6 +97,26 @@ export class PlayerController {
     this.isMobile = window.matchMedia('(pointer:coarse)').matches;
     this.joy = {x:0, y:0};
 
+    // Look settings
+    this.lookSensitivity = parseFloat(localStorage.getItem('mouseSensitivity') || '1');
+    this.invertLook = localStorage.getItem('invertLook') === 'true';
+    const sensInput = document.getElementById('mouseSensitivity');
+    const invertInput = document.getElementById('invertLook');
+    if (sensInput){
+      sensInput.value = String(this.lookSensitivity);
+      sensInput.addEventListener('input', e=>{
+        this.lookSensitivity = parseFloat(e.target.value);
+        localStorage.setItem('mouseSensitivity', String(this.lookSensitivity));
+      });
+    }
+    if (invertInput){
+      invertInput.checked = this.invertLook;
+      invertInput.addEventListener('change', e=>{
+        this.invertLook = e.target.checked;
+        localStorage.setItem('invertLook', String(this.invertLook));
+      });
+    }
+
     if (!this.isMobile){
       window.addEventListener('keydown', (e)=>{
         this.keys.add(e.code);
@@ -107,6 +127,16 @@ export class PlayerController {
         this.keys.delete(e.code);
         if(e.code==='KeyC') this.crouching = false;
       });
+      this.domElement.addEventListener('mousemove', e=>{
+        if (this.controls.isLocked !== true) return;
+        e.stopImmediatePropagation();
+        const movementX = e.movementX || 0;
+        const movementY = e.movementY || 0;
+        this.yawObject.rotation.y -= movementX * 0.002 * this.lookSensitivity;
+        const inv = this.invertLook ? -1 : 1;
+        this.pitchObject.rotation.x -= movementY * 0.002 * this.lookSensitivity * inv;
+        this.pitchObject.rotation.x = Math.max(-Math.PI/2 + 0.01, Math.min(Math.PI/2 - 0.01, this.pitchObject.rotation.x));
+      }, true);
     } else {
       // Virtual joystick for movement
       const joyEl = document.getElementById('joystick');
@@ -167,8 +197,9 @@ export class PlayerController {
           const t = Array.from(e.touches).find(tt=>tt.identifier===lookId);
           if(!t) return;
           const dx = t.clientX - lx; const dy = t.clientY - ly;
-          this.yawObject.rotation.y -= dx * 0.0025;
-          this.pitchObject.rotation.x -= dy * 0.0025;
+          this.yawObject.rotation.y -= dx * 0.0025 * this.lookSensitivity;
+          const inv = this.invertLook ? -1 : 1;
+          this.pitchObject.rotation.x -= dy * 0.0025 * this.lookSensitivity * inv;
           this.pitchObject.rotation.x = Math.max(-Math.PI/2 + 0.01, Math.min(Math.PI/2 - 0.01, this.pitchObject.rotation.x));
           lx = t.clientX; ly = t.clientY;
         }, {passive:false});

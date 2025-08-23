@@ -115,6 +115,16 @@
     <button class="secondary" id="qHigh" data-i18n="quality.high" data-i18n-title="quality.highTitle" title="aa=on, shadows=on">High</button>
     <button class="secondary" id="qUltra" data-i18n="quality.ultra" data-i18n-title="quality.ultraTitle" title="aa=on, shadows=on (max)" >Ultra</button>
   </div>
+  <div id="settingsPanel">
+    <div class="pill setting">
+      <label for="mouseSensitivity" data-i18n="settings.sensitivity">Sensitivity</label>
+      <input type="range" id="mouseSensitivity" min="0.2" max="2" step="0.1" />
+    </div>
+    <div class="pill setting">
+      <label for="invertLook" data-i18n="settings.invert">Invert look</label>
+      <input type="checkbox" id="invertLook" />
+    </div>
+  </div>
   <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap">
     <button class="primary" id="play" data-i18n="start.play">▶️ Play</button>
     <button class="secondary" id="retry" style="display:none" data-i18n="start.retry">🔁 Retry</button>
