@@ -125,6 +125,7 @@ cur = cur.children[idx]; }
     this._lastPos = body.position.clone();
     this._stuckTime = 0;
     this._nudgeCooldown = 0;
+    this._path = null;
 
     // Player tracking
     this._prevPlayerPos = null;
@@ -168,7 +169,18 @@ cur = cur.children[idx]; }
   update(dt, ctx) {
     const e = this.root;
     const playerPos = ctx.player.position.clone();
-    const toPlayer = playerPos.clone().sub(e.position);
+    let targetPos = playerPos;
+    if (this._path && this._path.length > 0) {
+      const pt = this._path[0];
+      const dx = pt.x - e.position.x;
+      const dz = pt.z - e.position.z;
+      if ((dx*dx + dz*dz) < 0.25) this._path.shift();
+      if (this._path && this._path.length > 0) {
+        const next = this._path[0];
+        targetPos = new this.THREE.Vector3(next.x, playerPos.y, next.z);
+      }
+    }
+    const toPlayer = targetPos.clone().sub(e.position);
     const dist = toPlayer.length();
 
     this._attackCooldown = Math.max(0, this._attackCooldown - dt);
@@ -374,6 +386,7 @@ cur = cur.children[idx]; }
     if (moved < 0.006) {
       this._stuckTime += dt;
       if (this._stuckTime > 0.8 && this._nudgeCooldown <= 0) {
+        if (ctx.findPath) this._path = ctx.findPath(e.position, playerPos);
         const lateral = new this.THREE.Vector3(-toPlayer.z, 0, toPlayer.x).normalize().multiplyScalar((Math.random() < 0.5 ? -1 : 1) * 0.35);
         e.position.add(lateral);
         this._stuckTime = 0;
