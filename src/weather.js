@@ -133,6 +133,12 @@ export class WeatherSystem {
       this._envTarget.hemiIntensity = 0.9; this._envTarget.dirIntensity = 0.8;
     }
 
+    // Feed ambient weather loops
+    try {
+      const windMix = Math.max(this._mixTarget.fog, this._mixTarget.sand);
+      window._SFX?.setWeatherMix?.({ rain: this._mixTarget.rain, snow: this._mixTarget.snow, wind: windMix });
+    } catch (_) {}
+
     // Mark transition start
     this._transitionStartTime = this.uTime.value || 0;
   }

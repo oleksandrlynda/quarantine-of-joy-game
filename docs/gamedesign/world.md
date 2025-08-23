@@ -16,6 +16,8 @@ Auto‑cycles every ~20–45s among:
 - **Snow**: brightened fog, gentle flakes with drift
 - **Sandstorm**: swirling dust, warm tint, reduced visibility
 
+Subtle ambient loops fade with each mode — rain patter, howling wind, and hush snow.
+
 Rain may trigger thunder:
 - Occasional lightning point‑light near the player, brief flashes tint the directional light and sky
 - Procedural thunder sound after a distance‑based delay
