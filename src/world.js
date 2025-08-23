@@ -198,8 +198,8 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box', biome 
   let timeOfDay = 0; // 0..1
   const sunDayColor = new THREE.Color('#ffe9a8');
   const sunNightColor = new THREE.Color('#223355');
-  function updateDayNight(dt){
-    timeOfDay = (timeOfDay + dt / dayLengthSec) % 1;
+
+  function applyTime(){
     const ang = timeOfDay * Math.PI * 2;
     const sx = Math.sin(ang);
     const sy = Math.cos(ang);
@@ -215,6 +215,16 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box', biome 
     skyMat.uniforms.top.value.copy(dayTop).lerp(nightTop, nightMix);
     skyMat.uniforms.bottom.value.copy(dayBottom).lerp(nightBottom, nightMix);
     return sy < 0;
+  }
+
+  function updateDayNight(dt){
+    timeOfDay = (timeOfDay + dt / dayLengthSec) % 1;
+    return applyTime();
+  }
+
+  function setTimeOfDay(t){
+    timeOfDay = ((t % 1) + 1) % 1;
+    return applyTime();
   }
 
   function makeArena(shape){
@@ -301,7 +311,7 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box', biome 
 
   makeArena(arenaShape);
 
-  return { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius, grassMesh, vegetation: vegetation.meshes, fauna, ambient, water: water.meshes, updateDayNight };
+  return { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius, grassMesh, vegetation: vegetation.meshes, fauna, ambient, water: water.meshes, updateDayNight, setTimeOfDay };
 }
 
 

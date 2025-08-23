@@ -32,6 +32,12 @@
       <option value="sandstorm">Sandstorm</option>
       <option value="windy">Windy</option>
     </select>
+    <span>Time:</span>
+    <select id="timeSel">
+      <option value="auto">Auto</option>
+      <option value="day">Day</option>
+      <option value="night">Night</option>
+    </select>
   </div>
   <script type="module">
     import * as THREE from 'https://unpkg.com/three@0.159.0/build/three.module.js';
@@ -41,7 +47,7 @@
     import { BiomeManager } from './src/biome.js';
     import { SFX } from './src/sfx.js';
 
-    const { renderer, scene, camera, skyMat, hemi, dir, mats, grassMesh, fauna, ambient, water, updateDayNight } = createWorld(THREE, Math.random);
+    const { renderer, scene, camera, skyMat, hemi, dir, mats, grassMesh, fauna, ambient, water, updateDayNight, setTimeOfDay } = createWorld(THREE, Math.random, 'box', 'grass', 60);
     camera.position.set(0, 18, 36);
     camera.lookAt(0, 1.6, 0);
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -68,13 +74,20 @@
     biomeSel.addEventListener('change', applyBiome);
     applyBiome();
 
+    const timeSel = document.getElementById('timeSel');
+    let timeMode = 'auto';
+    timeSel.addEventListener('change', ()=>{ timeMode = timeSel.value; });
+
     const clock = new THREE.Clock();
     let isNight = false;
     function loop(){
       const dt = clock.getDelta();
       const t = clock.elapsedTime;
       controls.update();
-      const nightNow = updateDayNight(dt);
+      let nightNow;
+      if (timeMode === 'auto') nightNow = updateDayNight(dt);
+      else if (timeMode === 'day') nightNow = setTimeOfDay(0);
+      else nightNow = setTimeOfDay(0.5);
       if (nightNow !== isNight){ isNight = nightNow; BiomeManager.setDayNight(isNight); }
       weather.update(t, camera);
       if (fauna) fauna.update(dt);
