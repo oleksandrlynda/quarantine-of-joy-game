@@ -194,6 +194,13 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
     const mat = new MeshBasicNodeMaterial({ transparent: true, fog: false });
     mat.positionNode = positionNode;
     mat.colorNode = attribute('color');
+    // Provide dummy common uniforms so the renderer's refreshUniformsCommon
+    // helper doesn't fail when it expects standard material slots like
+    // `opacity` and `diffuse` which Node materials omit.
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.opacity = { value: 1 };
+      shader.uniforms.diffuse = { value: new THREE.Color(0xffffff) };
+    };
     const grassMesh = new THREE.Mesh(geometry, mat);
     grassMesh.frustumCulled = false;
     scene.add(grassMesh);
