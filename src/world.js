@@ -1,9 +1,12 @@
 // World setup: renderer, scene, camera, sky, lights, arena, materials
 // Export a factory to build and return references used by the game
 
-import { createGrassMesh } from './graphics/grass.js';
+import { createGrassMesh, cullGrassUnderObjects } from './graphics/grass.js';
+import { createVegetationMesh } from './graphics/vegetation.js';
+import { BiomeManager } from './biome.js';
+import { createFauna } from './fauna.js';
 
-export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
+export function createWorld(THREE, rng = Math.random, arenaShape = 'box', biome = 'grass'){
   // Renderer
   const params = (new URL(window.location.href)).searchParams;
   const renderer = new THREE.WebGLRenderer({ antialias: params.get('aa') === '1', powerPreference: 'high-performance' });
@@ -134,10 +137,28 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
   applyWeatherUniforms(mats.wall);
   mats.weather = weatherUniforms;
 
+  BiomeManager.init({ scene, skyMat, mats });
+  const fauna = createFauna({ scene, THREE });
+  BiomeManager.attachFauna(fauna);
+  const vegetation = { meshes: [], setConfig(list){
+    for (const m of this.meshes) scene.remove(m);
+    this.meshes.length = 0;
+    if (!floorGeo) return;
+    for (const cfg of list){
+      const mesh = createVegetationMesh({ floorGeometry: floorGeo, type: cfg.type, count: cfg.count });
+      scene.add(mesh);
+      cullGrassUnderObjects(mesh, objects);
+      this.meshes.push(mesh);
+    }
+  }};
+  BiomeManager.attachVegetation(vegetation);
+  BiomeManager.setBiome(biome);
+
   // Collidable objects
   const objects = [];
   let arenaRadius = Infinity;
   let grassMesh = null;
+  let floorGeo = null;
 
   function makeArena(shape){
     const wallH = 6, wallT = 1;
@@ -155,6 +176,8 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
       });
       scene.add(grass);
       grassMesh = grass;
+      floorGeo = g;
+      vegetation.setConfig(BiomeManager._biomes[BiomeManager.getCurrentBiome()]?.vegetation || []);
     };
 
     const buildPoly = (pts, skipFn) => {
@@ -219,7 +242,7 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
 
   makeArena(arenaShape);
 
-  return { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius, grassMesh };
+  return { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius, grassMesh, vegetation: vegetation.meshes, fauna };
 }
 
 

@@ -1,7 +1,8 @@
 import * as THREE from 'https://unpkg.com/three@0.159.0/build/three.module.js';
 import { PointerLockControls } from 'https://unpkg.com/three@0.159.0/examples/jsm/controls/PointerLockControls.js?module';
 import { WeatherSystem } from './weather.js';
-import { createWorld } from './world.js?v=2';
+import { createWorld } from './world.js?v=3';
+import { BiomeManager } from './biome.js';
 import { makeSeededRng, makeNamespacedRng, generateSeedString } from './util/rng.js';
 import { EnemyManager } from './enemies.js';
 import { PlayerController } from './player.js';
@@ -78,6 +79,9 @@ if (!seed) {
 }
 const rng = makeSeededRng(seed);
 
+const biomeOrder = ['grass', 'desert', 'urban'];
+let biomeIndex = 0;
+
 // Seed HUD
 const seedEl = document.getElementById('seed');
 const copySeedBtn = document.getElementById('copySeed');
@@ -110,7 +114,7 @@ const mobileControlsEl = document.getElementById('mobileControls');
 if (mobileControlsEl) mobileControlsEl.style.display = isMobile ? '' : 'none';
 
 // ------ World (renderer, scene, camera, lights, sky, materials, arena) ------
-const { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius, grassMesh } = createWorld(THREE, rng, arenaShape);
+const { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius, grassMesh, vegetation, fauna } = createWorld(THREE, rng, arenaShape, biomeOrder[0]);
 const wantEditor = (new URL(window.location.href)).searchParams.get('editor') === '1';
 const storyParam = (new URL(window.location.href)).searchParams.get('story');
 const storyDisabled = storyParam === '0' || storyParam === 'false';
@@ -175,12 +179,15 @@ if (levelParam) {
 } else {
   obstacleManager.generate(seed, objects);
 }
-cullGrassUnderObjects(grassMesh, objects);
+if (grassMesh) cullGrassUnderObjects(grassMesh, objects);
+if (vegetation) vegetation.forEach(v => cullGrassUnderObjects(v, objects));
 // Update player collider list now that obstacles have been added
 // (player constructed below will read from updated objects)
 
 // Weather system
 const weather = new WeatherSystem({ THREE, scene, skyMat, hemi, dir, mats });
+BiomeManager.attachWeather(weather);
+BiomeManager.setBiome(BiomeManager.getCurrentBiome());
 
 // Adjust player forward direction for crosswind when windy
 const _origGetDir = camera.getWorldDirection.bind(camera);
@@ -457,6 +464,10 @@ enemyManager.onWave = (_wave, startingAlive) => {
   if (story) story.onWave(enemyManager.wave);
   // Toast
   showToast(`Wave ${_wave} start`);
+  if (enemyManager.wave > 1 && (enemyManager.wave - 1) % 5 === 0) {
+    biomeIndex = (biomeIndex + 1) % biomeOrder.length;
+    BiomeManager.setBiome(biomeOrder[biomeIndex]);
+  }
 };
 enemyManager.onRemaining = () => updateHUD();
 
@@ -750,6 +761,7 @@ function step(){
     for(let i=tracers.length-1;i>=0;i--){ const obj = tracers[i]; obj.userData.life += dt; if(obj.isLine){ obj.material.opacity = Math.max(0, 1 - obj.userData.life/0.12); if(obj.userData.life>0.12){ scene.remove(obj); tracers.splice(i,1); } } else { obj.scale.multiplyScalar(1 + dt*10); if(obj.material.opacity===undefined){ obj.material.transparent=true; obj.material.opacity=1; } obj.material.opacity = Math.max(0, 1 - obj.userData.life/0.25); if(obj.userData.life>0.25){ scene.remove(obj); tracers.splice(i,1); } } }
     // effects update
     effects.update(dt);
+    if (fauna && fauna.update) fauna.update(dt);
 
     // pickups update (magnet + animation)
     pickups.update(dt, controls.getObject().position, (type, amount, where) => {
@@ -824,19 +836,30 @@ function step(){
     // Weather update (uses gameTime so it freezes cleanly when paused)
     weather.update(gameTime, controls.getObject());
 
-    // Update grass appearance based on precipitation and wind
+    // Update vegetation appearance based on precipitation and wind
     if (grassMesh && grassMesh.material && grassMesh.material.uniforms) {
       const rainMix = weather._mix?.rain || 0;
       const snowMix = weather._mix?.snow || 0;
       const heightFactor = Math.max(0.2, 1 - 0.3 * rainMix - 0.6 * snowMix);
-      grassMesh.material.uniforms.heightFactor.value = heightFactor;
-      grassMesh.material.uniforms.snowMix.value = snowMix;
-
       const windMix = Math.max(weather._mix?.wind || 0, weather._mix?.sand || 0);
       const wind = weather.wind || { x: 1, z: 0 };
       const len = Math.hypot(wind.x, wind.z) || 1;
+
+      grassMesh.material.uniforms.heightFactor.value = heightFactor;
+      grassMesh.material.uniforms.snowMix.value = snowMix;
       grassMesh.material.uniforms.windDirection.value.set(wind.x / len, wind.z / len);
       grassMesh.material.uniforms.windStrength.value = 0.2 + 3.0 * windMix;
+
+      if (vegetation) {
+        for (const mesh of vegetation) {
+          if (mesh.material && mesh.material.uniforms) {
+            mesh.material.uniforms.heightFactor.value = heightFactor;
+            mesh.material.uniforms.snowMix.value = snowMix;
+            mesh.material.uniforms.windDirection.value.set(wind.x / len, wind.z / len);
+            mesh.material.uniforms.windStrength.value = 0.2 + 3.0 * windMix;
+          }
+        }
+      }
     }
 
     // Feed music mood from weather for subtle DNA
