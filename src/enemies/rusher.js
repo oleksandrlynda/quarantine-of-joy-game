@@ -182,6 +182,11 @@ export class RusherEnemy {
       desired.negate();
     }
 
+    if (!this._charging && dist < 2) {
+      const repel = toPlayer.clone().negate().normalize();
+      desired = desired.add(repel.multiplyScalar(0.5)).normalize();
+    }
+
     // Dash logic: burst when mid-range and LOS is clear
     if (this._dashCooldown > 0) this._dashCooldown = Math.max(0, this._dashCooldown - dt);
     if (this._charging) {
