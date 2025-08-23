@@ -95,7 +95,7 @@ export class SFX {
     const clamp01 = (v)=> Math.max(0, Math.min(1, v));
     this._weatherLoops.rain.gain.setTargetAtTime(clamp01(rain) * 0.6, t, 0.5);
     this._weatherLoops.wind.gain.setTargetAtTime(clamp01(wind) * 0.5, t, 0.5);
-    this._weatherLoops.snow.gain.setTargetAtTime(clamp01(snow) * 0.3, t, 0.5);
+    this._weatherLoops.snow.gain.setTargetAtTime(clamp01(snow) * 0.05, t, 0.5);
   }
 
   // Utility: make a gain with AR envelope

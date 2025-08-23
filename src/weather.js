@@ -18,7 +18,8 @@ export class WeatherSystem {
     this.snow = this.createSnowPoints(2600);
     this.fog = this.createFogPoints(1100);
     this.sand = this.createSandPoints(1200);
-    this.rain.visible = false; this.snow.visible = false; this.fog.visible = false; this.sand.visible = false;
+    this.windPoints = this.createWindPoints(1500);
+    this.rain.visible = false; this.snow.visible = false; this.fog.visible = false; this.sand.visible = false; this.windPoints.visible = false;
 
     // Crossfade state for smoother transitions
     this._mix = { rain: 0, snow: 0, fog: 0, sand: 0, wind: 0 };
@@ -196,11 +197,13 @@ export class WeatherSystem {
     if (this.snow && this.snow.material?.uniforms?.uAlpha){ this.snow.material.uniforms.uAlpha.value = this._mix.snow; }
     if (this.fog  && this.fog.material?.uniforms?.uAlpha){ this.fog.material.uniforms.uAlpha.value  = this._mix.fog; }
     if (this.sand && this.sand.material?.uniforms?.uAlpha){ this.sand.material.uniforms.uAlpha.value = this._mix.sand; }
+    if (this.windPoints && this.windPoints.material?.uniforms?.uAlpha){ this.windPoints.material.uniforms.uAlpha.value = this._mix.wind; }
 
     if (this.rain) this.rain.visible = this._mix.rain > 0.01;
     if (this.snow) this.snow.visible = this._mix.snow > 0.01;
     if (this.fog)  this.fog.visible  = this._mix.fog  > 0.01;
     if (this.sand) this.sand.visible = this._mix.sand > 0.01;
+    if (this.windPoints) this.windPoints.visible = this._mix.wind > 0.01;
 
     const wScale = 1 + this._mix.wind * 3.0;
     this.wind.copy(this._baseWind).multiplyScalar(wScale);
@@ -358,6 +361,17 @@ export class WeatherSystem {
       uniforms:{ uTime:this.uTime, uSize:{value:48.0}, uHeight:{value:Math.min(60, this.height)}, uArea:{value:this.areaSize}, uAlpha:{value:0.0} },
       vertexShader:`uniform float uTime; uniform float uHeight; uniform float uSize; uniform float uArea; attribute float aSpeed; attribute float aSeed; varying float vAlpha; void main(){ vec3 pos=position; float s=aSeed*6.283; float halfA=0.5*uArea; float fx=position.x + sin(uTime*0.10 + s)*1.6 + sin(uTime*0.23 + s*1.3)*1.1; float fz=position.z + cos(uTime*0.08 + s)*1.7 + cos(uTime*0.19 + s*0.9)*1.2; pos.x = -halfA + mod(fx + halfA, uArea); pos.z = -halfA + mod(fz + halfA, uArea); pos.y = mod(position.y + sin(uTime*0.12 + s)*0.6, uHeight); vec4 mv = modelViewMatrix * vec4(pos,1.0); gl_Position = projectionMatrix * mv; float dist = max(0.001, -mv.z); gl_PointSize = uSize * clamp(180.0/dist, 10.0, 95.0); float base = clamp(0.06 + fract(aSeed*97.0)*0.14, 0.06, 0.2); float nearFade = clamp((dist - 2.0) / 10.0, 0.0, 1.0); vAlpha = base * nearFade; }`,
       fragmentShader:`precision mediump float; varying float vAlpha; uniform float uAlpha; void main(){ vec2 pc = gl_PointCoord - 0.5; float d2 = dot(pc, pc); float soft = exp(-4.5 * d2); float a = soft * vAlpha * uAlpha; if(a < 0.01) discard; vec3 col = vec3(0.86, 0.92, 0.99); gl_FragColor = vec4(col, a); }`
+    });
+    const points = new THREE.Points(g, material); this.group.add(points); return points;
+  }
+
+  createWindPoints(count){
+    const THREE = this.THREE; const g = this.createBaseGeometry(count);
+    const material = new THREE.ShaderMaterial({
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      uniforms:{ uTime:this.uTime, uSize:{value:1.2}, uHeight:{value:this.height}, uWind:{value:this.wind}, uArea:{value:this.areaSize}, uAlpha:{value:0.0} },
+      vertexShader:`uniform float uTime; uniform float uHeight; uniform vec3 uWind; uniform float uSize; uniform float uArea; attribute float aSeed; varying float vFade; void main(){ vec3 pos=position; float halfA=0.5*uArea; float fx=position.x+uWind.x*uTime*2.0+sin(uTime*1.7+aSeed*6.283)*0.3; float fz=position.z+uWind.z*uTime*2.0+cos(uTime*1.3+aSeed*6.283)*0.3; pos.x=-halfA+mod(fx+halfA,uArea); pos.z=-halfA+mod(fz+halfA,uArea); pos.y=mod(position.y+sin(uTime*0.5+aSeed*6.283)*0.3,uHeight); vec4 mv=modelViewMatrix*vec4(pos,1.0); gl_Position=projectionMatrix*mv; float dist=-mv.z; gl_PointSize=uSize*clamp(180.0/dist,1.0,6.0); vFade=0.5; }`,
+      fragmentShader:`precision mediump float; varying float vFade; uniform float uAlpha; void main(){ vec2 pc=gl_PointCoord-0.5; float d=length(pc); float a=smoothstep(0.5,0.0,d)*vFade*uAlpha; if(a<0.01) discard; vec3 col=vec3(0.9,0.95,1.0); gl_FragColor=vec4(col,a); }`
     });
     const points = new THREE.Points(g, material); this.group.add(points); return points;
   }
