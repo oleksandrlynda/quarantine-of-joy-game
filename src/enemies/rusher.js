@@ -95,6 +95,8 @@ export class RusherEnemy {
     this._dashCooldown = 0;        // until next dash available
     this._dashDir = new THREE.Vector3();
     this._charging = false;       // currently charging forward
+    this._dashTotal = 0;          // total dash duration at launch
+    this._overrunTimer = 0;       // extra run time after dash if missed
     this._hitCooldown = 0;        // time until next hit allowed
     this._hasDealtHit = false;    // whether we hit during current dash
     this._lastPos = body.position.clone();
@@ -122,6 +124,8 @@ export class RusherEnemy {
       if (this._windUpTimer === 0) {
         // wind-up finished -> start dash
         this._dashTimer = (this.cfg.dashDuration ?? 0.5) + Math.random() * 0.2;
+        this._dashTotal = this._dashTimer;
+        this._overrunTimer = 0;
         this._dashCooldown = 1.2 + Math.random() * 0.8;
         this._charging = true;
         this._hitCooldown = 0;
@@ -175,9 +179,18 @@ export class RusherEnemy {
     // Dash logic: burst when mid-range and LOS is clear
     if (this._dashCooldown > 0) this._dashCooldown = Math.max(0, this._dashCooldown - dt);
     if (this._charging) {
-      this._dashTimer = Math.max(0, this._dashTimer - dt);
-      if (this._dashTimer === 0) {
+      if (this._dashTimer > 0) {
+        this._dashTimer = Math.max(0, this._dashTimer - dt);
+        if (this._dashTimer === 0 && !this._hasDealtHit) {
+          const overrunFrac = 0.1 + Math.random() * 0.1;
+          this._overrunTimer = this._dashTotal * overrunFrac;
+        }
+      } else if (this._overrunTimer > 0) {
+        this._overrunTimer = Math.max(0, this._overrunTimer - dt);
+      }
+      if (this._dashTimer === 0 && this._overrunTimer === 0) {
         this._charging = false;
+        this._dashTotal = 0;
         this._recoverTimer = 0.5 + Math.random() * 0.3;
         if (!this._hasDealtHit) this._stunTimer = 0.6 + Math.random() * 0.3;
         this._flinchAccum = 0;
@@ -207,6 +220,9 @@ export class RusherEnemy {
     const movedVec = e.position.clone().sub(before); movedVec.y = 0;
     if (this._charging && movedVec.lengthSq() + 1e-6 < step.lengthSq()) {
       this._charging = false;
+      this._dashTimer = 0;
+      this._overrunTimer = 0;
+      this._dashTotal = 0;
       this._recoverTimer = 0.5 + Math.random() * 0.3;
       this._stunTimer = 0.6 + Math.random() * 0.3;
       try {
@@ -275,6 +291,8 @@ export class RusherEnemy {
       if (this._flinchAccum >= this._flinchThreshold) {
         this._charging = false;
         this._dashTimer = 0;
+        this._overrunTimer = 0;
+        this._dashTotal = 0;
         this._flinchTimer = 0.45;
         this._flinchAccum = 0;
       }
