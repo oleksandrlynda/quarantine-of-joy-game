@@ -4,6 +4,8 @@
 //  P2 (armor off): rapid beam bursts; limited turret pods; weakpoint window (head/core vents)
 // Hazards: intermittent sizzling tiles with clear safe gaps
 
+import { logError } from '../util/log.js';
+
 import { SuppressionNodes } from './nodes.js';
 import { createSanitizerAsset } from '../assets/boss_sanitizer.js';
 
@@ -161,7 +163,7 @@ export class Sanitizer {
     const fovScale = [1.0, 0.9, 0.8, 0.7][Math.min(3, alive)];
     const regenMul = [1.0, 0.75, 0.6, 0.4][Math.min(3, alive)];
     // Prefer engine hooks if present; otherwise blackboard fallbacks
-    try { ctx.setPlayerFovScale?.(fovScale); } catch(_) {}
+    try { ctx.setPlayerFovScale?.(fovScale); } catch (e) { logError(e); }
     ctx.blackboard = ctx.blackboard || {};
     ctx.blackboard.playerFovScale = fovScale;
     ctx.blackboard.playerRegenMul = regenMul;
@@ -381,7 +383,7 @@ export class Sanitizer {
       ctx.onPlayerDamage(10, 'pulse');
       const dir = toPlayer.normalize();
       ctx.player.position.add(dir.multiplyScalar(radius * 0.35));
-      try { window?._EFFECTS?.ring?.(e.position.clone(), radius, 0x93c5fd); } catch(_) {}
+      try { window?._EFFECTS?.ring?.(e.position.clone(), radius, 0x93c5fd); } catch (e) { logError(e); }
       this._pulseCd = 3.5 + Math.random() * 1.0;
     } else {
       this._pulseCd = 0.1;
@@ -417,7 +419,7 @@ export class Sanitizer {
           this._jumpTimer = 0;
           const radius = 7.0;
           const angle = Math.PI / 4; // 45° arc
-          try { window?._EFFECTS?.spawnShockwaveArc?.(e.position.clone(), this._jumpDir.clone(), angle, radius, 0xffdd55); } catch(_) {}
+          try { window?._EFFECTS?.spawnShockwaveArc?.(e.position.clone(), this._jumpDir.clone(), angle, radius, 0xffdd55); } catch (e) { logError(e); }
           const toP = ctx.player.position.clone().sub(e.position); toP.y = 0;
           const dist = toP.length();
           if (dist <= radius) {

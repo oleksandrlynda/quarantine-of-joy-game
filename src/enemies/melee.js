@@ -1,6 +1,7 @@
 import { createBlockBot } from '../assets/blockbot.js';
 import { createGruntBot } from '../assets/gruntbot.js';
 import { createGruntlingBot } from '../assets/gruntlingbot.js';
+import { logError } from '../util/log.js';
 // Asset cache: build models once and clone for spawns
 const _enemyAssetCache = {
         tank: null,
@@ -117,7 +118,7 @@ cur = cur.children[idx]; }
 
     body.userData = { type: cfg.type, head, hp: cfg.hp };
     // Ensure head has unique material to avoid shared emissive changes from other classes
-    try { if (head && head.material) head.material = head.material.clone(); } catch(_) {}
+    try { if (head && head.material) head.material = head.material.clone(); } catch (e) { logError(e); }
     this.root = body;
 
     this.speed = cfg.speedMin + Math.random() * (cfg.speedMax - cfg.speedMin);
@@ -561,8 +562,8 @@ cur = cur.children[idx]; }
       const stripeR = rear?.children?.find?.(c => c.material && c.material.emissiveIntensity != null);
       if (stripeL) stripeL.material.emissiveIntensity = 1.2;
       if (stripeR) stripeR.material.emissiveIntensity = 1.2;
-    } catch(_){}
-    try { window?._SFX?.enemyVocal?.(this.cfg?.type || 'grunt'); } catch(_){}
+    } catch (e) { logError(e); }
+    try { window?._SFX?.enemyVocal?.(this.cfg?.type || 'grunt'); } catch (e) { logError(e); }
   }
 
   _animateArmsStrike(attack) {
@@ -596,7 +597,7 @@ cur = cur.children[idx]; }
         const stripe = arm.children?.find?.(c => c.material && c.material.emissiveIntensity != null);
         if (stripe) stripe.material.emissiveIntensity = 0.8;
       }
-    } catch(_){}
+    } catch (e) { logError(e); }
   }
 
   onHit(damage, isHead) {
@@ -676,12 +677,12 @@ cur = cur.children[idx]; }
     }
 
     // VFX hooks
-    try { window?._EFFECTS?.ring?.(pos.clone(), radius, 0xdff3ff); } catch(_) {}
-    try { window?._EFFECTS?.spawnBulletImpact?.(pos.clone().setY(0.05), new THREE.Vector3(0,1,0)); } catch(_) {}
+    try { window?._EFFECTS?.ring?.(pos.clone(), radius, 0xdff3ff); } catch (e) { logError(e); }
+    try { window?._EFFECTS?.spawnBulletImpact?.(pos.clone().setY(0.05), new THREE.Vector3(0,1,0)); } catch (e) { logError(e); }
     try {
       if (window?._EFFECTS?.spawnGroundSlam) window._EFFECTS.spawnGroundSlam(pos.clone(), radius);
       else window?._EFFECTS?.ring?.(pos.clone(), radius, 0xdff3ff);
-    } catch(_) {}
-    try { window?._SFX?.tankSlam?.(); } catch(_) {}
+    } catch (e) { logError(e); }
+    try { window?._SFX?.tankSlam?.(); } catch (e) { logError(e); }
   }
 }

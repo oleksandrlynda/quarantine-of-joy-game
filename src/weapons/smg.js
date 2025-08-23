@@ -1,5 +1,6 @@
 import { Weapon } from './base.js';
 import { performHitscan } from './hitscan.js';
+import { logError } from '../util/log.js';
 
 export class SMG extends Weapon {
   constructor() {
@@ -51,7 +52,7 @@ export class SMG extends Weapon {
     const end = res.endPoint || origin.clone().add(dir.clone().multiplyScalar(this._range));
 
     if (res.type === 'enemy' && res.enemyRoot) {
-      try { window._HUD && window._HUD.showHitmarker && window._HUD.showHitmarker(); } catch(_) {}
+      try { window._HUD && window._HUD.showHitmarker && window._HUD.showHitmarker(); } catch (e) { logError(e); }
       const isHead = !!(res.isHead || res.bodyPart==='head');
       const dist = res.distance || origin.distanceTo(end);
       const fall = dist <= this._falloffStart ? 1.0 : Math.max(0.7, 1 - (dist - this._falloffStart) / (this._range - this._falloffStart));

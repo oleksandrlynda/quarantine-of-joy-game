@@ -3,6 +3,7 @@
 // Expects EnemyManager.spawnAt('flyer', pos, { countsTowardAlive: true }) to yield a FlyerEnemy instance.
 // Asset used: createSwarmWarden({ THREE, mats, scale, palette })
 //
+import { logError } from '../util/log.js';
 // Fairness:
 // - No spawns inside player safe radius
 // - Trickle respawn (>=0.28s) from belly bays; respects arena clamp
@@ -72,7 +73,7 @@ export class SwarmWarden {
       for (const r of Array.from(this._children)) {
         try {
           if (this.enemyManager.enemies.has(r)) this.enemyManager.remove(r);
-        } catch(_) {}
+        } catch (e) { logError(e); }
       }
     }
     this._children.clear();
@@ -258,7 +259,7 @@ export class SwarmWarden {
               // store anchor for potential future steering integrations
               inst._homeAnchor = this._assignAnchor(root);
             }
-          } catch(_) {}
+          } catch (e) { logError(e); }
           this._children.add(root);
           this._regenQueue = Math.max(0, this._regenQueue - 1);
           this._regenCd = this.trickleBase + Math.random() * 0.18;

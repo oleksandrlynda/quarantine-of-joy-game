@@ -2,6 +2,7 @@
 // Export a factory to build and return references used by the game
 
 import { createGrassMesh } from './graphics/grass.js';
+import { logError } from './util/log.js';
 
 export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
   // Renderer
@@ -11,12 +12,12 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
   document.body.appendChild(renderer.domElement);
   renderer.setPixelRatio(Math.min(2, (window.devicePixelRatio||1)));
   // Color management & tone mapping
-  try { renderer.outputColorSpace = THREE.SRGBColorSpace; } catch(_) {}
+  try { renderer.outputColorSpace = THREE.SRGBColorSpace; } catch (e) { logError(e); }
   try {
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     const tone = params.get('tone');
     if (tone === '0') renderer.toneMapping = THREE.NoToneMapping;
-  } catch(_) {}
+  } catch (e) { logError(e); }
   // Feature toggles from URL
   const enableShadows = params.get('shadows') === '1'; // default off for perf
   // Shadows (single directional) — disabled by default
@@ -103,7 +104,7 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
       sc.near = 0.5; sc.far = 80;
       sc.left = -45; sc.right = 45; sc.top = 45; sc.bottom = -45;
     }
-  } catch(_) {}
+  } catch (e) { logError(e); }
   skyMat.uniforms.sunDir.value.copy(dir.position).normalize();
 
   // Materials used across the game

@@ -1,5 +1,6 @@
 // Echo Hydraclone (Fractal Replicator) — boss + clones logic
 import { createHydracloneAsset } from '../assets/boss_hydraclone.js';
+import { logError } from '../util/log.js';
 
 const GEN = {
   0: { scale: 1.00, hp: 9000, speed: 2.6, dps: 20,  splitCount: 4 },
@@ -173,7 +174,7 @@ export class Hydraclone {
       });
       root.position.copy(path[0]);
       ctx.scene.add(root);
-      try { window?._EFFECTS?.ring?.(path[0].clone(), 0.7, 0x22e3ef); } catch (_) {}
+      try { window?._EFFECTS?.ring?.(path[0].clone(), 0.7, 0x22e3ef); } catch (e) { logError(e); }
       this._mirrorClones.push({
         root,
         path,
@@ -201,7 +202,7 @@ export class Hydraclone {
       const knock = 1.4 + (this.gen * 0.2);
       ctx.player.position.add(pushDir.multiplyScalar(knock));
     }
-    try { window?._EFFECTS?.ring?.(origin.clone(), 1.8 + this.gen * 0.6, 0x22e3ef); } catch(_) {}
+    try { window?._EFFECTS?.ring?.(origin.clone(), 1.8 + this.gen * 0.6, 0x22e3ef); } catch (e) { logError(e); }
 
     // Spawn ring (avoid player safe radius ~2.0)
     const safeR = 2.0;
@@ -232,7 +233,7 @@ export class Hydraclone {
 
     // Ensure at least one child spawns immediately so the queue keeps ticking
     // (otherwise the dying parent may be removed before processing the queue)
-    try { HydraGlobal.processQueue(1.0, ctx); } catch(_) {}
+    try { HydraGlobal.processQueue(1.0, ctx); } catch (e) { logError(e); }
   }
 
   // --- Movement helper (surround/orbit bias) ---
@@ -430,7 +431,7 @@ export class Hydraclone {
         player: this.enemyManager?.getPlayer ? this.enemyManager.getPlayer() : { position: new this.THREE.Vector3() },
         scene: this.enemyManager?.scene
       };
-      try { this._splitIntoChildren(ctx); } catch(_) {}
+      try { this._splitIntoChildren(ctx); } catch (e) { logError(e); }
       this._didSplit = true;
     }
     if (!this._didRegisterDeath) {

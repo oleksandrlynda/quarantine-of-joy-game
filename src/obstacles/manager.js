@@ -2,6 +2,7 @@ import { makeSeededRng } from '../util/rng.js';
 import { Destructible } from './destructible.js';
 import { MazeGenerator } from './maze.js';
 import { generatePlatforms } from './platforms.js';
+import { logError } from '../util/log.js';
 
 export class ObstacleManager {
   constructor(THREE, scene, mats) {
@@ -68,7 +69,7 @@ export class ObstacleManager {
           arenaRadiusSq = Math.pow(maxR - 1, 2); // subtract a small margin from outer radius
           continue;
         }
-        try { objectBBs.push(new THREE.Box3().setFromObject(o)); } catch (_) {}
+        try { objectBBs.push(new THREE.Box3().setFromObject(o)); } catch (e) { logError(e); }
       }
     }
     const arenaRadius = arenaRadiusSq ? Math.sqrt(arenaRadiusSq) : 35;
@@ -107,7 +108,7 @@ export class ObstacleManager {
       const existingAABBs = [];
       if (this.objects && this.objects.length) {
         for (const o of this.objects) {
-          try { existingAABBs.push(new this.THREE.Box3().setFromObject(o)); } catch(_){}
+          try { existingAABBs.push(new this.THREE.Box3().setFromObject(o)); } catch (e) { logError(e); }
         }
       }
       const { meshes: platformMeshes } = generatePlatforms({
@@ -142,7 +143,7 @@ export class ObstacleManager {
           arenaRadiusSq = Math.pow(maxR - 1, 2);
           continue;
         }
-        try { objectBBs.push(new THREE.Box3().setFromObject(o)); } catch(_){}
+        try { objectBBs.push(new THREE.Box3().setFromObject(o)); } catch (e) { logError(e); }
       }
     }
     const arenaRadius = arenaRadiusSq ? Math.sqrt(arenaRadiusSq) : 35;
@@ -466,7 +467,7 @@ export class ObstacleManager {
         this._deferred.length = 0;
       }
       this._notifyCollidersChanged();
-    } catch(_) { /* ignore flush errors */ }
+    } catch (e) { logError(e); }
   }
 
   handleHit(hitObject, damage) {
@@ -621,7 +622,7 @@ export class ObstacleManager {
       if (typeof this.onCollidersChanged === 'function') {
         this.onCollidersChanged(this.objects || []);
       }
-    } catch(_) {}
+    } catch (e) { logError(e); }
   }
 }
 

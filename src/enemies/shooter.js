@@ -1,4 +1,5 @@
 import { createShooterBot } from '../assets/shooter_bot.js';
+import { logError } from '../util/log.js';
 export class ShooterEnemy {
   constructor({ THREE, mats, cfg, spawnPos }) {
     this.THREE = THREE;
@@ -9,7 +10,7 @@ export class ShooterEnemy {
     const body = built.root; const head = built.head; this._refs = built.refs || {};
     body.position.copy(spawnPos);
     // Ensure head has a unique material so emissive glow doesn't affect other shooters
-    try { if (head && head.material) head.material = head.material.clone(); } catch(_) {}
+    try { if (head && head.material) head.material = head.material.clone(); } catch (e) { logError(e); }
   
     body.userData = { type: cfg.type, head, hp: cfg.hp };
     this.root = body;
@@ -77,9 +78,9 @@ export class ShooterEnemy {
     }
     if (this._recoil > 0) {
       this._recoil = Math.max(0, this._recoil - dt * 6);
-      try { if (this._refs && this._refs.gun) this._refs.gun.position.z = -0.05 * this._recoil; } catch(_) {}
+      try { if (this._refs && this._refs.gun) this._refs.gun.position.z = -0.05 * this._recoil; } catch (e) { logError(e); }
     } else {
-      try { if (this._refs && this._refs.gun) this._refs.gun.position.z *= Math.max(0, 1 - dt * 10); } catch(_) {}
+      try { if (this._refs && this._refs.gun) this._refs.gun.position.z *= Math.max(0, 1 - dt * 10); } catch (e) { logError(e); }
     }
   
     // NEW: decay spread bloom
@@ -361,7 +362,7 @@ export class ShooterEnemy {
           gunGroup.parent.updateWorldMatrix?.(true, false);
           gunGroup.lookAt(aim);
         }
-      } catch(_){}
+      } catch (e) { logError(e); }
       // Flash and recoil
       this._flashTimer = 0.08;
       this._recoil = 1.0;
@@ -562,7 +563,7 @@ export class ShooterEnemy {
   _muzzleWorld() {
     const THREE = this.THREE;
     if (this._refs && this._refs.muzzle && this._refs.muzzle.parent) {
-      try { return this._refs.muzzle.getWorldPosition(new THREE.Vector3()); } catch(_) {}
+      try { return this._refs.muzzle.getWorldPosition(new THREE.Vector3()); } catch (e) { logError(e); }
     }
     return new THREE.Vector3(this.root.position.x, this.root.position.y + 1.4, this.root.position.z);
   }

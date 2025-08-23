@@ -1,5 +1,6 @@
 import { Weapon } from './base.js';
 import { performHitscan } from './hitscan.js';
+import { logError } from '../util/log.js';
 
 export class Rifle extends Weapon {
   constructor() {
@@ -55,7 +56,7 @@ export class Rifle extends Weapon {
     const res = performHitscan({ THREE, camera, raycaster, enemyManager, objects, origin, dir, range: effectiveRange });
     let end = res.endPoint || origin.clone().add(dir.clone().multiplyScalar(effectiveRange));
     if (res.type === 'enemy' && res.enemyRoot) {
-      try { window._HUD && window._HUD.showHitmarker && window._HUD.showHitmarker(); } catch(_) {}
+      try { window._HUD && window._HUD.showHitmarker && window._HUD.showHitmarker(); } catch (e) { logError(e); }
       const isHead = !!(res.isHead || res.bodyPart==='head');
       // stronger falloff beyond ~35 units
       const dist = res.distance || origin.distanceTo(end);

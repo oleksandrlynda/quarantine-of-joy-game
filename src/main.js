@@ -18,6 +18,7 @@ import { Progression } from './progression.js';
 import { loadAllModels, prewarmAllShaders } from '../loader.js?v=3';
 import { StoryManager } from './story.js';
 import { t } from './i18n/index.js';
+import { logError } from './util/log.js';
 import { cullGrassUnderObjects } from './graphics/grass.js';
 
 // Prefer the flag set in index.html; fallback to media query
@@ -32,14 +33,14 @@ let musicChoice = 'library';
 try {
   const saved = localStorage.getItem(MUSIC_KEY);
   if (saved) musicChoice = saved;
-} catch (_) {}
+} catch (e) { logError(e); }
 let sunoAudio = null; // HTMLAudioElement for Suno playback
 let sunoTrackIndex = 0; // rotate through SUNO_TRACKS
 if (musicSelect) {
   musicSelect.value = musicChoice;
   musicSelect.addEventListener('change', e => {
     musicChoice = e.target.value;
-    try { localStorage.setItem(MUSIC_KEY, musicChoice); } catch (_) {}
+    try { localStorage.setItem(MUSIC_KEY, musicChoice); } catch (e) { logError(e); }
     if (musicChoice === 'suno') {
       playSuno();
     } else {
@@ -57,7 +58,7 @@ let startQuality = null;
 try {
   const savedQ = localStorage.getItem(QUALITY_KEY);
   if (savedQ && !['aa','shadows','tone','autoDPR'].some(k => params.has(k))) startQuality = savedQ;
-} catch (_) {}
+} catch (e) { logError(e); }
 const shapeSelect = document.getElementById('arenaShape');
 // TODO: Implement later different arena shapes
 // let arenaShape = params.get('shape') || (shapeSelect ? shapeSelect.value : 'box');
@@ -168,7 +169,8 @@ if (levelParam) {
         }
       })();
     }
-  } catch(_e){
+  } catch (e) {
+    logError(e);
     // On any error, fall back to procedural
     obstacleManager.generate(seed, objects);
   }
@@ -254,8 +256,8 @@ obstacleManager.onPlayerDamage = (amount) => {
 };
 // When obstacles change, refresh colliders for both player and enemies
 obstacleManager.onCollidersChanged = (objs) => {
-  try { if (player && typeof player.refreshColliders === 'function') player.refreshColliders(objs); } catch(_) {}
-  try { if (enemyManager && typeof enemyManager.refreshColliders === 'function') enemyManager.refreshColliders(objs); } catch(_) {}
+  try { if (player && typeof player.refreshColliders === 'function') player.refreshColliders(objs); } catch (e) { logError(e); }
+  try { if (enemyManager && typeof enemyManager.refreshColliders === 'function') enemyManager.refreshColliders(objs); } catch (e) { logError(e); }
 };
 
 // ------ Gun / Shooting ------
@@ -281,7 +283,7 @@ if (debugPerf) {
   dbgCallsEl.style.pointerEvents = 'none';
   dbgCallsEl.id = 'drawCalls';
   dbgCallsEl.textContent = 'Calls: 0  Tris: 0  Tex: 0';
-  try { document.body.appendChild(dbgCallsEl); } catch(_) {}
+  try { document.body.appendChild(dbgCallsEl); } catch (e) { logError(e); }
 }
 const weaponNameEl = document.getElementById('weapon');
 const weaponIconEl = document.getElementById('weaponIcon');
@@ -307,7 +309,7 @@ function clearTicker(){
     while (tickerEl.firstChild) {
       tickerEl.removeChild(tickerEl.firstChild);
     }
-  } catch(_){}
+  } catch (e) { logError(e); }
 }
 
 // Best score persistence
@@ -315,7 +317,7 @@ const BEST_KEY = 'bs3d_best_score';
 try {
   const savedBest = localStorage.getItem(BEST_KEY);
   if (savedBest != null) best = Number(savedBest) || 0;
-} catch (e) { /* ignore */ }
+} catch (e) { logError(e); }
 
 // Combo state
 const comboCfg = {
@@ -395,7 +397,7 @@ function updateHUDComboAndBoss(){
         hydraDesc += v.descendants || 0;
       }
     }
-  } catch(_) {}
+  } catch (e) { logError(e); }
   if (hydraWrapEl) {
     if (hydraAlive > 0) {
       hydraWrapEl.style.display = '';
@@ -432,14 +434,14 @@ function updateHUDComboAndBoss(){
         bossHudEl.style.display = 'none';
       }
     }
-  } catch(_) {}
+  } catch (e) { logError(e); }
 }
 
 function addScore(points){
   score += points;
   if (score > best) {
     best = score;
-    try { localStorage.setItem(BEST_KEY, String(best)); } catch(e) { /* ignore */ }
+    try { localStorage.setItem(BEST_KEY, String(best)); } catch (e) { logError(e); }
   }
   updateHUD();
 }
@@ -471,7 +473,7 @@ const S = new SFX({
   volume: baseSfxVol * storedSound,
 });
 // Expose for ambient enemy vocals
-try { window._SFX = S; } catch(_) {}
+try { window._SFX = S; } catch (e) { logError(e); }
 let currentSongIndex = 0;
 let lastSongRotateBar = -1;
 function loadCurrentSong(){
@@ -504,7 +506,7 @@ const SUNO_BOSS_TRACK = 'assets/music/boss-standoff 1 (Suno Remix) - non commeri
 
 function stopSuno(){
   if (sunoAudio) {
-    try { sunoAudio.pause(); sunoAudio.currentTime = 0; } catch(_){}
+    try { sunoAudio.pause(); sunoAudio.currentTime = 0; } catch (e) { logError(e); }
     sunoAudio = null;
   }
 }
@@ -517,8 +519,8 @@ function playSuno(){
   sunoAudio.volume = 0.35;
   sunoAudio.muted = S.isMuted;
   sunoAudio.addEventListener('ended', playSuno);
-  try { sunoAudio.play(); } catch(_){}
-  try { music.stop?.(); } catch(_){}
+  try { sunoAudio.play(); } catch (e) { logError(e); }
+  try { music.stop?.(); } catch (e) { logError(e); }
 }
 
 function playSunoBoss(){
@@ -527,8 +529,8 @@ function playSunoBoss(){
   sunoAudio.volume = 0.35;
   sunoAudio.muted = S.isMuted;
   sunoAudio.loop = true;
-  try { sunoAudio.play(); } catch(_){}
-  try { music.stop?.(); } catch(_){}
+  try { sunoAudio.play(); } catch (e) { logError(e); }
+  try { music.stop?.(); } catch (e) { logError(e); }
 }
 
 document.getElementById('mute').onclick=()=>{
@@ -583,7 +585,7 @@ weaponSystem = new WeaponSystem({
   weaponView
 });
 // Set initial weapon view
-try { weaponView.setWeapon(weaponSystem.getPrimaryName()); } catch(_) {}
+try { weaponView.setWeapon(weaponSystem.getPrimaryName()); } catch (e) { logError(e); }
 progression = new Progression({ weaponSystem, documentRef: document, onPause: (lock)=>{ offerActive = !!lock; paused = !!lock; }, controls });
 story = storyDisabled ? null : new StoryManager({ documentRef: document, onPause: (lock)=>{ paused = !!lock; }, controls, toastFn: (t)=> showToast(t), tickerFn: (t,r,i)=> showTicker(t,r,i) });
 
@@ -614,7 +616,7 @@ if (!isMobile) {
     if (e.code === 'Digit4') { weaponSystem.switchSlot(4); }
     if (e.code === 'Digit5') { weaponSystem.switchSlot(5); }
     // Update view on quick slot changes
-    try { weaponView.setWeapon(weaponSystem.getPrimaryName()); } catch (_) {}
+    try { weaponView.setWeapon(weaponSystem.getPrimaryName()); } catch (e) { logError(e); }
   });
 
 } else {
@@ -696,7 +698,7 @@ function step(){
       weaponView.setSprint(sprinting ? 1 : 0);
       // ADS: right mouse button not tracked here; leave default 0. We can add a listener later if needed.
       weaponView.update(dt);
-    } catch(_) {}
+    } catch (e) { logError(e); }
     // Update stamina HUD every frame
     if (staminaBarEl && player && typeof player.getStamina01 === 'function') {
       const pct = Math.max(0, Math.min(1, player.getStamina01()));
@@ -743,7 +745,7 @@ function step(){
       }
       updateHUD();
       // Low HP trigger for story
-      try { if (hp <= 25) story?.onLowHp?.(); } catch(_) {}
+      try { if (hp <= 25) story?.onLowHp?.(); } catch (e) { logError(e); }
     });
 
     // legacy tracers removal (if any left around)
@@ -754,7 +756,7 @@ function step(){
     // pickups update (magnet + animation)
     pickups.update(dt, controls.getObject().position, (type, amount, where) => {
       if (type === 'ammo') { if (weaponSystem) weaponSystem.onAmmoPickup(amount); showToast('+Ammo'); }
-      else if (type === 'med') { hp = Math.min(100, hp + amount); if (S && S.ui) S.ui('pickup'); showToast('+HP'); try { story?.onFirstMedPickup?.(); } catch(_) {} }
+      else if (type === 'med') { hp = Math.min(100, hp + amount); if (S && S.ui) S.ui('pickup'); showToast('+HP'); try { story?.onFirstMedPickup?.(); } catch (e) { logError(e); } }
       updateHUD();
     });
 
@@ -771,7 +773,7 @@ function step(){
             const res = Math.max(0, (typeof w.getReserve === 'function' ? w.getReserve() : w.reserveAmmo) | 0);
             totalAmmo += mag + res;
           }
-        } catch(_) {}
+        } catch (e) { logError(e); }
         if (totalAmmo <= 0 && (gameTime - lastEmergencyAmmoAt) >= EMERGENCY_AMMO_COOLDOWN) {
           let ammoOnMap = 0;
           for (const g of pickups.active) { if (g?.userData?.type === 'ammo') ammoOnMap++; }
@@ -787,7 +789,7 @@ function step(){
           }
         }
       }
-    } catch(_) { /* ignore emergency drop errors */ }
+    } catch (e) { logError(e); }
 
     // Obstacles update (reserved for future moving obstacles)
     obstacleManager.update(dt);
@@ -851,7 +853,7 @@ function step(){
       music.hatCutoffHz = Math.max(2200, hatCut|0);
       music.padBaseBrightnessHz = Math.max(1200, padBright|0);
       if (typeof music.setMood === 'function') music.setMood({ fog: fogMix, rain: rainMix, sand: sandMix });
-    } catch (e) { /* ignore mood errors */ }
+    } catch (e) { logError(e); }
   }
 
   // Drive subtle cloud motion (frozen while paused because gameTime doesn't advance)
@@ -967,17 +969,17 @@ function reset(){ // clear enemies
     player.resetPosition(0,1.7,8);
   }
   // Refill stamina on reset
-  try { player.stamina = player.staminaMax; } catch(_) {}
-  try { effects.setFatigue(0); } catch(_) {}
-  try { S.stopBreath(); } catch(_) {}
-  try { story?.reset(); story?.startRun(); } catch(_) {}
+  try { player.stamina = player.staminaMax; } catch (e) { logError(e); }
+  try { effects.setFatigue(0); } catch (e) { logError(e); }
+  try { S.stopBreath(); } catch (e) { logError(e); }
+  try { story?.reset(); story?.startRun(); } catch (e) { logError(e); }
 }
 
 function startGame(){
   if (isMobile) {
     const el = document.documentElement;
     const req = el.requestFullscreen || el.webkitRequestFullscreen;
-    try { if (req) req.call(el); } catch(_) {}
+    try { if (req) req.call(el); } catch (e) { logError(e); }
   } else {
     controls.lock();
   }
@@ -1026,29 +1028,29 @@ function highlightQuality(which){
   qHigh?.classList.toggle('selected', which === 'high');
   qUltra?.classList.toggle('selected', which === 'ultra');
 }
-try { highlightQuality(localStorage.getItem(QUALITY_KEY)); } catch (_) {}
+try { highlightQuality(localStorage.getItem(QUALITY_KEY)); } catch (e) { logError(e); }
 function setParams(obj){
   const u = new URL(window.location.href);
   Object.entries(obj).forEach(([k,v])=>{ if (v==null) u.searchParams.delete(k); else u.searchParams.set(k, String(v)); });
   window.location.href = `${u.pathname}?${u.searchParams.toString()}`;
 }
 if (qLow) qLow.onclick = () => {
-  try { localStorage.setItem(QUALITY_KEY, 'low'); } catch (_) {}
+  try { localStorage.setItem(QUALITY_KEY, 'low'); } catch (e) { logError(e); }
   highlightQuality('low');
   setParams(qualityPresets.low);
 };
 if (qMed) qMed.onclick = () => {
-  try { localStorage.setItem(QUALITY_KEY, 'med'); } catch (_) {}
+  try { localStorage.setItem(QUALITY_KEY, 'med'); } catch (e) { logError(e); }
   highlightQuality('med');
   setParams(qualityPresets.med);
 };
 if (qHigh) qHigh.onclick = () => {
-  try { localStorage.setItem(QUALITY_KEY, 'high'); } catch (_) {}
+  try { localStorage.setItem(QUALITY_KEY, 'high'); } catch (e) { logError(e); }
   highlightQuality('high');
   setParams(qualityPresets.high);
 };
 if (qUltra) qUltra.onclick = () => {
-  try { localStorage.setItem(QUALITY_KEY, 'ultra'); } catch (_) {}
+  try { localStorage.setItem(QUALITY_KEY, 'ultra'); } catch (e) { logError(e); }
   highlightQuality('ultra');
   setParams(qualityPresets.ultra);
 };
@@ -1095,22 +1097,21 @@ try {
       enemyManager.remove(root);
     }
   }
-} catch(_) {}
+} catch (e) { logError(e); }
 
 // Pre-warm VFX pools
-try { effects.prewarm({ tracers: 64, rings: 8 }); } catch(_) {}
+try { effects.prewarm({ tracers: 64, rings: 8 }); } catch (e) { logError(e); }
 
 // ---- Hitmarker helpers ----
 function showHitmarker(){
   if (!hitmarkerEl) return;
   hitmarkerEl.classList.remove('hitmarker-show');
   // force reflow
-  // eslint-disable-next-line no-unused-expressions
   hitmarkerEl.offsetHeight;
   hitmarkerEl.classList.add('hitmarker-show');
 }
 // Expose small API for weapons to indicate hit/kill/headshot if desired later
-try { window._HUD = { showHitmarker }; } catch(_) {}
+try { window._HUD = { showHitmarker }; } catch (e) { logError(e); }
 
 // Ticker system
 function showTicker(text, repeat = 1, interval = 8000){
@@ -1138,7 +1139,7 @@ function showTicker(text, repeat = 1, interval = 8000){
       track.style.animation = `tickerScroll ${duration}s linear`;
 
       track.addEventListener('animationend', () => {
-        try { tickerEl.removeChild(track); } catch(_){}
+        try { tickerEl.removeChild(track); } catch (e) { logError(e); }
         resolve();
       }, { once: true });
     }));
@@ -1150,7 +1151,7 @@ function showToast(text){
   if (!toastsEl) return;
   const el = document.createElement('div'); el.className = 'toast'; el.textContent = text;
   toastsEl.appendChild(el);
-  setTimeout(()=>{ el.classList.add('out'); setTimeout(()=>{ try{ toastsEl.removeChild(el);}catch(_){ } }, 240); }, 1200);
+  setTimeout(()=>{ el.classList.add('out'); setTimeout(()=>{ try{ toastsEl.removeChild(el);}catch (e) { logError(e); } }, 240); }, 1200);
 }
 
 try {
@@ -1159,7 +1160,7 @@ try {
     window._HUD.ticker = (t,r,i)=> showTicker(t,r,i);
     window._HUD.clearTicker = ()=> clearTicker();
   }
-} catch(_) {}
+} catch (e) { logError(e); }
 
 // Boss music transitions
 if (enemyManager && enemyManager.bossManager) {
@@ -1191,7 +1192,7 @@ if (enemyManager && enemyManager.bossManager) {
       loadCurrentSong();
     }
     const res = originalStartBoss(wave);
-    try { if (story) story.onBossStart(wave); } catch(_) {}
+    try { if (story) story.onBossStart(wave); } catch (e) { logError(e); }
     // Record boss max HP for intensity mapping
     try { bm._musicBossMaxHp = bm?.boss?.root?.userData?.hp || bm?.boss?.maxHp || 1; } catch (_) { bm._musicBossMaxHp = 1; }
     return res;
@@ -1200,7 +1201,7 @@ if (enemyManager && enemyManager.bossManager) {
   bm._onBossDeath = () => {
     // Capture boss position before original handler clears references
     let dropPos = null;
-    try { dropPos = bm?.boss?.root?.position?.clone?.() || null; } catch(_) { dropPos = null; }
+    try { dropPos = bm?.boss?.root?.position?.clone?.() || null; } catch (e) { logError(e); dropPos = null; }
     originalOnBossDeath();
     if (musicChoice === 'suno') {
       stopSuno();
@@ -1225,7 +1226,7 @@ if (enemyManager && enemyManager.bossManager) {
         pickups.spawn('ammo', p1);
         pickups.spawn('med', p2);
       }
-    } catch(_) { /* ignore drop errors */ }
+    } catch (e) { logError(e); }
 
     // Progression gating: unlock rifle after first boss, DMR after second
     try {
@@ -1235,20 +1236,20 @@ if (enemyManager && enemyManager.bossManager) {
         if (progression.bossKills === 2) progression.unlocks.dmr = true;
         progression._saveUnlocks?.();
       }
-    } catch(_){ }
-    try { if (story) story.onBossDeath(bm?.wave || 0); } catch(_) {}
+    } catch (e) { logError(e); }
+    try { if (story) story.onBossDeath(bm?.wave || 0); } catch (e) { logError(e); }
   };
 }
 
 // --- Boot editor after world init ---
 if ((new URL(window.location.href)).searchParams.get('editor') === '1') {
-  try { document.getElementById('hud').style.display = 'none'; } catch(_){}
-  try { document.getElementById('center').style.display = 'none'; } catch(_){}
-  try { music.stop?.(); } catch(_){}
+  try { document.getElementById('hud').style.display = 'none'; } catch (e) { logError(e); }
+  try { document.getElementById('center').style.display = 'none'; } catch (e) { logError(e); }
+  try { music.stop?.(); } catch (e) { logError(e); }
   // Lazy import already done at top; just start
   import('./editor.js').then(mod => {
-    try { mod.startEditor({ THREE, scene, camera, renderer, mats, objects }); } catch(_) {}
-  }).catch(_=>{});
+    try { mod.startEditor({ THREE, scene, camera, renderer, mats, objects }); } catch (e) { logError(e); }
+  }).catch(e => { logError(e); });
 }
 
 

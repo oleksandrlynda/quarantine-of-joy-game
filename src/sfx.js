@@ -3,6 +3,8 @@
 // - Optional FX send to a shared delay/reverb bus (via provider)
 // - Layered one-shots with small randomization and stereo panning
 
+import { logError } from './util/log.js';
+
 export class SFX {
   constructor(options = {}) {
     this.getAudioContext = options.audioContextProvider || (() => new (window.AudioContext || window.webkitAudioContext)());
@@ -34,7 +36,7 @@ export class SFX {
         try {
           const bus = this.getFxBus();
           if (bus && bus.connect) this.fxSend.connect(bus);
-        } catch (_) {}
+        } catch (e) { logError(e); }
       }
     }
   }
@@ -68,7 +70,7 @@ export class SFX {
       if (setup) node = setup(src);
       const g = a.createGain(); g.gain.value = 0;
       node.connect(g).connect(this.master);
-      try { src.start(); } catch(_) {}
+      try { src.start(); } catch (e) { logError(e); }
       return g;
     };
     this._weatherLoops = {
@@ -253,7 +255,7 @@ export class SFX {
         const now = a.currentTime;
         g.gain.cancelScheduledValues(now);
         g.gain.linearRampToValueAtTime(0.0001, now + 0.05);
-        try { o.stop(now + 0.06); } catch(_) {}
+        try { o.stop(now + 0.06); } catch (e) { logError(e); }
       }
     };
   }
@@ -274,7 +276,7 @@ export class SFX {
         const now = a.currentTime;
         g.gain.cancelScheduledValues(now);
         g.gain.linearRampToValueAtTime(0.0001, now + 0.05);
-        try { o.stop(now + 0.06); } catch(_){}
+        try { o.stop(now + 0.06); } catch (e) { logError(e); }
       }
     };
   }
@@ -456,8 +458,8 @@ export class SFX {
         const now = a.currentTime;
         out.gain.cancelScheduledValues(now);
         out.gain.linearRampToValueAtTime(0.0001, now + 0.25);
-        try { noise.stop(now + 0.26); } catch(_){ }
-        try { lfo.stop(now + 0.26); } catch(_){ }
+        try { noise.stop(now + 0.26); } catch (e) { logError(e); }
+        try { lfo.stop(now + 0.26); } catch (e) { logError(e); }
         this._breath.active = false;
       },
       setExhausted: (x)=>{
@@ -468,11 +470,11 @@ export class SFX {
         const base = 0.02 + 0.06 * k; // 0.02..0.08
         const depth = 0.02 + 0.04 * k; // 0.02..0.06
         const cutoff = 800 + 300 * k; // 800..1100 Hz
-        try { lfo.frequency.setTargetAtTime(rate, now, 0.2); } catch(_){ lfo.frequency.value = rate; }
+        try { lfo.frequency.setTargetAtTime(rate, now, 0.2); } catch (e) { logError(e); lfo.frequency.value = rate; }
         amp.gain.setTargetAtTime(base, now, 0.2);
         lfoGain.gain.setTargetAtTime(depth, now, 0.2);
         lp.frequency.setTargetAtTime(cutoff, now, 0.25);
-        try { hs.gain.setTargetAtTime(-18, now, 0.2); } catch(_) { hs.gain.value = -18; }
+        try { hs.gain.setTargetAtTime(-18, now, 0.2); } catch (e) { logError(e); hs.gain.value = -18; }
       }
     };
     // start

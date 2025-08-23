@@ -1,5 +1,6 @@
 import { Weapon } from './base.js';
 import { performHitscan } from './hitscan.js';
+import { logError } from '../util/log.js';
 
 export class Pistol extends Weapon {
   constructor() {
@@ -35,7 +36,7 @@ export class Pistol extends Weapon {
     const end = res.endPoint || origin.clone().add(dir.clone().multiplyScalar(70));
 
     if (res.type === 'enemy' && res.enemyRoot) {
-      try { window._HUD && window._HUD.showHitmarker && window._HUD.showHitmarker(); } catch(_) {}
+      try { window._HUD && window._HUD.showHitmarker && window._HUD.showHitmarker(); } catch (e) { logError(e); }
       // Damage model: 2 bullets to head, 5 to torso, 10-15 to limbs
       // Compute per-hit damage given current enemy HP targets (assume grunt 100)
       let dmg;

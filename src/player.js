@@ -1,4 +1,5 @@
 import { PointerLockControls } from 'https://unpkg.com/three@0.159.0/examples/jsm/controls/PointerLockControls.js?module';
+import { logError } from '../src/util/log.js';
 
 function containsExtrudeGeometry(obj){
   if (obj.geometry?.isExtrudeGeometry) return true;
@@ -496,7 +497,7 @@ export class PlayerController {
         cache.x = x; cache.z = z; cache.y = top;
         return top;
       }
-    } catch(_) {}
+    } catch (e) { logError(e); }
 
     // Fallback to AABB sampling of footprint
     const half = this.colliderHalf;

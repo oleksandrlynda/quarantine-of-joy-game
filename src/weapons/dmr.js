@@ -1,5 +1,6 @@
 import { Weapon } from './base.js';
 import { performHitscan } from './hitscan.js';
+import { logError } from '../util/log.js';
 
 export class DMR extends Weapon {
   constructor() {
@@ -29,7 +30,7 @@ export class DMR extends Weapon {
     const end = res.endPoint || camPos.clone().add(camDir.clone().multiplyScalar(100));
 
     if (res.type === 'enemy' && res.enemyRoot) {
-      try { window._HUD && window._HUD.showHitmarker && window._HUD.showHitmarker(); } catch(_) {}
+      try { window._HUD && window._HUD.showHitmarker && window._HUD.showHitmarker(); } catch (e) { logError(e); }
       const isHead = !!(res.isHead || res.bodyPart==='head');
       const part = res.bodyPart;
       const base = isHead ? 175 : ((part==='arm'||part==='leg') ? 35 : 85);

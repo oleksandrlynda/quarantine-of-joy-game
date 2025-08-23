@@ -1,5 +1,6 @@
 import { GooPuddle } from '../hazards/goo.js';
 import { createBroodmakerAsset } from '../assets/boss_broodmaker.js';
+import { logError } from '../util/log.js';
 
 export class Broodmaker {
   constructor({ THREE, mats, spawnPos, enemyManager = null, mode = 'light' }) {
@@ -147,7 +148,7 @@ export class Broodmaker {
       for (const s of sacs) {
         if (s.material?.emissiveIntensity != null) s.material.emissiveIntensity = 0.6 * k;
       }
-    } catch(_) {}
+    } catch (e) { logError(e); }
   }
 
   onRemoved(scene) {
@@ -258,7 +259,7 @@ export class Broodmaker {
     // Visual: hide outline while underground
     if (this.refs.outlineGroup) this.refs.outlineGroup.visible = false;
     // Juicy FX
-    try { window?._EFFECTS?.ring?.(this.root.position.clone(), 1.6, 0xff88aa); } catch(_) {}
+    try { window?._EFFECTS?.ring?.(this.root.position.clone(), 1.6, 0xff88aa); } catch (e) { logError(e); }
     // Next time (rarityMul makes it rarer in P2 if desired)
     this._burrowCooldown = ((this.enablePhase2 ? 9 : 12) + Math.random() * 5) * rarityMul;
   }
@@ -275,7 +276,7 @@ export class Broodmaker {
         const target = this._pickRelocatePos(playerPos);
         this.root.position.copy(target);
         // optional FX at emerge point
-        try { window?._EFFECTS?.ring?.(target.clone(), 1.6, 0xff88aa); } catch(_) {}
+        try { window?._EFFECTS?.ring?.(target.clone(), 1.6, 0xff88aa); } catch (e) { logError(e); }
       }
       return;
     }
@@ -318,7 +319,7 @@ export class Broodmaker {
     this._phaseTelegraph = 0.0001;
     const head = this.root.userData.head;
     if (head?.material?.emissive) head.material.emissive.setHex(0xff88aa);
-    try { (this.refs?.eggs||[]).forEach(s=>{ if (s.material?.emissiveIntensity!=null) s.material.emissiveIntensity = 1.2; }); } catch(_) {}
+    try { (this.refs?.eggs||[]).forEach(s=>{ if (s.material?.emissiveIntensity!=null) s.material.emissiveIntensity = 1.2; }); } catch (e) { logError(e); }
 
     const THREE = this.THREE;
     const ring = new THREE.Mesh(
@@ -348,7 +349,7 @@ export class Broodmaker {
     if (this._phaseTelegraphRing) { ctx.scene.remove(this._phaseTelegraphRing); this._phaseTelegraphRing = null; }
     const head = this.root.userData.head;
     if (head?.material?.emissive) head.material.emissive.setHex(0xbb66ff);
-    try { (this.refs?.eggs||[]).forEach(s=>{ if (s.material?.emissiveIntensity!=null) s.material.emissiveIntensity = 0.85; }); } catch(_) {}
+    try { (this.refs?.eggs||[]).forEach(s=>{ if (s.material?.emissiveIntensity!=null) s.material.emissiveIntensity = 0.85; }); } catch (e) { logError(e); }
     // Stagger ability windows
     this._flyerCooldown = 1.5 + Math.random() * 1.0;
     this._gooCooldown = 2.0 + Math.random() * 1.5;
@@ -415,7 +416,7 @@ export class Broodmaker {
       this._setWeakpoint(true);
       this._weakpointTimer = 3.0; // exposed window
       // ping eggs brighter
-      try { (this.refs?.eggs||[]).forEach(s=>{ if (s.material?.emissiveIntensity!=null) s.material.emissiveIntensity = 1.2; }); } catch(_) {}
+      try { (this.refs?.eggs||[]).forEach(s=>{ if (s.material?.emissiveIntensity!=null) s.material.emissiveIntensity = 1.2; }); } catch (e) { logError(e); }
     }
   }
 
