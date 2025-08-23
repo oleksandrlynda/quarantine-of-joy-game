@@ -148,7 +148,7 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
       g.applyMatrix4(floor.matrixWorld);
       const grass = createGrassMesh({
         floorGeometry: g,
-        bladeCount: 20000,
+        bladeCount: 60000,
         colorRange: [0x6dbb3c, 0x4c8a2f],
         heightRange: [0.8, 1.6],
         windStrength: 0.3
