@@ -1,3 +1,5 @@
+import { logError } from '../util/log.js';
+
 export class WeaponView {
     constructor(THREE, camera){
       this.THREE = THREE;
@@ -216,7 +218,7 @@ export class WeaponView {
           if (m.geometry) m.geometry.dispose();
           if (m.material && m.material.isMaterial) m.material.dispose();
         }
-      } catch(_){ }
+      } catch (e) { logError(e); }
       this._current = null;
     }
   

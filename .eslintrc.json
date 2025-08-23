@@ -1,0 +1,25 @@
+{
+  "env": {
+    "browser": true,
+    "es2021": true
+  },
+  "extends": "eslint:recommended",
+  "parserOptions": {
+    "sourceType": "module"
+  },
+  "globals": {
+    "THREE": "readonly"
+  },
+  "rules": {
+    "no-unused-vars": "off",
+    "no-undef": "off"
+  },
+  "overrides": [
+    {
+      "files": ["test/**/*.js"],
+      "env": {
+        "node": true
+      }
+    }
+  ]
+}

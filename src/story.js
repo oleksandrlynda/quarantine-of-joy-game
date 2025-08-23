@@ -1,5 +1,6 @@
 // Minimal narrative system: modal story beats + queued messages
 import { getLanguage } from './i18n/index.js';
+import { logError } from './util/log.js';
 
 export class StoryManager {
   constructor({ documentRef, onPause, controls, toastFn, tickerFn, beatsUrl = null, minGapMs = 2200 }){
@@ -72,7 +73,8 @@ export class StoryManager {
             this._maybeShow();
           }, 4000);
         });
-    } catch(_) {
+    } catch (e) {
+      logError(e);
       this._enqueueBeat('intro');
       this._maybeShow();
       setTimeout(() => {
@@ -112,7 +114,7 @@ export class StoryManager {
       if (typeof window !== 'undefined' && window._HUD && typeof window._HUD.clearTicker === 'function') {
         window._HUD.clearTicker();
       }
-    } catch(_) {}
+    } catch (e) { logError(e); }
     this._bossActive = true;
     this._enqueueBeat(`boss_${wave}_start`);
     this._enqueueBeat(`boss_${wave}_ticker`);
@@ -125,7 +127,7 @@ export class StoryManager {
       if (typeof window !== 'undefined' && window._HUD && typeof window._HUD.clearTicker === 'function') {
         window._HUD.clearTicker();
       }
-    } catch(_) {}
+    } catch (e) { logError(e); }
     this._enqueueBeat(`boss_${wave}_down`);
     this._enqueueBeat(`boss_${wave}_ticker`);
     if (wave === 5) this._enqueueBeat('boss_5_report');
@@ -207,7 +209,7 @@ export class StoryManager {
     this.container.style.display = '';
     this.onPause(true);
     // Release pointer lock for interaction
-    try { this.controls?.unlock?.(); } catch {}
+      try { this.controls?.unlock?.(); } catch (e) { logError(e); }
   }
 
   _next(){
@@ -219,14 +221,14 @@ export class StoryManager {
       if (this._currentBeat && this._currentBeat.id) {
         this._markSeen(this._currentBeat.id, this._currentBeat.persistOnce);
       }
-    } catch(_) {}
+    } catch (e) { logError(e); }
     this._currentBeat = null;
     // If an armory offer is up, keep game paused and do NOT relock pointer
     if (!this._isOfferOpen()) {
       this.onPause(false);
       // Attempt to re-lock pointer immediately after interaction
       // This is triggered from a click/keypress, so it's a valid user gesture
-      try { this.controls?.lock?.(); } catch {}
+      try { this.controls?.lock?.(); } catch (e) { logError(e); }
     }
     this._lastShownAt = performance.now ? performance.now() : Date.now();
     // Show next queued beat if any
@@ -240,10 +242,10 @@ export class StoryManager {
     try {
       const s = localStorage.getItem(this.SEEN_KEY);
       return s ? JSON.parse(s) : {};
-    } catch(_) { return {}; }
+    } catch (e) { logError(e); return {}; }
   }
   _saveSeen(){
-    try { localStorage.setItem(this.SEEN_KEY, JSON.stringify(this._seen)); } catch(_) {}
+    try { localStorage.setItem(this.SEEN_KEY, JSON.stringify(this._seen)); } catch (e) { logError(e); }
   }
   _markSeen(id, persist){
     if (!id || !persist) return;
@@ -255,7 +257,7 @@ export class StoryManager {
       if (!el) return false;
       // Offer shows by setting style.display = '' (default visible). Hidden when 'none'.
       return el.style.display !== 'none';
-    } catch(_) { return false; }
+    } catch (e) { logError(e); return false; }
   }
 }
 

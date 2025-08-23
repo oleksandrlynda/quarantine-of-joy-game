@@ -4,9 +4,13 @@
   "description": "Quarantine of Joy web game",
   "type": "module",
   "scripts": {
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "lint": "eslint src test"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC"
+  "license": "ISC",
+  "devDependencies": {
+    "eslint": "^9.32.0"
+  }
 }

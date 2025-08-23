@@ -3,6 +3,8 @@
 // Returns { root, head, refs }  (refs: { leftArm,rightArm,leftLeg,rightLeg, core, shards[] })
 //
 // Notes
+
+import { logError } from '../util/log.js';
 // - Forward is +Z (like most of your melee rigs). Change if you prefer -Z.
 // - root.userData.bounds.radius is set from a post-build bounding sphere (helpful for split pulses).
 // - Glow intensifies slightly by generation to sell “glitchy swarm.”
@@ -151,7 +153,7 @@ export function createHydracloneAsset({
       const sph = new THREE.Sphere();
       box.getBoundingSphere(sph);
       group.userData.bounds = { radius: sph.radius, box };
-    } catch (_) {}
+    } catch (e) { logError(e); }
   
     return { root: group, head, refs };
   }

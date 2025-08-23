@@ -3,6 +3,8 @@
 // Exposes Purge Nodes that remove Strikes when destroyed.
 // Phase 1: Citations (apply Strikes, spawn Purge Nodes) + gentle movement.
 // Phase 2: Verdict patterns (alternating sector slams & gavel smashes).
+
+import { logError } from '../util/log.js';
 // Player debuffs: -5% move / Strike (max -15%), -0.3s Hype grace / Strike.
 // If 3 Strikes at a Verdict → heavy slam + auto extra nodes.
 //
@@ -257,7 +259,7 @@ export class StrikeAdjudicator {
           this._applyPlayerDebuffs(this.strikes, ctx);
         }
         // pop VFX
-        try { window?._EFFECTS?.ring?.(n.root.position.clone(), 0.9, 0x60a5fa); } catch(_) {}
+        try { window?._EFFECTS?.ring?.(n.root.position.clone(), 0.9, 0x60a5fa); } catch (e) { logError(e); }
         ctx.scene.remove(n.root);
         this._nodes.splice(i, 1);
       }
@@ -371,7 +373,7 @@ export class StrikeAdjudicator {
       }
     }
     // pulse ring
-    try { window?._EFFECTS?.ring?.(from.clone(), 6.5, 0x60a5fa); } catch(_){}
+    try { window?._EFFECTS?.ring?.(from.clone(), 6.5, 0x60a5fa); } catch (e) { logError(e); }
   }
 
   _spawnGavelTele(ctx) {
@@ -391,7 +393,7 @@ export class StrikeAdjudicator {
     try {
       const arm = this.refs?.rightArm; if (arm) arm.rotation.x = -0.45;
       const head = this.refs?.gavelHead; if (head) head.scale.set(1.05,1.05,1.05);
-    } catch(_){}
+    } catch (e) { logError(e); }
   }
 
   _resolveGavel(ctx, heavy) {
@@ -409,11 +411,11 @@ export class StrikeAdjudicator {
       ctx.player.position.add(toP.multiplyScalar(knock));
     }
     // VFX + reset pose
-    try { window?._EFFECTS?.ring?.(origin.clone().add(forward.multiplyScalar(2.0)), 1.6, 0x60a5fa); } catch(_){}
+    try { window?._EFFECTS?.ring?.(origin.clone().add(forward.multiplyScalar(2.0)), 1.6, 0x60a5fa); } catch (e) { logError(e); }
     try {
       const arm = this.refs?.rightArm; if (arm) arm.rotation.x = 0;
       const head = this.refs?.gavelHead; if (head) head.scale.set(1,1,1);
-    } catch(_){}
+    } catch (e) { logError(e); }
   }
 
   _beginWeakpointWindow(ctx, seconds) {

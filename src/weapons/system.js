@@ -3,6 +3,7 @@ import { SMG } from './smg.js';
 import { Shotgun } from './shotgun.js';
 import { DMR } from './dmr.js';
 import { Pistol } from './pistol.js';
+import { logError } from '../util/log.js';
 import { GrenadePistol } from './grenadepistol.js';
 import { Minigun } from './minigun.js';
 import { BeamSaber } from './beamsaber.js';
@@ -100,7 +101,7 @@ export class WeaponSystem {
   triggerDown() {
     const w = this.current; if (!w) return;
     // Block firing while reload tilt is active
-    try { if (this.weaponView?.isReloading?.()) { this.updateHUD?.(); return; } } catch(_) {}
+    try { if (this.weaponView?.isReloading?.()) { this.updateHUD?.(); return; } } catch (e) { logError(e); }
     // if empty, play reload sound instead and flash ammo pill state via HUD update
     if (w.getAmmo() <= 0) { this.S?.reload?.(); this.updateHUD?.(); return; }
     w.triggerDown(this.context());
@@ -128,7 +129,7 @@ export class WeaponSystem {
         this.weaponView?.startReload?.({ dur: heavy ? 0.85 : 0.65, rollDeg: heavy ? 38 : 28, drop: heavy ? 0.08 : 0.06, back: heavy ? 0.06 : 0.045 });
         // Ensure firing stops during reload
         this.current?.triggerUp();
-      } catch(_) {}
+      } catch (e) { logError(e); }
       this.updateHUD?.();
     }
   }

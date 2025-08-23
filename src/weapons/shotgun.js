@@ -1,5 +1,6 @@
 import { Weapon } from './base.js';
 import { performHitscan } from './hitscan.js';
+import { logError } from '../util/log.js';
 
 export class Shotgun extends Weapon {
   constructor() {
@@ -45,7 +46,7 @@ export class Shotgun extends Weapon {
       if (representative.length < 2) representative.push({ from: origin.clone(), to: end.clone() });
 
       if (res.type === 'enemy' && res.enemyRoot) {
-        try { window._HUD && window._HUD.showHitmarker && window._HUD.showHitmarker(); } catch(_) {}
+        try { window._HUD && window._HUD.showHitmarker && window._HUD.showHitmarker(); } catch (e) { logError(e); }
         anyHit = true;
         const dist = res.distance || origin.distanceTo(end);
         const falloff = dist <= this.fullDamageRange ? 1.0 : Math.max(0, 1 - (dist - this.fullDamageRange) / Math.max(1, (this.range - this.fullDamageRange)));

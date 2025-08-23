@@ -1,6 +1,8 @@
 // Simple FPV Level Editor
 // Usage: add ?editor=1 to URL. Provides fly controls, grid snap placement, delete, import/export JSON.
 
+import { logError } from './util/log.js';
+
 export function startEditor({ THREE, scene, camera, renderer, mats, objects = [], initialMap = null }) {
   // --- State ---
   const state = {
@@ -351,7 +353,7 @@ export function startEditor({ THREE, scene, camera, renderer, mats, objects = []
       if (Array.isArray(json.walls)) state.walls = json.walls.map(w => ({ shape:'box', w:w.w||1, h:w.h||1, d:w.d||1, x:w.x||0, y:w.y||0.5, z:w.z||0, rotY:w.rotY||0 }));
       if (Array.isArray(json.obstacles)) state.obstacles = json.obstacles.map(o => ({ type:o.type||'crate', x:o.x||0, y:o.y!=null?o.y:(o.type==='barrel'?0.6:1.0), z:o.z||0, rotY:o.rotY||0 }));
       if (Array.isArray(json.ramps)) state._ramps = json.ramps.map(r => ({ w:r.w||4, steps:Math.max(1, Math.floor(r.steps||6)), stepH:(r.stepH!=null? r.stepH : ((r.h||2)/(Math.max(1, Math.floor(r.steps||6))))), stepD:(r.stepD!=null? r.stepD : ((r.d||6)/(Math.max(1, Math.floor(r.steps||6))))), x:r.x||0, y:r.y!=null?r.y:(((r.stepH!=null? r.stepH : ((r.h||2)/(Math.max(1, Math.floor(r.steps||6)))))*(Math.max(1, Math.floor(r.steps||6))) * 0.5)), z:r.z||0, rotY:r.rotY||0 }));
-    } catch(_) {}
+    } catch (e) { logError(e); }
     // Rebuild scene
     for (const w of state.walls) { const m = new THREE.Mesh(new THREE.BoxGeometry(w.w, w.h, w.d), mats?.wall || new THREE.MeshLambertMaterial({ color: 0x8ecae6 })); m.position.set(w.x, w.y, w.z); m.rotation.y = w.rotY||0; scene.add(m); m.userData.editor = { type:'wall' }; }
     for (const o of state.obstacles) {
@@ -406,7 +408,7 @@ export function startEditor({ THREE, scene, camera, renderer, mats, objects = []
   requestAnimationFrame(step);
 
   // Auto-import if provided
-  try { if (initialMap) importJSON(initialMap); } catch(_) {}
+  try { if (initialMap) importJSON(initialMap); } catch (e) { logError(e); }
 }
 
 

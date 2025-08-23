@@ -1,4 +1,5 @@
 import { Weapon } from './base.js';
+import { logError } from '../util/log.js';
 
 export class BeamSaber extends Weapon {
   constructor() {
@@ -39,7 +40,7 @@ export class BeamSaber extends Weapon {
       if (!obj || handled.has(obj)) continue;
       handled.add(obj);
 
-      try { window._HUD && window._HUD.showHitmarker && window._HUD.showHitmarker(); } catch(_) {}
+      try { window._HUD && window._HUD.showHitmarker && window._HUD.showHitmarker(); } catch (e) { logError(e); }
       obj.userData.hp -= damage;
       const kb = heavy ? 0.4 : 0.25;
       applyKnockback?.(obj, dir.clone().multiplyScalar(kb));

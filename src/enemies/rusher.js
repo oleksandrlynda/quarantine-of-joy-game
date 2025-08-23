@@ -1,4 +1,5 @@
 import { createRunnerBot } from '../assets/runnerbot.js';
+import { logError } from '../util/log.js';
 
 // Variant definitions with unique palettes and stats
 export const RUSHER_VARIANTS = {
@@ -168,7 +169,7 @@ export class RusherEnemy {
         if (blade && blade.material && blade.material.emissiveIntensity != null) {
           blade.material.emissiveIntensity = 0.7;
         }
-      } catch(_){}
+      } catch (e) { logError(e); }
       this._lastPos.copy(e.position);
       return;
     }
@@ -195,7 +196,7 @@ export class RusherEnemy {
           this._windUpSound?.stop?.();
           window?._SFX?.dashWhoosh?.();
           window?._EFFECTS?.spawnDashTrail?.(e.position.clone(), this._dashDir.clone(), this.cfg.color);
-        } catch(_){}
+        } catch (e) { logError(e); }
         this._windUpSound = null;
       }
     }
@@ -206,7 +207,7 @@ export class RusherEnemy {
       try {
         window?._EFFECTS?.screenShake?.(IMPACT_SHAKE.strength, IMPACT_SHAKE.duration);
         window?._EFFECTS?.spawnDashImpact?.(e.position.clone(), this.cfg.color);
-      } catch(_){}
+      } catch (e) { logError(e); }
     }
     if (dist > 70) return;
 
@@ -284,7 +285,7 @@ export class RusherEnemy {
     if (canDash && Math.random() < 1.2 * dt) {
       this._windUpTimer = this.cfg.windUp || 0.3;
       this._dashDir.copy(desired);
-      try { this._windUpSound?.stop?.(); this._windUpSound = window?._SFX?.dashWindup?.(); } catch(_){}
+      try { this._windUpSound?.stop?.(); this._windUpSound = window?._SFX?.dashWindup?.(); } catch (e) { logError(e); }
       // face dash direction immediately
       const desiredYaw = Math.atan2(this._dashDir.x, this._dashDir.z);
       this._yaw = desiredYaw; e.rotation.set(0, this._yaw, 0);
@@ -317,7 +318,7 @@ export class RusherEnemy {
       this._stunTimer = 1.0 + Math.random() * 0.4;
       try {
         window?._EFFECTS?.spawnDashImpact?.(e.position.clone(), this.cfg.color);
-      } catch(_){}
+      } catch (e) { logError(e); }
       this._flinchAccum = 0;
       this._dashCooldown = 1.2 + Math.random() * 0.8;
     }
@@ -359,7 +360,7 @@ export class RusherEnemy {
       if (blade && blade.material && blade.material.emissiveIntensity != null) {
         blade.material.emissiveIntensity = (this._windUpTimer > 0 || this._charging) ? 1.4 : 0.7;
       }
-    } catch(_){}
+    } catch (e) { logError(e); }
     const movedLen = movedVec.length();
     if (step.lengthSq() > 1e-4 && movedLen < 0.01) {
       this._stuckTime += dt;
@@ -402,7 +403,7 @@ export class RusherEnemy {
           other.userData.hp = (other.userData.hp || 0) - dmg;
           if (inst && typeof inst.onHit === 'function') inst.onHit(dmg, false);
           if (other.userData.hp <= 0) {
-            try { window?._EFFECTS?.enemyDeath?.(other.position.clone()); } catch(_){ }
+            try { window?._EFFECTS?.enemyDeath?.(other.position.clone()); } catch (e) { logError(e); }
             em.remove(other);
           }
         }

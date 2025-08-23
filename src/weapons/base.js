@@ -37,7 +37,6 @@ export class Weapon {
   }
 
   // Default no-op; subclasses override
-  // eslint-disable-next-line no-unused-vars
   onFire(ctx) {}
 
   triggerDown(ctx) {
@@ -55,13 +54,10 @@ export class Weapon {
   }
 
   // Optional alternate fire; default no-op
-  // eslint-disable-next-line no-unused-vars
   altTriggerDown(ctx) {}
 
-  // eslint-disable-next-line no-unused-vars
   altTriggerUp(ctx) {}
 
-  // eslint-disable-next-line no-unused-vars
   altTriggerCancel(ctx) {}
 
   update(dt, ctx) { // for auto fire sustain

@@ -3,6 +3,7 @@ import { ShooterEnemy } from './shooter.js';
 import { FlyerEnemy } from './flyer.js';
 import { HealerEnemy } from './healer.js';
 import { SniperEnemy } from './sniper.js';
+import { logError } from '../util/log.js';
 import { RusherEnemy } from './rusher.js';
 import { BailiffEnemy } from './bailiff.js';
 import { SwarmWarden } from './warden.js';
@@ -40,7 +41,7 @@ export class EnemyManager {
       .filter(o => !containsExtrudeGeometry(o))
       .map(o => new this.THREE.Box3().setFromObject(o));
     this.raycaster = new this.THREE.Raycaster();
-    try { this.raycaster.firstHitOnly = true; } catch(_) {}
+    try { this.raycaster.firstHitOnly = true; } catch (e) { logError(e); }
     this.up = new this.THREE.Vector3(0,1,0);
     this.enemyHalf = new this.THREE.Vector3(0.6, 0.8, 0.6);
     this.enemyFullHeight = this.enemyHalf.y * 2;
@@ -100,7 +101,7 @@ export class EnemyManager {
       mesh.count = 0;
       this.scene.add(mesh);
       const ray = new THREE.Raycaster();
-      try { ray.firstHitOnly = true; } catch(_) {}
+      try { ray.firstHitOnly = true; } catch (e) { logError(e); }
       return {
         mesh,
         max,
@@ -612,7 +613,7 @@ export class EnemyManager {
         for (const h of hits) { if (h.point && h.point.y > top) top = h.point.y; }
         return top;
       }
-    } catch(_) {}
+    } catch (e) { logError(e); }
     // Fallback: check AABB tops overlapping footprint center
     let maxTop = 0;
     for (const obb of this.objectBBs) {
@@ -678,7 +679,7 @@ export class EnemyManager {
     if (this.suspendWaves) return; // disabled in test harness
     if (this.obstacleManager && this.wave % 5 === 0) {
       const player = this.getPlayer();
-      try { this.obstacleManager.respawnMissing(player.position.clone(), this.enemies); } catch(_) {}
+      try { this.obstacleManager.respawnMissing(player.position.clone(), this.enemies); } catch (e) { logError(e); }
     }
     // Gate boss waves
     if (this.wave % 5 === 0) {
@@ -920,7 +921,7 @@ export class EnemyManager {
     }
   
     // bullets
-    try { this._updateBulletPools(dt, ctx); } catch(_) {}
+    try { this._updateBulletPools(dt, ctx); } catch (e) { logError(e); }
   
     // ambient vocals
     if (this.alive > 0) {
@@ -928,7 +929,7 @@ export class EnemyManager {
       if (this._aiClock - this._lastAmbientVocalAt > 2.2 + Math.random() * 2.0) {
         const pick = (() => { for (const e of this.instances) return e; return null; })();
         if (pick && window && window._SFX && typeof window._SFX.enemyVocal === 'function') {
-          try { window._SFX.enemyVocal(pick.root?.userData?.type || 'grunt'); } catch(_) {}
+          try { window._SFX.enemyVocal(pick.root?.userData?.type || 'grunt'); } catch (e) { logError(e); }
         }
         this._lastAmbientVocalAt = this._aiClock;
       }

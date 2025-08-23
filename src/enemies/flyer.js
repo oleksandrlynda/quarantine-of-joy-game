@@ -1,4 +1,5 @@
 import { createWingedDrone } from '../assets/winged_drone.js';
+import { logError } from '../util/log.js';
 export class FlyerEnemy {
   constructor({ THREE, mats, cfg, spawnPos }) {
     this.THREE = THREE;
@@ -94,7 +95,7 @@ export class FlyerEnemy {
           const sweep = Math.sin(this._t * 3.2) * 0.06;
           lw.rotation.y = sweep; rw.rotation.y = -sweep;
         }
-      } catch(_){}
+      } catch (e) { logError(e); }
     }
 
     // Compute pursuit vector (horizontal) toward player
@@ -149,7 +150,7 @@ export class FlyerEnemy {
             lw.rotation.y = sweep; rw.rotation.y = -sweep;
             this._desiredRoll = bank * 0.5;
           }
-        } catch(_){}
+        } catch (e) { logError(e); }
 
         // Try initiating dive
         if (this.cooldown <= 0 && dist <= this.triggerDist && this._hasLineOfSight(e.position, playerPos, ctx.objects)) {
@@ -203,7 +204,7 @@ export class FlyerEnemy {
         try {
           const lw = this._animRefs?.leftWing, rw = this._animRefs?.rightWing;
           if (lw && rw) { const sign = this._windupStrafeSign; lw.rotation.z = -0.25 * sign; rw.rotation.z = 0.25 * sign; lw.rotation.y = 0; rw.rotation.y = 0; }
-        } catch(_){}
+        } catch (e) { logError(e); }
 
         const closeToAnchor = toAnchor.length() <= 0.85; // allow more slack so avoidance doesn't repel
         // Repath anchor if taking too long (flip side)
@@ -249,7 +250,7 @@ export class FlyerEnemy {
           try {
             const lw = this._animRefs?.leftWing, rw = this._animRefs?.rightWing;
             if (lw && rw) { lw.rotation.z = -0.02; rw.rotation.z = 0.02; lw.rotation.y = -0.95; rw.rotation.y = 0.95; }
-          } catch(_){}
+          } catch (e) { logError(e); }
         }
         break;
       }
@@ -308,7 +309,7 @@ export class FlyerEnemy {
           try {
             const lw = this._animRefs?.leftWing, rw = this._animRefs?.rightWing;
             if (lw && rw) { lw.rotation.z = -0.15; rw.rotation.z = 0.15; lw.rotation.y = 0; rw.rotation.y = 0; }
-          } catch(_){}
+          } catch (e) { logError(e); }
         }
         break;
       }

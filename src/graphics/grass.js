@@ -1,4 +1,5 @@
 import * as THREE from 'https://unpkg.com/three@0.159.0/build/three.module.js';
+import { logError } from '../util/log.js';
 
 export function createGrassMesh({
   floorGeometry,
@@ -138,7 +139,7 @@ export function cullGrassUnderObjects(grassMesh, obstacles = []) {
   for (const obj of obstacles) {
     try {
       boxes.push(new THREE.Box3().setFromObject(obj));
-    } catch (_) {}
+    } catch (e) { logError(e); }
   }
 
   for (let i = 0; i < offsets.count; i++) {

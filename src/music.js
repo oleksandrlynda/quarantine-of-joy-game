@@ -1,6 +1,8 @@
 // 8-bit drive music generator using Web Audio API
 // Exports Music class with start/stop and mute/volume controls
 
+import { logError } from './util/log.js';
+
 export class Music {
   constructor(options = {}) {
     this.getAudioContext = options.audioContextProvider || (() => new (window.AudioContext || window.webkitAudioContext)());
@@ -328,7 +330,7 @@ export class Music {
     this.masterGain.connect(dest);
     const recorder = new MediaRecorder(dest.stream);
     recorder.addEventListener('stop', () => {
-      try { this.masterGain.disconnect(dest); } catch (_) {}
+      try { this.masterGain.disconnect(dest); } catch (e) { logError(e); }
     });
     return recorder;
   }

@@ -1,4 +1,5 @@
 // WeatherSystem module: rain, snow, fog (can blend with rain), sandstorm, windy, dynamic cycle, thunder for rain
+import { logError } from './util/log.js';
 export class WeatherSystem {
   constructor(ctx){
     this.THREE = ctx.THREE; this.scene = ctx.scene; this.skyMat = ctx.skyMat; this.hemi = ctx.hemi; this.dir = ctx.dir; this.mats = ctx.mats;
@@ -151,7 +152,7 @@ export class WeatherSystem {
     try {
       const windMix = Math.max(this._mixTarget.fog, this._mixTarget.sand, this._mixTarget.wind);
       window._SFX?.setWeatherMix?.({ rain: this._mixTarget.rain, snow: this._mixTarget.snow, wind: windMix });
-    } catch (_) {}
+    } catch (e) { logError(e); }
 
     // Assign how many waves this mode should last
     this._setWaveDuration(this.mode);
@@ -290,7 +291,7 @@ export class WeatherSystem {
         // Play thunder after a short delay depending on distance (speed of sound ~343 m/s)
         const d = Math.sqrt(dist*dist + 50*50);
         const delay = Math.min(4.0, d / 150.0);
-        setTimeout(()=>{ try{ this._playThunder(); }catch(e){} }, delay*1000);
+        setTimeout(()=>{ try{ this._playThunder(); }catch (e) { logError(e); } }, delay*1000);
       }
     } else {
       this._thunderCooldown -= 1/60; // approximated per frame; sufficient

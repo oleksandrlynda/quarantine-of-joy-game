@@ -1,5 +1,6 @@
 import { Weapon } from './base.js';
 import { performHitscan } from './hitscan.js';
+import { logError } from '../util/log.js';
 
 // High fire-rate bullet hose with low per-shot damage
 export class Minigun extends Weapon {
@@ -46,7 +47,7 @@ export class Minigun extends Weapon {
     const end = res.endPoint || origin.clone().add(dir.clone().multiplyScalar(this._range));
 
     if (res.type === 'enemy' && res.enemyRoot) {
-      try { window._HUD && window._HUD.showHitmarker && window._HUD.showHitmarker(); } catch(_) {}
+      try { window._HUD && window._HUD.showHitmarker && window._HUD.showHitmarker(); } catch (e) { logError(e); }
       const isHead = !!(res.isHead || res.bodyPart==='head');
       const part = res.bodyPart;
       const base = isHead ? 12 : ((part==='arm'||part==='leg') ? 2 : 4);

@@ -1,3 +1,5 @@
+import { logError } from './util/log.js';
+
 // Ensure global effects namespace with safe no-op fallbacks
 window._EFFECTS = window._EFFECTS || {};
 window._EFFECTS.spawnBulletTracer = window._EFFECTS.spawnBulletTracer || (()=>{});
@@ -29,8 +31,8 @@ export class Effects {
     this.fatigueLevel = 0; // 0..1
 
     // Ensure overlays are not culled (screen-space quads)
-    try { if (this.overlay) this.overlay.frustumCulled = false; } catch(_) {}
-    try { if (this.fatigueOverlay) this.fatigueOverlay.frustumCulled = false; } catch(_) {}
+    try { if (this.overlay) this.overlay.frustumCulled = false; } catch (e) { logError(e); }
+    try { if (this.fatigueOverlay) this.fatigueOverlay.frustumCulled = false; } catch (e) { logError(e); }
 
     // Promotion pulse element (simple DOM overlay to avoid heavy post)
     this._promoEl = document.getElementById('promoPulse');
@@ -285,13 +287,13 @@ export class Effects {
     // Camera shake
     if (this._shakeTime > 0 && this.camera) {
       this._shakeTime -= dt;
-      try { this.camera.position.sub(this._shakeOffset); } catch(_) {}
+      try { this.camera.position.sub(this._shakeOffset); } catch (e) { logError(e); }
       const k = this._shakeDur > 0 ? this._shakeTime / this._shakeDur : 0;
       const m = this._shakeStrength * Math.max(0, k);
       this._shakeOffset.set((Math.random()*2-1)*m, (Math.random()*2-1)*m, (Math.random()*2-1)*m);
-      try { this.camera.position.add(this._shakeOffset); } catch(_) {}
+      try { this.camera.position.add(this._shakeOffset); } catch (e) { logError(e); }
     } else if (this._shakeOffset.lengthSq() > 0 && this.camera) {
-      try { this.camera.position.sub(this._shakeOffset); } catch(_) {}
+      try { this.camera.position.sub(this._shakeOffset); } catch (e) { logError(e); }
       this._shakeOffset.set(0,0,0);
     }
 
@@ -382,29 +384,29 @@ export class Effects {
     // transient entries
     for (let i=this._alive.length-1;i>=0;i--){
       const fx = this._alive[i];
-      try { if (fx.cleanup) fx.cleanup(); } catch(_) {}
+      try { if (fx.cleanup) fx.cleanup(); } catch (e) { logError(e); }
       try {
         if (fx.points && this.scene) this.scene.remove(fx.points);
         if (fx.mesh && this.scene) this.scene.remove(fx.mesh);
         if (fx.light && this.scene) this.scene.remove(fx.light);
-      } catch(_) {}
+      } catch (e) { logError(e); }
     }
     this._alive.length = 0;
     // pooled actives
-    try { for (const m of this._tracerPool?.active||[]) this._freeTracer(m); this._tracerPool.active.length = 0; } catch(_) {}
-    try { for (const m of this._flashPool?.active||[]) this._freeFlash(m); this._flashPool.active.length = 0; } catch(_) {}
-    try { for (const it of this._ringPool?.active||[]) this._freeRing(it.mesh); this._ringPool.active.length = 0; } catch(_) {}
+    try { for (const m of this._tracerPool?.active||[]) this._freeTracer(m); this._tracerPool.active.length = 0; } catch (e) { logError(e); }
+    try { for (const m of this._flashPool?.active||[]) this._freeFlash(m); this._flashPool.active.length = 0; } catch (e) { logError(e); }
+    try { for (const it of this._ringPool?.active||[]) this._freeRing(it.mesh); this._ringPool.active.length = 0; } catch (e) { logError(e); }
     // decals
     for (let i=this._decals.length-1;i>=0;i--){
       const d = this._decals[i];
-      try { if (this.scene) this.scene.remove(d.mesh); } catch(_) {}
-      try { if (d.cleanup) d.cleanup(); } catch(_) {}
+      try { if (this.scene) this.scene.remove(d.mesh); } catch (e) { logError(e); }
+      try { if (d.cleanup) d.cleanup(); } catch (e) { logError(e); }
     }
     this._decals.length = 0;
     // overlays + muzzle get reset implicitly next frame
 
     if (this.camera && this._shakeOffset.lengthSq() > 0){
-      try { this.camera.position.sub(this._shakeOffset); } catch(_){}
+      try { this.camera.position.sub(this._shakeOffset); } catch (e) { logError(e); }
     }
     this._shakeOffset.set(0,0,0);
     this._shakeTime = 0;
@@ -648,7 +650,6 @@ export class Effects {
     if(!this._promoEl){ return; }
     this._promoEl.classList.remove('pulseActive');
     // force reflow to restart animation
-    // eslint-disable-next-line no-unused-expressions
     this._promoEl.offsetHeight;
     this._promoEl.classList.add('pulseActive');
   }
@@ -667,7 +668,7 @@ export class Effects {
           }
         });
       }
-    } catch(_) {}
+    } catch (e) { logError(e); }
   }
 
   onPlayerHit(damage){
@@ -780,7 +781,7 @@ spawnBulletTracer(start, end, options = {}) {
       flash.material.uniforms.uAlpha.value = 1.0;
       flash.position.copy(to);
       flash.scale.set(0.24, 0.24, 1);
-      try { if (this.camera) flash.lookAt(this.camera.position); } catch(_) {}
+      try { if (this.camera) flash.lookAt(this.camera.position); } catch (e) { logError(e); }
       flash.visible = true;
     }
   }
@@ -802,7 +803,7 @@ spawnBulletTracer(start, end, options = {}) {
       if (flash){
         if (flash.material?.uniforms?.uAlpha) flash.material.uniforms.uAlpha.value = kk;
         flash.scale.setScalar(0.24 + 0.4*(1-kk));
-        try { if (this.camera) flash.lookAt(this.camera.position); } catch(_) {}
+        try { if (this.camera) flash.lookAt(this.camera.position); } catch (e) { logError(e); }
       }
     },
     cleanup: () => {

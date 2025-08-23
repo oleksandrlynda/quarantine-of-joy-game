@@ -1,5 +1,6 @@
 import { createSniperBot } from '../assets/sniper_bot.js';
 const _sniperCache = { model: null };
+import { logError } from '../util/log.js';
 
 export class SniperEnemy {
   constructor({ THREE, mats, cfg, spawnPos, enemyManager }) {
@@ -20,7 +21,7 @@ export class SniperEnemy {
     };
     const body = clone; const head = clone.userData?.head || src.head; this._refs = remapRefs(src.root, clone, src.refs || {});
     body.position.copy(spawnPos);
-    try { if (head && head.material) head.material = head.material.clone(); } catch(_) {}
+    try { if (head && head.material) head.material = head.material.clone(); } catch (e) { logError(e); }
     body.userData = { type: cfg.type, head, hp: cfg.hp, maxHp: cfg.hp };
     this.root = body;
   
@@ -326,7 +327,7 @@ export class SniperEnemy {
   _muzzleWorld() {
     const THREE = this.THREE;
     if (this._refs && this._refs.muzzle && this._refs.muzzle.parent) {
-      try { return this._refs.muzzle.getWorldPosition(new THREE.Vector3()); } catch(_) {}
+      try { return this._refs.muzzle.getWorldPosition(new THREE.Vector3()); } catch (e) { logError(e); }
     }
     return new THREE.Vector3(this.root.position.x, this.root.position.y + 1.4, this.root.position.z);
   }
@@ -359,7 +360,7 @@ export class SniperEnemy {
         if (!this._projectiles) this._projectiles = [];
         this._projectiles.push(proj);
       }
-    } catch(_){}
+    } catch (e) { logError(e); }
     if (ctx.sniperFired) ctx.sniperFired();
   }  
 

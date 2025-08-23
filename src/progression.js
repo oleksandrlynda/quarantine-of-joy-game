@@ -1,6 +1,7 @@
 // Progression: tier-aware early game, no duplicate offers vs. current, safer restricted picks
 
 // Exported helper for testing weapon offer selection
+import { logError } from './util/log.js';
 export function pickTwoDistinct(pool){
   if (pool.length <= 1) return pool.slice(0, 1);
   // pick two uniformly without replacement
@@ -41,7 +42,7 @@ export class Progression {
       return base;
     }
   }
-  _saveUnlocks(){ try { localStorage.setItem(this.UNLOCKS_KEY, JSON.stringify(this.unlocks)); } catch {} }
+  _saveUnlocks(){ try { localStorage.setItem(this.UNLOCKS_KEY, JSON.stringify(this.unlocks)); } catch (e) { logError(e); } }
 
   // ---------- Wave hooks ----------
   onWave(wave){
@@ -200,13 +201,13 @@ export class Progression {
     this.onPause(true);
 
     // Release pointer lock so the player can use the mouse
-    try { this.controls?.unlock?.(); } catch {}
+    try { this.controls?.unlock?.(); } catch (e) { logError(e); }
 
     // Hide reset UI while offer is up
     try {
       const center = this.doc.getElementById('center');
       if (center) center.style.display = 'none';
-    } catch {}
+    } catch (e) { logError(e); }
 
     // Key bindings: 1/2 select options, Enter/Space confirm, Esc/F select decline
     if (!this._offerHandlersBound){
@@ -258,7 +259,7 @@ export class Progression {
     this.offerEl.style.display = '';
     this.offerOpen = true;
     this.onPause(true);
-    try { this.controls?.unlock?.(); } catch {}
+    try { this.controls?.unlock?.(); } catch (e) { logError(e); }
   }
 
   // ---------- Accept / Decline ----------
@@ -295,7 +296,7 @@ export class Progression {
     if (this.acceptBtn) this.acceptBtn.disabled = true;
     Array.from(this.choicesEl?.children || []).forEach(c => c.classList.remove('selected'));
     // Try to re-lock pointer immediately after interaction (valid user gesture)
-    try { this.controls?.lock?.(); } catch {}
+    try { this.controls?.lock?.(); } catch (e) { logError(e); }
   }
 
   // ---------- Icons ----------
