@@ -68,7 +68,10 @@ export function createGrassMesh({
   const material = new THREE.ShaderMaterial({
     uniforms: {
       time: { value: 0 },
-      windStrength: { value: windStrength }
+      windStrength: { value: windStrength },
+      windDirection: { value: new THREE.Vector2(1, 0) },
+      heightFactor: { value: 1 },
+      snowMix: { value: 0 }
     },
     vertexShader: `
       attribute vec3 offset;
@@ -77,13 +80,17 @@ export function createGrassMesh({
       attribute vec3 color;
       uniform float time;
       uniform float windStrength;
+      uniform vec2 windDirection;
+      uniform float heightFactor;
       varying vec3 vColor;
       void main(){
         vColor = color;
         vec3 pos = position;
-        pos.y *= scale;
-        float sway = sin(time + offset.x + offset.z) * windStrength;
-        pos.x += sway * position.y;
+        pos.y *= scale * heightFactor;
+        float sway = sin(time + offset.x + offset.z);
+        float disp = (windStrength * 0.6 + max(0.0, sway) * windStrength +
+          min(0.0, sway) * windStrength * 0.1) * position.y;
+        pos.xz += windDirection * disp;
         float c = cos(angle);
         float s = sin(angle);
         pos = vec3(
@@ -97,8 +104,10 @@ export function createGrassMesh({
     `,
     fragmentShader: `
       varying vec3 vColor;
+      uniform float snowMix;
       void main(){
-        gl_FragColor = vec4(vColor, 1.0);
+        vec3 c = mix(vColor, vec3(1.0), snowMix);
+        gl_FragColor = vec4(c, 1.0);
       }
     `,
     side: THREE.DoubleSide
@@ -106,8 +115,12 @@ export function createGrassMesh({
 
   const mesh = new THREE.Mesh(geo, material);
   mesh.frustumCulled = false;
+  let last = performance.now() / 1000;
   mesh.onBeforeRender = (_, __, ___, ____, mat) => {
-    mat.uniforms.time.value = performance.now() / 1000;
+    const now = performance.now() / 1000;
+    const dt = now - last;
+    last = now;
+    mat.uniforms.time.value += dt * (0.8 + mat.uniforms.windStrength.value);
   };
   return mesh;
 }

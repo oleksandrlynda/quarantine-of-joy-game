@@ -167,7 +167,11 @@ const weather = new WeatherSystem({ THREE, scene, skyMat, hemi, dir, mats });
 const _origGetDir = camera.getWorldDirection.bind(camera);
 camera.getWorldDirection = function(target){
   _origGetDir(target);
-  const windLevel = weather && (weather._mix?.wind || (weather.mode && weather.mode.includes('wind') ? 1 : 0));
+  const windLevel = weather && Math.max(
+    weather._mix?.wind || 0,
+    weather._mix?.sand || 0,
+    weather.mode && (weather.mode.includes('wind') || weather.mode.includes('sand')) ? 1 : 0
+  );
   if (windLevel > 0.01){
     const yaw = weather.wind.x * 0.03 * windLevel;
     target.applyAxisAngle(new THREE.Vector3(0,1,0), yaw).normalize();
@@ -783,6 +787,22 @@ function step(){
 
     // Weather update (uses gameTime so it freezes cleanly when paused)
     weather.update(gameTime, controls.getObject());
+
+    // Update grass appearance based on precipitation and wind
+    if (grassMesh && grassMesh.material && grassMesh.material.uniforms) {
+      const rainMix = weather._mix?.rain || 0;
+      const snowMix = weather._mix?.snow || 0;
+      const heightFactor = Math.max(0.2, 1 - 0.3 * rainMix - 0.6 * snowMix);
+      grassMesh.material.uniforms.heightFactor.value = heightFactor;
+      grassMesh.material.uniforms.snowMix.value = snowMix;
+
+      const windMix = Math.max(weather._mix?.wind || 0, weather._mix?.sand || 0);
+      const wind = weather.wind || { x: 1, z: 0 };
+      const len = Math.hypot(wind.x, wind.z) || 1;
+      grassMesh.material.uniforms.windDirection.value.set(wind.x / len, wind.z / len);
+      grassMesh.material.uniforms.windStrength.value = 0.2 + 3.0 * windMix;
+    }
+
     // Feed music mood from weather for subtle DNA
     try {
       const mode = weather.mode || 'clear';
