@@ -226,7 +226,6 @@ export class RusherEnemy {
       this._recoverTimer = 0.5 + Math.random() * 0.3;
       this._stunTimer = 0.6 + Math.random() * 0.3;
       try {
-        window?._EFFECTS?.screenShake?.(0.2, 0.2);
         window?._EFFECTS?.spawnDashImpact?.(e.position.clone(), this.cfg.color);
       } catch(_){}
       this._flinchAccum = 0;
