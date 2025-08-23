@@ -152,7 +152,7 @@ export function createGrassMesh({
             float tri = floor(hash(id) * triCount);
             vec3 a = triVertex(tri, 0.0);
             vec3 b = triVertex(tri, 1.0);
-            vec3 c = triVertex(tri, 2.0);
+            vec3 cVert = triVertex(tri, 2.0);
 
             float r1 = hash(id * 3.1 + 1.0);
             float r2 = hash(id * 3.7 + 2.0);
@@ -160,7 +160,7 @@ export function createGrassMesh({
             float u = 1.0 - sqrtR1;
             float v = r2 * sqrtR1;
             float w = 1.0 - u - v;
-            vec3 offset = a * u + b * v + c * w;
+            vec3 offset = a * u + b * v + cVert * w;
             offset.y += 0.01;
 
             float angle = hash(id * 2.5 + 3.0) * 6.28318530718;
@@ -175,12 +175,12 @@ export function createGrassMesh({
                 min(0.0, sway) * windStrength * 0.1) * position.y;
               pos.xz += windDirection * disp;
             }
-            float c = cos(angle);
-            float s = sin(angle);
+            float ca = cos(angle);
+            float sa = sin(angle);
             pos = vec3(
-              pos.x * c - pos.z * s,
+              pos.x * ca - pos.z * sa,
               pos.y,
-              pos.x * s + pos.z * c
+              pos.x * sa + pos.z * ca
             );
             pos += offset;
             gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
