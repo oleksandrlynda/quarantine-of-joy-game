@@ -5,7 +5,7 @@ import {
   add,
   vec3,
   vertexIndex,
-  time,
+  timerLocal,
   mx_noise_vec3,
   cameraPosition,
   positionWorld,
@@ -235,7 +235,9 @@ const createPositionNode = (options) => {
   const rightBase = mul(right, mul(bladeWidth, 0.5))
 
   // Wind animation applied to the top vertex
-  const windNoise = mx_noise_vec3(add(div(worldPos, options.windSize), mul(time, options.windSpeed)))
+  const windNoise = mx_noise_vec3(
+    add(div(worldPos, options.windSize), mul(timerLocal(), options.windSpeed))
+  )
   const finalWindOffset = mul(windNoise, vec3(options.windDisplacement, 0, options.windDisplacement))
 
   // Select position based on vertex index with billboard transformation
