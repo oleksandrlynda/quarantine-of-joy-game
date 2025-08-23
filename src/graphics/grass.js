@@ -5,7 +5,8 @@ export function createGrassMesh({
   bladeCount = 5000,
   colorRange = [0x6dbb3c, 0x4c8a2f],
   heightRange = [0.8, 1.6],
-  windStrength = 0.3
+  windStrength = 0.3,
+  noiseFreq = 0.2
 } = {}) {
   // Base geometry for a single blade
   const blade = new THREE.PlaneGeometry(0.1, 1, 1, 3);
@@ -58,7 +59,7 @@ export function createGrassMesh({
     const y = u * ay + v * by + w * cy + 0.01; // Offset slightly above floor
     const z = u * az + v * bz + w * cz;
 
-    const n = noise2D(x * 0.1, z * 0.1);
+    const n = noise2D(x * noiseFreq, z * noiseFreq);
     offsets.set([x, y, z], i * 3);
     angles[i] = Math.random() * Math.PI * 2;
     const minScale = heightRange[0];
