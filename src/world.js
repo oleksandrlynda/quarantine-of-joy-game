@@ -120,6 +120,7 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
   // Collidable objects
   const objects = [];
   let arenaRadius = Infinity;
+  let grassMesh = null;
 
   function makeArena(shape){
     const wallH = 6, wallT = 1;
@@ -136,6 +137,7 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
         windStrength: 0.3
       });
       scene.add(grass);
+      grassMesh = grass;
     };
 
     const buildPoly = (pts, skipFn) => {
@@ -200,7 +202,7 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
 
   makeArena(arenaShape);
 
-  return { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius };
+  return { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius, grassMesh };
 }
 
 

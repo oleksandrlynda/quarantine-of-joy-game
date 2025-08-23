@@ -112,3 +112,37 @@ export function createGrassMesh({
   return mesh;
 }
 
+// Remove blades that fall within any obstacle's bounding box.
+// `obstacles` should be an array of THREE.Object3D already added to the scene.
+export function cullGrassUnderObjects(grassMesh, obstacles = []) {
+  if (!grassMesh || !obstacles.length) return;
+  const offsets = grassMesh.geometry.getAttribute('offset');
+  const scales = grassMesh.geometry.getAttribute('scale');
+  if (!offsets || !scales) return;
+
+  // Precompute bounding boxes to avoid repeated allocations in the loop
+  const boxes = [];
+  for (const obj of obstacles) {
+    try {
+      boxes.push(new THREE.Box3().setFromObject(obj));
+    } catch (_) {}
+  }
+
+  for (let i = 0; i < offsets.count; i++) {
+    const x = offsets.getX(i);
+    const y = offsets.getY(i);
+    const z = offsets.getZ(i);
+    for (const b of boxes) {
+      if (
+        x >= b.min.x && x <= b.max.x &&
+        z >= b.min.z && z <= b.max.z &&
+        y >= b.min.y && y <= b.max.y
+      ) {
+        scales.setX(i, 0);
+        break;
+      }
+    }
+  }
+  scales.needsUpdate = true;
+}
+

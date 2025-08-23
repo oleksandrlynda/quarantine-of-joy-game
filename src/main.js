@@ -18,6 +18,7 @@ import { Progression } from './progression.js';
 import { loadAllModels, prewarmAllShaders } from '../loader.js?v=3';
 import { StoryManager } from './story.js';
 import { t } from './i18n/index.js';
+import { cullGrassUnderObjects } from './graphics/grass.js';
 
 // Prefer the flag set in index.html; fallback to media query
 const isMobile = (typeof window !== 'undefined' && 'IS_MOBILE' in window && window.IS_MOBILE)
@@ -90,7 +91,7 @@ const mobileControlsEl = document.getElementById('mobileControls');
 if (mobileControlsEl) mobileControlsEl.style.display = isMobile ? '' : 'none';
 
 // ------ World (renderer, scene, camera, lights, sky, materials, arena) ------
-const { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius } = createWorld(THREE, rng, arenaShape);
+const { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius, grassMesh } = createWorld(THREE, rng, arenaShape);
 const wantEditor = (new URL(window.location.href)).searchParams.get('editor') === '1';
 const storyParam = (new URL(window.location.href)).searchParams.get('story');
 const storyDisabled = storyParam === '0' || storyParam === 'false';
@@ -155,6 +156,7 @@ if (levelParam) {
 } else {
   obstacleManager.generate(seed, objects);
 }
+cullGrassUnderObjects(grassMesh, objects);
 // Update player collider list now that obstacles have been added
 // (player constructed below will read from updated objects)
 
