@@ -811,35 +811,39 @@ function step(){
     if (grassLODGroups && grassLODGroups.length) {
       const start = 40 - 20;
       const end = 40 + 20;
-      grassLODGroups.forEach(g => {
+      grassLODGroups.forEach((g, idx) => {
         const near = g.meshes[0];
         const far = g.meshes[1];
-        if (
-          near && far &&
-          near.material.uniforms.opacity &&
-          far.material.uniforms.opacity
-        ) {
-          const dist = camera.position.distanceTo(g.center);
-          const t = THREE.MathUtils.smoothstep(dist, start, end);
-          const nearCount = near.geometry?.instanceCount || 1;
-          const farCount = far.geometry?.instanceCount || 1;
-          const ratio = nearCount / farCount;
-          const nearOpacity = 1 - t;
-          const farOpacity = Math.min(1, t * ratio);
-          near.material.uniforms.opacity.value = nearOpacity;
-          far.material.uniforms.opacity.value = farOpacity;
-          near.visible = nearOpacity > 0.01;
-          far.visible = farOpacity > 0.01;
-        } else {
-          if (near && near.material.uniforms.opacity) {
-            near.material.uniforms.opacity.value = 1;
-            near.visible = true;
+        const nearU = near?.material?.uniforms?.opacity;
+        const farU = far?.material?.uniforms?.opacity;
+        if (!nearU) return;
+
+        // If the far mesh is missing or has no instances, keep the near mesh fully visible
+        if (!far || !farU || (far.geometry?.instanceCount || 0) === 0) {
+          nearU.value = 1;
+          near.visible = true;
+          if (farU) {
+            farU.value = 0;
+            far.visible = false;
           }
-          if (far && far.material.uniforms.opacity) {
-            far.material.uniforms.opacity.value = 1;
-            far.visible = true;
+          if (!g._missingFarLogged) {
+            console.warn('Grass tile missing far LOD', idx);
+            g._missingFarLogged = true;
           }
+          return;
         }
+
+        const dist = camera.position.distanceTo(g.center);
+        const t = THREE.MathUtils.smoothstep(dist, start, end);
+        const nearCount = near.geometry?.instanceCount || 1;
+        const farCount = far.geometry?.instanceCount || 1;
+        const ratio = nearCount / farCount;
+        const nearOpacity = 1 - t;
+        const farOpacity = Math.min(1, t * ratio);
+        nearU.value = nearOpacity;
+        farU.value = farOpacity;
+        near.visible = nearOpacity > 0.01;
+        far.visible = farOpacity > 0.01;
       });
     }
 
