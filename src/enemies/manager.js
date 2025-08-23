@@ -485,6 +485,9 @@ export class EnemyManager {
     }
     const half = this.enemyHalf;
     const t = this._tmp;
+    // Allow climbing over obstacles up to roughly half an enemy's height.
+    const stepUpMax = 0.40 * this.enemyFullHeight;
+    const jumpAssistMax = 0.50 * this.enemyFullHeight;
 
     let px = enemy.position.x;
     let pz = enemy.position.z;
@@ -498,7 +501,10 @@ export class EnemyManager {
       t.min.set(nx - half.x, Math.max(0.0, feetY + 0.05), nz - half.z);
       t.max.set(nx + half.x, feetY + (half.y*2),            nz + half.z);
       t.boxA.set(t.min, t.max);
-      for (const obb of this.objectBBs) { if (t.boxA.intersectsBox(obb)) return false; }
+      for (const obb of this.objectBBs) {
+        if ((obb.max.y - obb.min.y) <= jumpAssistMax) continue; // low enough to step over
+        if (t.boxA.intersectsBox(obb)) return false;
+      }
       // accept & update running position for next axis
       px = nx; pz = nz; return true;
     };
@@ -580,11 +586,6 @@ export class EnemyManager {
 
     const afterGround = this._groundHeightAt(px, pz);
     const rise = Math.max(0, afterGround - beforeGround);
-    // Allow enemies to climb over obstacles up to roughly half their height.
-    // stepUpMax permits "stepping" over small ledges while jumpAssistMax
-    // provides a bit more vertical boost when the rise is higher.
-    const stepUpMax = 0.40 * this.enemyFullHeight;
-    const jumpAssistMax = 0.50 * this.enemyFullHeight;
     const desiredY = afterGround + half.y;
   
     if (rise > 0) {

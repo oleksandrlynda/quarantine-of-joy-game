@@ -38,10 +38,10 @@ function _ensureWorker() {
 
 function _hash(ix, iz) { return ix + ',' + iz; }
 
-// Ignore obstacles shorter than this height, allowing enemies to step over
-// low props such as barrels. This roughly matches the stepping ability in
+// Ignore obstacles shorter than this height, allowing enemies to step or jump
+// over low props such as barrels. This mirrors the jump-assist capability in
 // EnemyManager.
-const STEP_THRESHOLD = 0.40 * 1.6; // 40% of typical enemy height (~1.6 units)
+const STEP_THRESHOLD = 0.50 * 1.6; // 50% of typical enemy height (~1.6 units)
 
 function _buildGrid(start, goal, obstacles, gridSize, radius) {
   const minX = Math.floor(Math.min(start.x, goal.x) - radius);
