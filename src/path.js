@@ -21,7 +21,7 @@ let _worker = null;
 
 function _ensureWorker() {
   if (_worker || typeof Worker === 'undefined') return;
-  _worker = new Worker(new URL('./worker/pathWorker.js', import.meta.url));
+  _worker = new Worker(new URL('./worker/pathWorker.js', import.meta.url), { type: 'module' });
   _worker.onmessage = (e) => {
     const { id, path } = e.data || {};
     const pending = _pending.get(id);

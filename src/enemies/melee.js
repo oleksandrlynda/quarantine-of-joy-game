@@ -314,6 +314,7 @@ cur = cur.children[idx]; }
       steer.add(this._hitJukeDir.clone().multiplyScalar(1.2));
     }
 
+    let step = new this.THREE.Vector3();
     if (steer.lengthSq() > 0) {
       steer.y = 0; steer.normalize();
       // slow when recently hit (for tanks), and decay DR timer
@@ -328,7 +329,7 @@ cur = cur.children[idx]; }
       const staggerMul = this._staggerTimer > 0 ? 0.15 : 1.0;
       const burstMul = this._burstTimer > 0 ? 1.5 : 1.0;
       if (this._slowTimer > 0) this._slowTimer = Math.max(0, this._slowTimer - dt);
-      let step = steer.multiplyScalar(this.speed * slowMul * regroupMul * staggerMul * burstMul * dt);
+      step.copy(steer).multiplyScalar(this.speed * slowMul * regroupMul * staggerMul * burstMul * dt);
 
       // Prevent entering the player's personal space; slide tangentially instead
       const minRadius = 1.2; // meters from player center
