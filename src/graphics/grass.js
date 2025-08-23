@@ -87,8 +87,10 @@ export function createGrassMesh({
         vColor = color;
         vec3 pos = position;
         pos.y *= scale * heightFactor;
-        float sway = sin(time + offset.x + offset.z) * windStrength;
-        pos.xz += windDirection * (sway * position.y);
+        float sway = sin(time + offset.x + offset.z);
+        float disp = (windStrength * 0.3 + max(0.0, sway) * windStrength +
+          min(0.0, sway) * windStrength * 0.2) * position.y;
+        pos.xz += windDirection * disp;
         float c = cos(angle);
         float s = sin(angle);
         pos = vec3(

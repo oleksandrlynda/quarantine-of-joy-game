@@ -796,7 +796,7 @@ function step(){
       const wind = weather.wind || { x: 1, z: 0 };
       const len = Math.hypot(wind.x, wind.z) || 1;
       grassMesh.material.uniforms.windDirection.value.set(wind.x / len, wind.z / len);
-      grassMesh.material.uniforms.windStrength.value = 0.2 + 0.8 * windMix;
+      grassMesh.material.uniforms.windStrength.value = 0.2 + 1.6 * windMix;
     }
 
     // Feed music mood from weather for subtle DNA
