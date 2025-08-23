@@ -1133,7 +1133,7 @@ function showTicker(text, repeat = 1, interval = 8000){
       }
 
       const distance = track.offsetWidth + containerWidth;
-      const baseSpeed = containerWidth / (interval/1000);
+      const baseSpeed = containerWidth / (interval/1000) / 2.5;
       const duration = distance / baseSpeed;
       track.style.animation = `tickerScroll ${duration}s linear`;
 

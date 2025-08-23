@@ -103,7 +103,7 @@ button.selected{ outline:4px solid #3b82f6; }
   font-weight:800;
   padding:6px 12px;
   will-change:transform;
-  animation: tickerScroll 10s linear;
+  animation: tickerScroll 25s linear;
 }
 .ticker-track .ticker-item{
   display:inline-block;
