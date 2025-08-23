@@ -235,11 +235,23 @@ cur = cur.children[idx]; }
       if (toPred.lengthSq() > 0) desired = toPred.normalize();
     }
 
+    const hasLOS = this._hasLineOfSight(e.position, playerPos, ctx.objects);
+    if (!hasLOS && ctx.pathfind) {
+      ctx.pathfind.recomputeIfStale(this, playerPos).then(p => { this._path = p; });
+      const wp = ctx.pathfind.nextWaypoint(this);
+      if (wp) {
+        const dir = new this.THREE.Vector3(wp.x - e.position.x, 0, wp.z - e.position.z);
+        if (dir.lengthSq() > 0) desired = dir.normalize();
+      }
+    } else if (hasLOS && ctx.pathfind) {
+      ctx.pathfind.clear(this);
+      this._path = null;
+    }
+
     // Anti-kite zigzag/jukes when mid-range and LOS is clear
     if (this._jukeCooldown > 0) this._jukeCooldown = Math.max(0, this._jukeCooldown - dt);
     if (this._jukeTime > 0) this._jukeTime = Math.max(0, this._jukeTime - dt);
     const inMidRange = dist >= 6 && dist <= 12;
-    const hasLOS = this._hasLineOfSight(e.position, playerPos, ctx.objects);
     if (inMidRange && hasLOS && this._jukeCooldown <= 0 && this._jukeTime <= 0) {
       if (Math.random() < 0.9 * dt) {
         const fwd = desired.lengthSq()>0 ? desired.clone() : toPlayer.clone();

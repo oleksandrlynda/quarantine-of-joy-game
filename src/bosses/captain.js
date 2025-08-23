@@ -73,6 +73,18 @@ export class Captain {
       }
     }
 
+    const hasLOS = this._hasLineOfSight(e.position, playerPos, ctx.objects);
+    if (!hasLOS && ctx.pathfind) {
+      ctx.pathfind.recomputeIfStale(this, playerPos);
+      const wp = ctx.pathfind.nextWaypoint(this);
+      if (wp) {
+        const dir = new THREE.Vector3(wp.x - e.position.x, 0, wp.z - e.position.z);
+        if (dir.lengthSq() > 0) desired.copy(dir.normalize());
+      }
+    } else if (hasLOS && ctx.pathfind) {
+      ctx.pathfind.clear(this);
+    }
+
     const avoid = desired.lengthSq() > 0 ? ctx.avoidObstacles(e.position, desired, 1.8) : desired;
     const sep = ctx.separation(e.position, 1.2, e);
     const steer = desired.clone().add(avoid.multiplyScalar(1.2)).add(sep.multiplyScalar(0.8));
@@ -274,6 +286,20 @@ export class Captain {
       this.zones.length = 0;
       if (this._zeppelin){ this._zeppelin.cleanup(); this._zeppelin = null; }
     }
+  }
+
+  _hasLineOfSight(fromPos, targetPos, objects) {
+    const THREE = this.THREE;
+    const origin = new THREE.Vector3(fromPos.x, fromPos.y + 1.2, fromPos.z);
+    const target = new THREE.Vector3(targetPos.x, 1.5, targetPos.z);
+    const dir = target.clone().sub(origin);
+    const dist = dir.length();
+    if (dist <= 0.0001) return true;
+    dir.normalize();
+    this._raycaster.set(origin, dir);
+    this._raycaster.far = dist - 0.1;
+    const hits = this._raycaster.intersectObjects(objects, false);
+    return !(hits && hits.length > 0);
   }
 
   onRemoved(scene){

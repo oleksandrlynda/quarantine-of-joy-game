@@ -80,6 +80,17 @@ export class Broodmaker {
     const desired = new this.THREE.Vector3();
     if (dist > 9) desired.add(toPlayer);
     else desired.add(new this.THREE.Vector3(-toPlayer.z, 0, toPlayer.x).multiplyScalar(0.6));
+    const hasLOS = this._hasLineOfSight(e.position, playerPos, ctx.objects);
+    if (!hasLOS && ctx.pathfind) {
+      ctx.pathfind.recomputeIfStale(this, playerPos);
+      const wp = ctx.pathfind.nextWaypoint(this);
+      if (wp) {
+        const dir = new this.THREE.Vector3(wp.x - e.position.x, 0, wp.z - e.position.z);
+        if (dir.lengthSq() > 0) desired.copy(dir.normalize());
+      }
+    } else if (hasLOS && ctx.pathfind) {
+      ctx.pathfind.clear(this);
+    }
 
     if (desired.lengthSq() > 0) {
       desired.normalize();
@@ -527,6 +538,20 @@ export class Broodmaker {
       out.push(pos);
     }
     return out;
+  }
+
+  _hasLineOfSight(fromPos, targetPos, objects) {
+    const THREE = this.THREE;
+    const origin = new THREE.Vector3(fromPos.x, fromPos.y + 1.2, fromPos.z);
+    const target = new THREE.Vector3(targetPos.x, 1.5, targetPos.z);
+    const dir = target.clone().sub(origin);
+    const dist = dir.length();
+    if (dist <= 0.0001) return true;
+    dir.normalize();
+    this._raycaster.set(origin, dir);
+    this._raycaster.far = dist - 0.1;
+    const hits = this._raycaster.intersectObjects(objects, false);
+    return !(hits && hits.length > 0);
   }
 
   _easeTo(current, target, rate) { return current + Math.max(-Math.abs(rate), Math.min(Math.abs(rate), target - current)); }

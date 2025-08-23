@@ -228,6 +228,19 @@ export class RusherEnemy {
     const toPred = predicted.sub(e.position); toPred.y = 0;
     let desired = toPred.lengthSq() > 0 ? toPred.normalize() : toPlayer.clone();
 
+    const hasLOS = this._hasLineOfSight(e.position, playerPos, ctx.objects);
+    if (!hasLOS && ctx.pathfind && !this._charging) {
+      ctx.pathfind.recomputeIfStale(this, playerPos).then(p => { this._path = p; });
+      const wp = ctx.pathfind.nextWaypoint(this);
+      if (wp) {
+        const dir = new THREE.Vector3(wp.x - e.position.x, 0, wp.z - e.position.z);
+        if (dir.lengthSq() > 0) desired = dir.normalize();
+      }
+    } else if (hasLOS && ctx.pathfind) {
+      ctx.pathfind.clear(this);
+      this._path = null;
+    }
+
     // Avoid obstacles and separation unless currently charging
     if (!this._charging) {
       const avoid = ctx.avoidObstacles(e.position, desired, 2.2);
@@ -265,7 +278,7 @@ export class RusherEnemy {
         this._dashCooldown = 1.2 + Math.random() * 0.8;
       }
     }
-    const canDash = (dist >= 5 && dist <= 20) && !this._charging && this._dashCooldown <= 0 && this._recoverTimer <= 0 && this._windUpTimer <= 0 && this._stunTimer <= 0 && this._flinchTimer <= 0 && this._hasLineOfSight(e.position, playerPos, ctx.objects);
+    const canDash = (dist >= 5 && dist <= 20) && !this._charging && this._dashCooldown <= 0 && this._recoverTimer <= 0 && this._windUpTimer <= 0 && this._stunTimer <= 0 && this._flinchTimer <= 0 && hasLOS;
     if (canDash && Math.random() < 1.2 * dt) {
       this._windUpTimer = this.cfg.windUp || 0.3;
       this._dashDir.copy(desired);
