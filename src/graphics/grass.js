@@ -68,7 +68,10 @@ export function createGrassMesh({
   const material = new THREE.ShaderMaterial({
     uniforms: {
       time: { value: 0 },
-      windStrength: { value: windStrength }
+      windStrength: { value: windStrength },
+      windDirection: { value: new THREE.Vector2(1, 0) },
+      heightFactor: { value: 1 },
+      snowMix: { value: 0 }
     },
     vertexShader: `
       attribute vec3 offset;
@@ -77,13 +80,15 @@ export function createGrassMesh({
       attribute vec3 color;
       uniform float time;
       uniform float windStrength;
+      uniform vec2 windDirection;
+      uniform float heightFactor;
       varying vec3 vColor;
       void main(){
         vColor = color;
         vec3 pos = position;
-        pos.y *= scale;
+        pos.y *= scale * heightFactor;
         float sway = sin(time + offset.x + offset.z) * windStrength;
-        pos.x += sway * position.y;
+        pos.xz += windDirection * (sway * position.y);
         float c = cos(angle);
         float s = sin(angle);
         pos = vec3(
@@ -97,8 +102,10 @@ export function createGrassMesh({
     `,
     fragmentShader: `
       varying vec3 vColor;
+      uniform float snowMix;
       void main(){
-        gl_FragColor = vec4(vColor, 1.0);
+        vec3 c = mix(vColor, vec3(1.0), snowMix);
+        gl_FragColor = vec4(c, 1.0);
       }
     `,
     side: THREE.DoubleSide
