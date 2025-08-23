@@ -48,7 +48,7 @@ export class Sanitizer {
     this._pulseCd = 3.8;
 
     // Jump wave attack
-    this._jumpCd = 6 + Math.random() * 2; // seconds
+    this._jumpCd = 3 + Math.random() * 1.5; // seconds
     this._jumpState = 'idle';
     this._jumpTimer = 0;
     this._jumpDir = new THREE.Vector3(1, 0, 0);
@@ -403,9 +403,9 @@ export class Sanitizer {
           e.position.y = 0.8;
           this._jumpState = 'land';
           this._jumpTimer = 0;
-          const radius = 6.0;
+          const radius = 7.0;
           const angle = Math.PI / 4; // 45° arc
-          try { window?._EFFECTS?.spawnShockwaveArc?.(e.position.clone(), this._jumpDir.clone(), angle, radius, 0x9bd1ff); } catch(_) {}
+          try { window?._EFFECTS?.spawnShockwaveArc?.(e.position.clone(), this._jumpDir.clone(), angle, radius, 0xffdd55); } catch(_) {}
           const toP = ctx.player.position.clone().sub(e.position); toP.y = 0;
           const dist = toP.length();
           if (dist <= radius) {
@@ -419,7 +419,7 @@ export class Sanitizer {
         this._jumpTimer += dt;
         if (this._jumpTimer >= 0.5) {
           this._jumpState = 'idle';
-          this._jumpCd = 6 + Math.random() * 2;
+          this._jumpCd = 3 + Math.random() * 1.5;
         }
         return;
       default:

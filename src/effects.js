@@ -925,7 +925,7 @@ spawnBulletImpact(position, normal){
   }
 
   // Wedge-shaped expanding ring useful for directional shockwaves
-  spawnShockwaveArc(center, dir, angle=Math.PI/4, radius=5.0, color=0x9bd1ff){
+  spawnShockwaveArc(center, dir, angle=Math.PI/4, radius=6.0, color=0xffdd55){
     const THREE = this.THREE;
     const ring = this._allocRing();
     if (!ring) return null;
