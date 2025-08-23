@@ -1,3 +1,6 @@
+import { MeshBasicNodeMaterial, attribute } from 'https://unpkg.com/three@0.159.0/examples/jsm/nodes/Nodes.js?module';
+import { grass as createGrass } from './assets/3rdparty/grass/grass.js';
+
 // World setup: renderer, scene, camera, sky, lights, arena, materials
 // Export a factory to build and return references used by the game
 
@@ -181,6 +184,22 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
   }
 
   makeArena(arenaShape);
+
+  // Decorative grass overlay on the arena floor
+  try {
+    const base = new THREE.PlaneGeometry(80, 80, 32, 32);
+    base.rotateX(-Math.PI / 2);
+    base.translate(0, -1, 0);
+    const { positionNode, geometry } = createGrass({ geometry: base });
+    const mat = new MeshBasicNodeMaterial({ transparent: true });
+    mat.positionNode = positionNode;
+    mat.colorNode = attribute('color');
+    const grassMesh = new THREE.Mesh(geometry, mat);
+    grassMesh.frustumCulled = false;
+    scene.add(grassMesh);
+  } catch (e) {
+    console.warn('Grass effect failed', e);
+  }
 
   return { renderer, scene, camera, skyMat, hemi, dir, mats, objects, arenaRadius };
 }
