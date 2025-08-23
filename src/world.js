@@ -191,7 +191,7 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
     base.rotateX(-Math.PI / 2);
     base.translate(0, -1, 0);
     const { positionNode, geometry } = createGrass({ geometry: base });
-    const mat = new MeshBasicNodeMaterial({ transparent: true });
+    const mat = new MeshBasicNodeMaterial({ transparent: true, fog: false });
     mat.positionNode = positionNode;
     mat.colorNode = attribute('color');
     const grassMesh = new THREE.Mesh(geometry, mat);
