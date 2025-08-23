@@ -159,7 +159,7 @@ if (levelParam) {
 // (player constructed below will read from updated objects)
 
 // Weather system
-const weather = new WeatherSystem({ THREE, scene, skyMat, hemi, dir });
+const weather = new WeatherSystem({ THREE, scene, skyMat, hemi, dir, mats });
 
 // Adjust player forward direction for crosswind when windy
 const _origGetDir = camera.getWorldDirection.bind(camera);

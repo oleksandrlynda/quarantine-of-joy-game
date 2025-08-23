@@ -105,6 +105,18 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
   skyMat.uniforms.sunDir.value.copy(dir.position).normalize();
 
   // Materials used across the game
+  const weatherUniforms = { wetness:{ value:0 }, snow:{ value:0 } };
+  const applyWeatherUniforms = (mat) => {
+    mat.onBeforeCompile = (shader) => {
+      shader.uniforms.uWetness = weatherUniforms.wetness;
+      shader.uniforms.uSnow = weatherUniforms.snow;
+      shader.fragmentShader = shader.fragmentShader.replace(
+        'vec4 diffuseColor = vec4( diffuse, opacity );',
+        'vec4 diffuseColor = vec4( diffuse, opacity );\n  diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.4, uWetness);\n  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), uSnow);'
+      );
+    };
+    mat.needsUpdate = true;
+  };
   const mats = {
     floor: new THREE.MeshLambertMaterial({ color:0xd7fbe8 }),
     wall:  new THREE.MeshLambertMaterial({ color:0x8ecae6 }),
@@ -114,6 +126,9 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
     tracer: new THREE.LineBasicMaterial({ color:0x111111, transparent:true, opacity:1 }),
     spark: new THREE.MeshBasicMaterial({ color:0xffaa00 })
   };
+  applyWeatherUniforms(mats.floor);
+  applyWeatherUniforms(mats.wall);
+  mats.weather = weatherUniforms;
 
   // Collidable objects
   const objects = [];

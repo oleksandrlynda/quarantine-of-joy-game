@@ -1,7 +1,7 @@
 // WeatherSystem module: rain, snow, fog (can blend with rain), sandstorm, windy, dynamic cycle, thunder for rain
 export class WeatherSystem {
   constructor(ctx){
-    this.THREE = ctx.THREE; this.scene = ctx.scene; this.skyMat = ctx.skyMat; this.hemi = ctx.hemi; this.dir = ctx.dir;
+    this.THREE = ctx.THREE; this.scene = ctx.scene; this.skyMat = ctx.skyMat; this.hemi = ctx.hemi; this.dir = ctx.dir; this.mats = ctx.mats;
     this.group = new this.THREE.Group(); this.scene.add(this.group);
 
     // Public state
@@ -213,6 +213,10 @@ export class WeatherSystem {
     this.scene.fog.far  = lerp01(this._envStart.fogFar,  this._envTarget.fogFar,  s);
     this.hemi.intensity = lerp01(this._envStart.hemiIntensity, this._envTarget.hemiIntensity, s);
     this.dir.intensity  = lerp01(this._envStart.dirIntensity,  this._envTarget.dirIntensity,  s);
+    if (this.mats && this.mats.weather){
+      this.mats.weather.wetness.value = this._mix.rain;
+      this.mats.weather.snow.value = this._mix.snow;
+    }
   }
 
   _decayThunder(t){
