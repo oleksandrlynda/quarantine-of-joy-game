@@ -53,3 +53,13 @@ test('enemy blocked by tall obstacle', () => {
   assert.strictEqual(enemy.position.x, 0);
   assert.strictEqual(enemy.position.y, 0.8);
 });
+
+test('enemy lifts even without ground height data', () => {
+  const obb = new Box3(new Vector3(0.5,0,-0.5), new Vector3(1.5,0.15,0.5));
+  const ground = () => 0; // sensor fails to report obstacle height
+  const mgr = mkManager([obb], ground);
+  const enemy = { position: new Vector3(0,0.8,0) };
+  mgr._moveWithCollisions(enemy, new Vector3(1,0,0));
+  assert.ok(Math.abs(enemy.position.x - 1) < 1e-6);
+  assert.ok(Math.abs(enemy.position.y - 0.95) < 1e-6);
+});

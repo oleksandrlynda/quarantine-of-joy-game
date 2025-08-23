@@ -503,7 +503,8 @@ export class EnemyManager {
 
     py += pendingLift;
 
-    const afterGround = this._groundHeightAt(px, pz);
+    let afterGround = this._groundHeightAt(px, pz);
+    afterGround = Math.max(afterGround, beforeGround + pendingLift);
     const rise = Math.max(0, afterGround - beforeGround);
     const desiredY = afterGround + half.y;
 
