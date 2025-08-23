@@ -110,10 +110,12 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
     mat.onBeforeCompile = (shader) => {
       shader.uniforms.uWetness = weatherUniforms.wetness;
       shader.uniforms.uSnow = weatherUniforms.snow;
-      shader.fragmentShader = shader.fragmentShader.replace(
-        'vec4 diffuseColor = vec4( diffuse, opacity );',
-        'vec4 diffuseColor = vec4( diffuse, opacity );\n  diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.4, uWetness);\n  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), uSnow);'
-      );
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nuniform float uWetness;\nuniform float uSnow;')
+        .replace(
+          'vec4 diffuseColor = vec4( diffuse, opacity );',
+          'vec4 diffuseColor = vec4( diffuse, opacity );\n  diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.4, uWetness);\n  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), uSnow);'
+        );
     };
     mat.needsUpdate = true;
   };
