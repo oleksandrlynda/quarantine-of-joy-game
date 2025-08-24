@@ -33,6 +33,7 @@ export class Weapon {
     this.ammoInMag -= 1;
     this._nextFireAtMs = now + (this.cfg.fireDelayMs || 0);
     this.onFire(ctx);
+    ctx?.achievements?.check?.({ type: 'shot' });
     return true;
   }
 

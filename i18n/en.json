@@ -104,6 +104,26 @@
   "musicPlayer.hat": "Hat",
   "musicPlayer.clap": "Clap",
   "musicPlayer.ride": "Ride",
-  "musicPlayer.stab": "Stab"
+  "musicPlayer.stab": "Stab",
+  "ach.firstBlood.name": "First Blood",
+  "ach.firstBlood.desc": "Defeat your first enemy.",
+  "ach.monsterHunter.name": "Monster Hunter",
+  "ach.monsterHunter.desc": "Defeat 100 enemies.",
+  "ach.rookieScore.name": "Rookie",
+  "ach.rookieScore.desc": "Score 1,000 points.",
+  "ach.veteranScore.name": "Veteran",
+  "ach.veteranScore.desc": "Score 10,000 points.",
+  "ach.waveBeginner.name": "The Journey Starts",
+  "ach.waveBeginner.desc": "Survive the first wave.",
+  "ach.waveMaster.name": "Wave Master",
+  "ach.waveMaster.desc": "Survive 10 waves.",
+  "ach.collector.name": "Collector",
+  "ach.collector.desc": "Pick up 10 items.",
+  "ach.arsenal.name": "Arsenal",
+  "ach.arsenal.desc": "Fire 500 shots.",
+  "ach.speedRunner.name": "Speed Runner",
+  "ach.speedRunner.desc": "Finish a wave in under 30 seconds.",
+  "ach.survivor.name": "Survivor",
+  "ach.survivor.desc": "Survive for 15 minutes."
 }
 
