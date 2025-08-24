@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "test": "node --test test/*.test.js",
-    "lint": "eslint src test"
+    "lint": "eslint src test",
+    "resource-check": "node test/resource-check.js"
   },
   "keywords": [],
   "author": "",
