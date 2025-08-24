@@ -25,6 +25,7 @@
       <option value="fog">Fog</option>
       <option value="sandstorm">Sandstorm</option>
       <option value="windy">Windy</option>
+      <option value="godrays">God Rays</option>
     </select>
   </div>
   <script type="module">
@@ -33,6 +34,7 @@
     import { createWorld } from './src/world.js';
     import { WeatherSystem } from './src/weather.js';
     import { SFX } from './src/sfx.js';
+    import { GodRaysEffect } from './src/godrays.js';
 
     const { renderer, scene, camera, skyMat, hemi, dir, mats, grassMesh } = createWorld(THREE, Math.random);
     camera.position.set(0, 18, 36);
@@ -46,13 +48,22 @@
     controls.maxDistance = 80;
 
     const weather = new WeatherSystem({ THREE, scene, skyMat, hemi, dir, mats });
+    let godRays = null;
     weather._nextChangeAt = Infinity;
 
     const musicShim = { getContext(){ return new (window.AudioContext||window.webkitAudioContext)(); }, getFxBus(){ return null; } };
     window._SFX = new SFX({ audioContextProvider: ()=>musicShim.getContext(), fxBusProvider: ()=>musicShim.getFxBus() });
 
     const sel = document.getElementById('weatherSel');
-    const apply = ()=> weather.setMode(sel.value);
+    const apply = ()=>{
+      weather.setMode(sel.value);
+      if (sel.value === 'godrays'){
+        if (!godRays) godRays = new GodRaysEffect({ THREE, renderer, scene, camera, light: dir });
+      } else if (godRays){
+        godRays.dispose();
+        godRays = null;
+      }
+    };
     sel.addEventListener('change', apply);
     apply();
 
@@ -74,7 +85,7 @@
       grassMesh.material.uniforms.windStrength.value = 0.2 + 3.0 * windMix;
 
       skyMat.uniforms.time.value = t;
-      renderer.render(scene, camera);
+      if (godRays) godRays.render(); else renderer.render(scene, camera);
       requestAnimationFrame(loop);
     }
     requestAnimationFrame(loop);
@@ -83,6 +94,7 @@
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
+      godRays?.setSize(window.innerWidth, window.innerHeight);
     });
   </script>
 </body>
