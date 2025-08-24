@@ -1,5 +1,7 @@
 # Quarantine of Joy
 
+[![Node.js CI](https://github.com/oleksandrlynda/quarantine-of-joy-game/actions/workflows/node.js.yml/badge.svg?branch=main)](https://github.com/oleksandrlynda/quarantine-of-joy-game/actions/workflows/node.js.yml) [![Resource Check](https://github.com/oleksandrlynda/quarantine-of-joy-game/actions/workflows/resource-check.yml/badge.svg?branch=main)](https://github.com/oleksandrlynda/quarantine-of-joy-game/actions/workflows/resource-check.yml) [![Deploy static content to Pages](https://github.com/oleksandrlynda/quarantine-of-joy-game/actions/workflows/static.yml/badge.svg?branch=main)](https://github.com/oleksandrlynda/quarantine-of-joy-game/actions/workflows/static.yml)
+
 ![Title screenshot](https://github.com/user-attachments/assets/759d695c-c3f8-4088-82f0-63cf7da63673)
 
 Quarantine of Joy is an experimental browser shooter built with an in-browser music editor.
