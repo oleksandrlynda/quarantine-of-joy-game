@@ -84,6 +84,17 @@ button.selected{ outline:4px solid #3b82f6; }
 .toast.out{ animation: toastOut 200ms ease-in forwards; }
 @keyframes toastOut{ to{ opacity:0; transform:translateY(-6px);} }
 
+/* Achievements */
+#achievements{ position:fixed; right:14px; bottom:90px; display:flex; flex-direction:column; gap:8px; z-index:5; }
+/* mirror toast styles but adjusted for size/icon */
+.achievement{ display:flex; align-items:center; gap:8px; background:#ffffffee; border:2px solid #00000018; border-radius:12px; padding:8px 12px; font-weight:800; box-shadow:0 10px 30px #00000022; opacity:0; transform:translateY(6px); animation: achievementIn 180ms ease-out forwards; }
+.achievement .icon{ font-size:24px; }
+.achievement .name{ font-weight:900; }
+.achievement .desc{ font-size:12px; opacity:.8; }
+@keyframes achievementIn{ to{ opacity:1; transform:translateY(0);} }
+.achievement.out{ animation: achievementOut 200ms ease-in forwards; }
+@keyframes achievementOut{ to{ opacity:0; transform:translateY(6px);} }
+
 /* News ticker */
 #newsTicker{
   position:fixed;
@@ -129,4 +140,6 @@ button.selected{ outline:4px solid #3b82f6; }
   #mobileControls #joystick .knob{ position:absolute; left:50%; top:50%; width:40px; height:40px; margin-left:-20px; margin-top:-20px; background:var(--panel); border:2px solid #00000055; border-radius:50%; }
   #mobileControls #actionButtons{ position:absolute; right:20px; bottom:20px; display:flex; flex-direction:column; gap:12px; pointer-events:auto; }
   #mobileControls #actionButtons button{ width:60px; height:60px; border-radius:50%; background:var(--panel); border:2px solid #00000018; box-shadow:0 10px 30px #00000022; font-size:24px; font-weight:800; }
+  #achievements{ top:20px; bottom:auto; left:50%; right:auto; transform:translateX(-50%); width:min(calc(100% - 40px),360px); }
+  #achievements .achievement{ width:100%; }
 }

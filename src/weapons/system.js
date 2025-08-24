@@ -10,7 +10,7 @@ import { BeamSaber } from './beamsaber.js';
 
 // WeaponSystem orchestrates current weapon, input mapping, and HUD sync
 export class WeaponSystem {
-  constructor({ THREE, camera, raycaster, enemyManager, objects, effects, obstacleManager, pickups, S, updateHUD, addScore, addComboAction, combo, addTracer, applyRecoil, weaponView }) {
+  constructor({ THREE, camera, raycaster, enemyManager, objects, effects, obstacleManager, pickups, S, updateHUD, addScore, addComboAction, combo, addTracer, applyRecoil, weaponView, achievements }) {
     this.THREE = THREE;
     this.camera = camera;
     this.raycaster = raycaster;
@@ -27,6 +27,7 @@ export class WeaponSystem {
     this.addTracer = addTracer;
     this.applyRecoil = applyRecoil || (()=>{});
     this.weaponView = weaponView;
+    this.achievements = achievements;
     this.splitPickupsProportionally = false; // optional economy mode
 
     this.inventory = [];
@@ -94,7 +95,8 @@ export class WeaponSystem {
       combo: this.combo,
       addTracer: this.addTracer,
       applyRecoil: this.applyRecoil,
-      applyKnockback: (enemy, vec) => this.enemyManager?.applyKnockback?.(enemy, vec)
+      applyKnockback: (enemy, vec) => this.enemyManager?.applyKnockback?.(enemy, vec),
+      achievements: this.achievements
     };
   }
 

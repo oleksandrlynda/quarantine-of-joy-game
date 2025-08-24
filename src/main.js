@@ -20,6 +20,7 @@ import { StoryManager } from './story.js';
 import { t } from './i18n/index.js';
 import { logError } from './util/log.js';
 import { cullGrassUnderObjects } from './graphics/grass.js';
+import { AchievementsManager } from './achievements.js';
 
 // Prefer the flag set in index.html; fallback to media query
 const isMobile = (typeof window !== 'undefined' && 'IS_MOBILE' in window && window.IS_MOBILE)
@@ -302,6 +303,17 @@ const toastsEl = document.getElementById('toasts');
 const tickerEl = document.getElementById('newsTicker');
 let tickerQueue = Promise.resolve();
 
+const achievements = new AchievementsManager();
+let lastWaveStartTime = 0;
+
+const _origEnemyRemove = enemyManager.remove.bind(enemyManager);
+enemyManager.remove = (root) => {
+  const killed = root?.userData?.hp <= 0;
+  const res = _origEnemyRemove(root);
+  if (killed) achievements.check({ type: 'kill', count: 1 });
+  return res;
+};
+
 function clearTicker(){
   tickerQueue = Promise.resolve();
   if (!tickerEl) return;
@@ -346,6 +358,7 @@ function setComboTier(newTier){
   combo.tier = clamped;
   combo.multiplier = comboCfg.multipliers[combo.tier] || 1.0;
   updateComboLabel();
+  achievements.check({ type: 'combo', tier: combo.tier });
   if (combo.tier > prev) { effects.promotionPulse(); effects.setTracerTint(combo.tier / comboCfg.maxTier); }
   else { effects.setTracerTint(combo.tier / comboCfg.maxTier); }
 }
@@ -443,12 +456,19 @@ function addScore(points){
     best = score;
     try { localStorage.setItem(BEST_KEY, String(best)); } catch (e) { logError(e); }
   }
+  achievements.check({ type: 'score', amount: points });
   updateHUD();
 }
 updateHUD();
 
 // update HUD when a new wave starts and when remaining enemies changes
 enemyManager.onWave = (_wave, startingAlive) => {
+  if (_wave > 1) {
+    const duration = gameTime - lastWaveStartTime;
+    achievements.check({ type: 'waveComplete', time: duration });
+  }
+  lastWaveStartTime = gameTime;
+  achievements.check({ type: 'wave', number: _wave });
   // record startingAlive for progress bar
   enemyManager.waveStartingAlive = startingAlive || 0;
   updateHUD();
@@ -582,7 +602,8 @@ weaponSystem = new WeaponSystem({
   combo,
   addTracer: (from, to) => addTracer(from, to),
   applyRecoil: (r)=> player.applyRecoil?.(r),
-  weaponView
+  weaponView,
+  achievements
 });
 // Set initial weapon view
 try { weaponView.setWeapon(weaponSystem.getPrimaryName()); } catch (e) { logError(e); }
@@ -687,6 +708,7 @@ function step(){
   if((controls.isLocked || isMobile) && !paused && !gameOver){
     // advance game time only while active
     gameTime += dt;
+    achievements.check({ type: 'time', delta: dt });
     // player movement update
     player.update(dt);
     // weapon view update using player inputs (approx from key state and mouse movement are handled by PointerLock, so we feed movement intent only)
@@ -758,6 +780,7 @@ function step(){
       if (type === 'ammo') { if (weaponSystem) weaponSystem.onAmmoPickup(amount); showToast('+Ammo'); }
       else if (type === 'med') { hp = Math.min(100, hp + amount); if (S && S.ui) S.ui('pickup'); showToast('+HP'); try { story?.onFirstMedPickup?.(); } catch (e) { logError(e); } }
       updateHUD();
+      achievements.check({ type: 'pickup' });
     });
 
     // Emergency ammo assistance: if player has no ammo (mag + reserve) and there are

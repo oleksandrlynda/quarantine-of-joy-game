@@ -104,6 +104,26 @@
   "musicPlayer.hat": "Хай-хет",
   "musicPlayer.clap": "Плеск",
   "musicPlayer.ride": "Райд",
-  "musicPlayer.stab": "Стаб"
+  "musicPlayer.stab": "Стаб",
+  "ach.firstBlood.name": "Перша кров",
+  "ach.firstBlood.desc": "Переможи свого першого ворога.",
+  "ach.monsterHunter.name": "Мисливець на монстрів",
+  "ach.monsterHunter.desc": "Переможи 100 ворогів.",
+  "ach.rookieScore.name": "Новачок",
+  "ach.rookieScore.desc": "Набери 1 000 очок.",
+  "ach.veteranScore.name": "Ветеран",
+  "ach.veteranScore.desc": "Набери 10 000 очок.",
+  "ach.waveBeginner.name": "Початок шляху",
+  "ach.waveBeginner.desc": "Переживи першу хвилю.",
+  "ach.waveMaster.name": "Майстер хвиль",
+  "ach.waveMaster.desc": "Переживи 10 хвиль.",
+  "ach.collector.name": "Колекціонер",
+  "ach.collector.desc": "Підбери 10 предметів.",
+  "ach.arsenal.name": "Арсенал",
+  "ach.arsenal.desc": "Зроби 500 пострілів.",
+  "ach.speedRunner.name": "Спідраннер",
+  "ach.speedRunner.desc": "Заверши хвилю менш ніж за 30 секунд.",
+  "ach.survivor.name": "Вцілілий",
+  "ach.survivor.desc": "Виживи 15 хвилин."
 }
 
