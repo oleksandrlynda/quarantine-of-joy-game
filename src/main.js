@@ -1018,6 +1018,12 @@ function startGame(){
     controls.lock();
   }
   panel.parentElement.style.display = 'none';
+  // Restore default procedural level before starting a run
+  levelInfo = null;
+  obstacleManager.generate(seed, objects);
+  cullGrassUnderObjects(grassMesh, objects);
+  enemyManager.refreshColliders(objects);
+  enemyManager.customSpawnPoints = null;
   reset();
   if (musicChoice === 'suno') { playSuno(); } else { music.start(); }
 }
@@ -1058,6 +1064,12 @@ function finishTutorial(){
   if (!isMobile) {
     try { controls.unlock(); } catch (e) { logError(e); }
   }
+  // Regenerate the default arena so the next play session uses it
+  levelInfo = null;
+  obstacleManager.generate(seed, objects);
+  cullGrassUnderObjects(grassMesh, objects);
+  enemyManager.refreshColliders(objects);
+  enemyManager.customSpawnPoints = null;
   reset(true);
   showStartPanel();
 }
