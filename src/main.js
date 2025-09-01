@@ -149,6 +149,7 @@ try {
 // Obstacles / Level loading (deterministic per seed or explicit map)
 const obstacleManager = new ObstacleManager(THREE, scene, mats);
 let levelInfo = null;
+let currentMap = null; // active custom map definition, null for procedural arena
 const levelParam = params.get('level');
 if (levelParam) {
   try {
@@ -156,6 +157,7 @@ if (levelParam) {
     if (levelParam.trim().startsWith('{')) {
       const map = JSON.parse(levelParam);
       levelInfo = obstacleManager.loadFromMap(map, objects);
+      currentMap = map;
     } else {
       // Synchronous fetch is not available; kick async and block wave start until loaded
       // Start a fetch but meanwhile place nothing yet; we will continue after load
@@ -163,21 +165,25 @@ if (levelParam) {
       // Note: this top-level await style via IIFE
       await (async ()=>{
         const res = await fetch(`assets/levels/${levelParam.replace(/[^a-zA-Z0-9-_\.]/g,'')}`);
-        if (res.ok) {
-          const map = await res.json();
-          levelInfo = obstacleManager.loadFromMap(map, objects);
-        } else {
-          obstacleManager.generate(seed, objects);
-        }
+          if (res.ok) {
+            const map = await res.json();
+            levelInfo = obstacleManager.loadFromMap(map, objects);
+            currentMap = map;
+          } else {
+            obstacleManager.generate(seed, objects);
+            currentMap = null;
+          }
       })();
     }
   } catch (e) {
     logError(e);
     // On any error, fall back to procedural
     obstacleManager.generate(seed, objects);
+    currentMap = null;
   }
 } else {
   obstacleManager.generate(seed, objects);
+  currentMap = null;
 }
 cullGrassUnderObjects(grassMesh, objects);
 // Update player collider list now that obstacles have been added
@@ -1018,16 +1024,24 @@ function startGame(){
     controls.lock();
   }
   panel.parentElement.style.display = 'none';
-  // Restore default procedural level before starting a run
-  levelInfo = null;
-  obstacleManager.generate(seed, objects);
-  cullGrassUnderObjects(grassMesh, objects);
-  enemyManager.refreshColliders(objects);
-  enemyManager.customSpawnPoints = null;
+  // Reload whichever map is active so each run starts fresh
+  if (currentMap) {
+    levelInfo = obstacleManager.loadFromMap(currentMap, objects);
+    cullGrassUnderObjects(grassMesh, objects);
+    enemyManager.refreshColliders(objects);
+    enemyManager.customSpawnPoints = levelInfo.enemySpawnPoints;
+  } else {
+    obstacleManager.generate(seed, objects);
+    cullGrassUnderObjects(grassMesh, objects);
+    enemyManager.refreshColliders(objects);
+    levelInfo = null;
+    enemyManager.customSpawnPoints = null;
+  }
   reset();
   if (musicChoice === 'suno') { playSuno(); } else { music.start(); }
 }
 
+let preTutorialMap = null;
 async function startTutorial(){
   if (isMobile) {
     const el = document.documentElement;
@@ -1038,12 +1052,16 @@ async function startTutorial(){
   }
   panel.parentElement.style.display = 'none';
   enemyManager.suspendWaves = true;
+  preTutorialMap = currentMap;
   try {
     const res = await fetch('assets/levels/tutorial.json');
     if (res.ok) {
       const map = await res.json();
+      currentMap = map;
       levelInfo = obstacleManager.loadFromMap(map, objects);
+      cullGrassUnderObjects(grassMesh, objects);
       enemyManager.refreshColliders(objects);
+      enemyManager.customSpawnPoints = levelInfo.enemySpawnPoints;
     }
   } catch (e) { logError(e); }
   reset(true);
@@ -1064,12 +1082,22 @@ function finishTutorial(){
   if (!isMobile) {
     try { controls.unlock(); } catch (e) { logError(e); }
   }
-  // Regenerate the default arena so the next play session uses it
-  levelInfo = null;
-  obstacleManager.generate(seed, objects);
-  cullGrassUnderObjects(grassMesh, objects);
-  enemyManager.refreshColliders(objects);
-  enemyManager.customSpawnPoints = null;
+  // Restore pre-tutorial map (custom or default)
+  if (preTutorialMap) {
+    currentMap = preTutorialMap;
+    levelInfo = obstacleManager.loadFromMap(currentMap, objects);
+    cullGrassUnderObjects(grassMesh, objects);
+    enemyManager.refreshColliders(objects);
+    enemyManager.customSpawnPoints = levelInfo.enemySpawnPoints;
+  } else {
+    currentMap = null;
+    obstacleManager.generate(seed, objects);
+    cullGrassUnderObjects(grassMesh, objects);
+    enemyManager.refreshColliders(objects);
+    levelInfo = null;
+    enemyManager.customSpawnPoints = null;
+  }
+  preTutorialMap = null;
   reset(true);
   showStartPanel();
 }
