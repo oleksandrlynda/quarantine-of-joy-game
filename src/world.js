@@ -4,7 +4,9 @@
 import { createGrassMesh } from './graphics/grass.js';
 import { logError } from './util/log.js';
 
-export const ARENA_RADIUS = 40 / 3;
+export const DEFAULT_ARENA_RADIUS = 40;
+export let ARENA_RADIUS = DEFAULT_ARENA_RADIUS;
+export function setArenaRadius(r){ ARENA_RADIUS = r; }
 
 export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
   // Renderer

@@ -1,7 +1,7 @@
 import * as THREE from 'https://unpkg.com/three@0.159.0/build/three.module.js';
 import { PointerLockControls } from 'https://unpkg.com/three@0.159.0/examples/jsm/controls/PointerLockControls.js?module';
 import { WeatherSystem } from './weather.js';
-import { createWorld } from './world.js?v=2';
+import { createWorld, setArenaRadius, DEFAULT_ARENA_RADIUS } from './world.js?v=2';
 import { makeSeededRng, makeNamespacedRng, generateSeedString } from './util/rng.js';
 import { EnemyManager } from './enemies.js';
 import { PlayerController } from './player.js';
@@ -1024,6 +1024,14 @@ function startGame(){
     controls.lock();
   }
   panel.parentElement.style.display = 'none';
+  if (currentMap?.name === 'tutorial') {
+    currentMap = null;
+    levelInfo = null;
+    enemyManager.customSpawnPoints = null;
+    setArenaRadius(DEFAULT_ARENA_RADIUS);
+    player.arenaRadius = DEFAULT_ARENA_RADIUS;
+    enemyManager.setArenaRadius(DEFAULT_ARENA_RADIUS);
+  }
   // Reload whichever map is active so each run starts fresh
   if (currentMap) {
     levelInfo = obstacleManager.loadFromMap(currentMap, objects);
@@ -1041,7 +1049,6 @@ function startGame(){
   if (musicChoice === 'suno') { playSuno(); } else { music.start(); }
 }
 
-let preTutorialMap = null;
 async function startTutorial(){
   if (isMobile) {
     const el = document.documentElement;
@@ -1052,7 +1059,6 @@ async function startTutorial(){
   }
   panel.parentElement.style.display = 'none';
   enemyManager.suspendWaves = true;
-  preTutorialMap = currentMap;
   try {
     const res = await fetch('assets/levels/tutorial.json');
     if (res.ok) {
@@ -1064,6 +1070,10 @@ async function startTutorial(){
       enemyManager.customSpawnPoints = levelInfo.enemySpawnPoints;
     }
   } catch (e) { logError(e); }
+  const tRadius = DEFAULT_ARENA_RADIUS / 3;
+  setArenaRadius(tRadius);
+  player.arenaRadius = tRadius;
+  enemyManager.setArenaRadius(tRadius);
   reset(true);
   const spawns = levelInfo?.enemySpawnPoints || [];
   pickups.spawn('ammo', new THREE.Vector3(5,0,5));
@@ -1082,22 +1092,15 @@ function finishTutorial(){
   if (!isMobile) {
     try { controls.unlock(); } catch (e) { logError(e); }
   }
-  // Restore pre-tutorial map (custom or default)
-  if (preTutorialMap) {
-    currentMap = preTutorialMap;
-    levelInfo = obstacleManager.loadFromMap(currentMap, objects);
-    cullGrassUnderObjects(grassMesh, objects);
-    enemyManager.refreshColliders(objects);
-    enemyManager.customSpawnPoints = levelInfo.enemySpawnPoints;
-  } else {
-    currentMap = null;
-    obstacleManager.generate(seed, objects);
-    cullGrassUnderObjects(grassMesh, objects);
-    enemyManager.refreshColliders(objects);
-    levelInfo = null;
-    enemyManager.customSpawnPoints = null;
-  }
-  preTutorialMap = null;
+  currentMap = null;
+  obstacleManager.generate(seed, objects);
+  cullGrassUnderObjects(grassMesh, objects);
+  enemyManager.refreshColliders(objects);
+  levelInfo = null;
+  enemyManager.customSpawnPoints = null;
+  setArenaRadius(DEFAULT_ARENA_RADIUS);
+  player.arenaRadius = DEFAULT_ARENA_RADIUS;
+  enemyManager.setArenaRadius(DEFAULT_ARENA_RADIUS);
   reset(true);
   showStartPanel();
 }
