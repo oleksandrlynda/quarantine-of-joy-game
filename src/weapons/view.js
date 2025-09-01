@@ -245,12 +245,12 @@ export class WeaponView {
         return m;
       };
       // stylized sights
-      const addSight = (z, w=0.01, h=0.02) => {
-        addBox(w, h, 0.01, 0, 0.0, z, metal);
+      const addSight = (z, w=0.01, h=0.02, mat) => {
+        addBox(w, h, 0.01, 0, 0.0, z, mat || metal);
       };
       // handguard detail lines
-      const addRail = (z0, z1, step, y=-0.005) => {
-        for (let z=z0; z<=z1; z+=step) addBox(0.002, 0.004, 0.008, 0, y+0.02, z, metal);
+      const addRail = (z0, z1, step, y=-0.005, mat) => {
+        for (let z=z0; z<=z1; z+=step) addBox(0.004, 0.008, 0.012, 0, y+0.02, z, mat || metal);
       };
       const addCyl = (r, l, px, py, pz, mat) => {
         const g = new THREE.CylinderGeometry(r, r, l, 8);
@@ -272,38 +272,129 @@ export class WeaponView {
       };
   
       const makeRifle = ()=>{
+        // Create premium Series S materials with vibrant colors and glow
+        const whiteMat = new this.THREE.MeshStandardMaterial({
+          color: 0xffffff,
+          roughness: 0.05,
+          metalness: 0.9,
+          emissive: 0xaaaaaa
+        });
+        const blueMat = new this.THREE.MeshStandardMaterial({
+          color: 0x0088ff, // More vibrant blue
+          roughness: 0.02,
+          metalness: 0.95,
+          emissive: 0x004488 // Strong blue glow
+        });
         const L = 0.32, D = 0.035;
-        addBox(D, D, L, 0.0, -0.005, muzzleZ + L*0.5, metal);                 // barrel
-        addBox(D*2.3, D*1.6, 0.22, -0.035, -0.01, muzzleZ + L + 0.11, body);  // body
-        addRail(muzzleZ + 0.06, muzzleZ + L, 0.03);
-        addSight(muzzleZ + L*0.65);
-        addSight(muzzleZ + L + 0.11);
-        // magazine stub
-        addBox(D*0.7, D*1.0, 0.10, -0.045, -0.07, muzzleZ + L + 0.03, body);
+
+        // Premium white barrel with glow
+        const barrelMesh = addBox(D, D, L, 0.0, -0.005, muzzleZ + L*0.5, whiteMat);
+
+        // RIFLE-ONLY: Create barrel outline using EdgesGeometry
+        const barrelGeometry = new this.THREE.BoxGeometry(D*1.01, D*1.01, L*1.01);
+        const edgesGeometry = new this.THREE.EdgesGeometry(barrelGeometry);
+        const outlineMaterial = new this.THREE.LineBasicMaterial({
+          color: 0x0066cc, // Blue outline color
+          linewidth: 2
+        });
+
+        const barrelOutline = new this.THREE.LineSegments(edgesGeometry, outlineMaterial);
+        barrelOutline.position.set(0.0, -0.005, muzzleZ + L*0.5);
+        this._model.add(barrelOutline);
+        meshes.push(barrelOutline);
+
+        // White body with glow
+        addBox(D*2.3, D*1.6, 0.22, -0.035, -0.01, muzzleZ + L + 0.11, whiteMat);
+
+        // More blue accent rails - smaller spacing for more visibility
+        addRail(muzzleZ + 0.06, muzzleZ + L - 0.08, 0.025, -0.008, blueMat);
+
+        // Blue accent sights - larger and more visible
+        addSight(muzzleZ + L*0.65, 0.012, 0.024, blueMat);
+        addSight(muzzleZ + L + 0.11, 0.012, 0.024, blueMat);
+
+        // White magazine with glow
+        addBox(D*0.7, D*1.0, 0.10, -0.045, -0.07, muzzleZ + L + 0.03, whiteMat);
+
+        // Enhanced highlight box with stronger visibility
+        const highlightBox = addBox(D*2.5, D*1.8, 0.24, -0.035, -0.01, muzzleZ + L + 0.11, blueMat);
+        highlightBox.material.transparent = true;
+        highlightBox.material.opacity = 0.25; // Much more visible
+        highlightBox.material.emissiveIntensity = 1.2; // Even stronger glow
       };
   
       const makeSMG = ()=>{
-        const L = 0.20, D = 0.04;
-        addBox(D, D, L, 0.0, -0.005, muzzleZ + L*0.5, metal);
-        addBox(D*1.8, D*1.4, 0.16, -0.03, -0.01, muzzleZ + L + 0.08, body);
-        addRail(muzzleZ + 0.04, muzzleZ + L, 0.025);
+        // Smaller SMG - scaled down proportionally
+        const L = 0.16, D = 0.032;  // 20% smaller barrel and diameter
+        addBox(D, D, L, 0.0, -0.004, muzzleZ + L*0.5, metal);                          // smaller barrel
+        addBox(D*1.8, D*1.4, 0.128, -0.024, -0.008, muzzleZ + L + 0.064, body);       // proportionally smaller body
+        addRail(muzzleZ + 0.032, muzzleZ + L, 0.02);                                   // closer rail spacing
         addSight(muzzleZ + L*0.6);
-        addBox(D*0.65, D*0.9, 0.09, -0.04, -0.07, muzzleZ + L*0.9, body); // mag
+        addBox(D*0.65, D*0.9, 0.072, -0.032, -0.056, muzzleZ + L*0.72, body);         // smaller magazine, closer to body
       };
   
       const makeShotgun = ()=>{
-        const L = 0.24, D = 0.06;
-        addBox(D, D, L, 0.0, -0.01, muzzleZ + L*0.5, metal);                 // barrel
-        addBox(D*2.4, D*1.4, 0.20, -0.04, -0.015, muzzleZ + L + 0.10, body); // body
-        addSight(muzzleZ + L + 0.09, 0.012, 0.02);
+        // === CONFIGURABLE SIZES ===
+        const barrelLength = 0.24;     // Length of each barrel
+        const barrelDiameter = 0.04;   // Diameter of each barrel
+        const barrelGap = 0.02;        // Gap between the two barrels (absolute units)
+        const bodyWidth = 0.168;       // Total width of the receiver body (D*2.8)
+        const bodyHeight = 0.084;      // Height of the receiver body (D*1.4)
+        const bodyLength = 0.20;       // Length of the receiver body
+        const bodyOffsetX = -0.04;     // X offset of body from center
+        const bodyOffsetY = -0.015;    // Y offset of body from center
+        const bodyOffsetZ = 0.10;      // Z offset of body from barrel end
+        const sightOffset = 0.09;      // Distance of sight from barrel end
+        // === END CONFIGURABLE SIZES ===
+
+        // Calculate barrel positioning
+        const barrelOffset = (barrelDiameter + barrelGap) * 0.5;
+
+        // Left barrel (from original single barrel)
+        addBox(barrelDiameter, barrelDiameter, barrelLength,
+               -barrelOffset, -0.01, muzzleZ + barrelLength*0.5, metal);
+
+        // Right barrel (from original single barrel)
+        addBox(barrelDiameter, barrelDiameter, barrelLength,
+               barrelOffset, -0.01, muzzleZ + barrelLength*0.5, metal);
+
+        // Body wide enough for gap
+        addBox(bodyWidth, bodyHeight, bodyLength,
+               bodyOffsetX, bodyOffsetY, muzzleZ + barrelLength + bodyOffsetZ, body);
+
+        // Single sight centered between both barrels
+        addSight(muzzleZ + barrelLength + sightOffset, 0.012, 0.02);
       };
   
       const makeDMR = ()=>{
+        // Create orange theme materials for DMR
+        const orangeMat = new this.THREE.MeshStandardMaterial({
+          color: 0xff6600, // Vibrant orange
+          roughness: 0.03,
+          metalness: 0.85,
+          emissive: 0x331100 // Subtle orange glow
+        });
+        const darkOrangeMat = new this.THREE.MeshStandardMaterial({
+          color: 0xcc4400, // Darker orange for accents
+          roughness: 0.05,
+          metalness: 0.9,
+          emissive: 0x220800
+        });
+
         const L = 0.34, D = 0.03;
-        addBox(D, D, L, 0.0, -0.005, muzzleZ + L*0.5, metal);
-        addBox(D*2.0, D*1.6, 0.22, -0.03, -0.01, muzzleZ + L + 0.11, body);
-        addSight(muzzleZ + L*0.7);
-        addSight(muzzleZ + L + 0.12);
+
+        // Orange barrel with glow
+        addBox(D, D, L, 0.0, -0.005, muzzleZ + L*0.5, orangeMat);
+
+        // Orange body
+        addBox(D*2.0, D*1.6, 0.22, -0.03, -0.01, muzzleZ + L + 0.11, orangeMat);
+
+        // Dark orange sights for contrast
+        addSight(muzzleZ + L*0.7, 0.01, 0.02, darkOrangeMat);
+        addSight(muzzleZ + L + 0.12, 0.01, 0.02, darkOrangeMat);
+
+        // Add orange rails for tactical look
+        addRail(muzzleZ + 0.08, muzzleZ + L - 0.08, 0.03, -0.006, darkOrangeMat);
       };
 
       const makeGrenade = ()=>{
