@@ -10,6 +10,7 @@ import { SwarmWarden } from './warden.js';
 import { BossManager } from '../bosses/manager.js';
 import { Hydraclone } from '../bosses/hydraclone.js';
 import { nextWaypoint as pathNext, recomputeIfStale as pathRecompute, clear as pathClear } from '../path.js';
+import { ARENA_RADIUS } from '../world.js';
 
 function containsExtrudeGeometry(obj){
   if (obj.geometry?.isExtrudeGeometry) return true;
@@ -356,8 +357,9 @@ export class EnemyManager {
     }
 
     // Fallback rectangle rings for non-circular arenas
-    const min = -38, max = 38; // inner edge to avoid wall thickness
-    const midMin = -24, midMax = 24; // mid rectangle ring
+    const scale = ARENA_RADIUS / 40;
+    const min = -38 * scale, max = 38 * scale; // inner edge to avoid wall thickness
+    const midMin = -24 * scale, midMax = 24 * scale; // mid rectangle ring
 
     // Outer rectangle ring (clockwise)
     for (let x = min; x <= max; x += step) { tryAdd(x, min, edge); }
@@ -653,7 +655,7 @@ export class EnemyManager {
   // Factories
   _createInstance(type, spawnPos) {
     const cfg = this.typeConfig[type] || this.typeConfig.grunt;
-    const args = { THREE: this.THREE, mats: this.mats, cfg, spawnPos, enemyManager: this };
+    const args = { THREE: this.THREE, mats: this.mats, cfg, spawnPos, enemyManager: this, arenaRadius: this.arenaRadius };
     switch (cfg.kind) {
       case 'shooter': return new ShooterEnemy(args);
       case 'flyer':   return new FlyerEnemy(args);
@@ -670,7 +672,8 @@ export class EnemyManager {
   }
 
   spawn(type = 'grunt') {
-    const p = this._chooseSpawnPos() || new this.THREE.Vector3((Math.random()*60 - 30)|0, 0.8, (Math.random()*60 - 30)|0);
+    const range = (this.arenaRadius !== Infinity) ? this.arenaRadius * 0.8 : ARENA_RADIUS * 0.75;
+    const p = this._chooseSpawnPos() || new this.THREE.Vector3((Math.random()*range*2 - range)|0, 0.8, (Math.random()*range*2 - range)|0);
     // Do not increment alive here; startWave already accounted for it
     this.spawnAt(type, p, { countsTowardAlive: false });
   }
