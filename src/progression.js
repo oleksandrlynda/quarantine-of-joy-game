@@ -195,7 +195,9 @@ export class Progression {
       d.onclick = () => this._selectPick(p, d);
       this.choicesEl.appendChild(d);
     }
-
+    // Ensure the primary slot is active when presenting the offer
+    this.ws.switchSlot(1);
+    this.ws.updateHUD?.();
     this.offerEl.style.display = '';
     this.offerOpen = true;
     this.onPause(true);
