@@ -1,0 +1,14 @@
+{
+  "name": "tutorial",
+  "playerSpawn": { "x": 0, "y": 1.7, "z": 0 },
+  "enemySpawns": [
+    { "x": 8, "y": 0.8, "z": 0 },
+    { "x": -8, "y": 0.8, "z": 0 }
+  ],
+  "walls": [
+    { "shape": "box", "w": 6, "h": 0.5, "d": 1, "x": -4, "y": 1.2, "z": 0, "rotY": 1.57 }
+  ],
+  "obstacles": [
+    { "type": "lowWall", "x": 4, "y": 0.33, "z": 0, "rotY": 1.57 }
+  ]
+}

@@ -21,6 +21,7 @@ import { t } from './i18n/index.js';
 import { logError } from './util/log.js';
 import { cullGrassUnderObjects } from './graphics/grass.js';
 import { AchievementsManager } from './achievements.js';
+import { TutorialManager } from './tutorial-manager.js';
 
 // Prefer the flag set in index.html; fallback to media query
 const isMobile = (typeof window !== 'undefined' && 'IS_MOBILE' in window && window.IS_MOBILE)
@@ -242,6 +243,7 @@ effects.muzzleEnabled = true;
 const weaponView = new WeaponView(THREE, camera);
 const pickups = new Pickups(THREE, scene);
 enemyManager.pickups = pickups;
+const tutorial = new TutorialManager({ documentRef: document, enemyManager });
 
 // Wire obstacle manager hooks now that managers exist
 obstacleManager.enemyManager = enemyManager;
@@ -250,7 +252,7 @@ obstacleManager.getPlayer = () => controls.getObject();
 obstacleManager.onScore = (points) => { addScore(points); };
 obstacleManager.onPlayerDamage = (amount) => {
   if (paused || gameOver) return;
-  hp -= amount; if (hp <= 0) { hp = 0; gameOver = true; document.getElementById('retry').style.display=''; document.getElementById('center').style.display='grid'; stopSuno(); }
+  hp -= amount; if (hp <= 0) { hp = 0; gameOver = true; document.getElementById('center').style.display='grid'; stopSuno(); }
   // Apply universal hit VFX on any damage source
   if (effects && typeof effects.onPlayerHit === 'function') effects.onPlayerHit(amount);
   updateHUD();
@@ -608,6 +610,7 @@ weaponSystem = new WeaponSystem({
 // Set initial weapon view
 try { weaponView.setWeapon(weaponSystem.getPrimaryName()); } catch (e) { logError(e); }
 progression = new Progression({ weaponSystem, documentRef: document, onPause: (lock)=>{ offerActive = !!lock; paused = !!lock; }, controls });
+tutorial.weaponSystem = weaponSystem;
 story = storyDisabled ? null : new StoryManager({ documentRef: document, onPause: (lock)=>{ paused = !!lock; }, controls, toastFn: (t)=> showToast(t), tickerFn: (t,r,i)=> showTicker(t,r,i) });
 
 
@@ -746,7 +749,7 @@ function step(){
     // enemies AI
     const fo = controls.getObject();
     enemyManager.tickAI(fo, dt, (damage, source)=>{
-      hp -= damage; if(hp<=0){ hp=0; gameOver=true; document.getElementById('retry').style.display=''; document.getElementById('center').style.display='grid'; S.hurt(); }
+      hp -= damage; if(hp<=0){ hp=0; gameOver=true; document.getElementById('center').style.display='grid'; S.hurt(); }
       // VFX for all hits; for melee, pulse at a small cooldown with a stronger bump for readability
       if (effects && typeof effects.onPlayerHit === 'function') {
         if (source === 'melee') {
@@ -781,6 +784,7 @@ function step(){
       else if (type === 'med') { hp = Math.min(100, hp + amount); if (S && S.ui) S.ui('pickup'); showToast('+HP'); try { story?.onFirstMedPickup?.(); } catch (e) { logError(e); } }
       updateHUD();
       achievements.check({ type: 'pickup' });
+      tutorial.onPickup?.(type);
     });
 
     // Emergency ammo assistance: if player has no ammo (mag + reserve) and there are
@@ -954,7 +958,7 @@ requestAnimationFrame(step);
 // ------ UI / Flow ------
 const panel = document.getElementById('panel');
 const playBtn = document.getElementById('play');
-const retryBtn = document.getElementById('retry');
+const tutorialBtn = document.getElementById('tutorialBtn');
 const pauseMenu = document.getElementById('pauseMenu');
 const resumeBtn = document.getElementById('resumeBtn');
 const pauseRestart = document.getElementById('pauseRestart');
@@ -999,6 +1003,7 @@ function reset(){ // clear enemies
 }
 
 function startGame(){
+  enemyManager.suspendWaves = false;
   if (isMobile) {
     const el = document.documentElement;
     const req = el.requestFullscreen || el.webkitRequestFullscreen;
@@ -1010,6 +1015,48 @@ function startGame(){
   reset();
   if (musicChoice === 'suno') { playSuno(); } else { music.start(); }
 }
+
+async function startTutorial(){
+  if (isMobile) {
+    const el = document.documentElement;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    try { if (req) req.call(el); } catch (e) { logError(e); }
+  } else {
+    controls.lock();
+  }
+  panel.parentElement.style.display = 'none';
+  enemyManager.suspendWaves = true;
+  try {
+    const res = await fetch('assets/levels/tutorial.json');
+    if (res.ok) {
+      const map = await res.json();
+      levelInfo = obstacleManager.loadFromMap(map, objects);
+      enemyManager.refreshColliders(objects);
+    }
+  } catch (e) { logError(e); }
+  reset();
+  const spawns = levelInfo?.enemySpawnPoints || [];
+  pickups.spawn('ammo', new THREE.Vector3(5,0,5));
+  tutorial.start(spawns);
+}
+
+function showStartPanel(){
+  pauseMenu.style.display='none';
+  panel.style.display='';
+  panel.parentElement.style.display='grid';
+}
+
+function finishTutorial(){
+  enemyManager.suspendWaves = false;
+  gameOver = true;
+  if (!isMobile) {
+    try { controls.unlock(); } catch (e) { logError(e); }
+  }
+  reset();
+  showStartPanel();
+}
+
+tutorial.onEnd = finishTutorial;
 
 function resumeGame(){
   pauseMenu.style.display='none';
@@ -1027,7 +1074,7 @@ function showPauseMenu(){
 }
 
 playBtn.onclick = startGame;
-retryBtn.onclick = startGame;
+if (tutorialBtn) tutorialBtn.onclick = startTutorial;
 if (resumeBtn) resumeBtn.onclick = resumeGame;
 if (pauseRestart) pauseRestart.onclick = startGame;
 if (openSettingsBtn) openSettingsBtn.onclick = ()=>openSettings('panel');
@@ -1087,7 +1134,6 @@ controls.addEventListener('unlock', ()=>{
     pauseMenu.style.display='none';
     panel.style.display='';
     panel.parentElement.style.display='grid';
-    retryBtn.style.display='';
   } else {
     showPauseMenu();
   }

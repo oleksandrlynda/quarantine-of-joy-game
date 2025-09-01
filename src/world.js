@@ -4,6 +4,8 @@
 import { createGrassMesh } from './graphics/grass.js';
 import { logError } from './util/log.js';
 
+export const ARENA_RADIUS = 40 / 3;
+
 export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
   // Renderer
   const params = (new URL(window.location.href)).searchParams;
@@ -180,7 +182,7 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
 
     switch(shape){
       case 'circle': {
-        arenaRadius = 40;
+        arenaRadius = ARENA_RADIUS;
         const floor = new THREE.Mesh(new THREE.CircleGeometry(arenaRadius, 32), mats.floor);
         floor.rotation.x = -Math.PI/2; floor.position.y = -0.01; floor.receiveShadow = !!enableShadows; scene.add(floor);
         addGrass(floor);
@@ -202,19 +204,27 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
         scene.add(wall); objects.push(wall);
         break;
       }
-      case 'diamond':
-        buildPoly([[0,-40],[40,0],[0,40],[-40,0]]);
+      case 'diamond': {
+        const s = ARENA_RADIUS / 40;
+        buildPoly([[0,-40*s],[40*s,0],[0,40*s],[-40*s,0]]);
         break;
-      case 'triangle':
-        buildPoly([[0,40],[40,-40],[-40,-40]]);
+      }
+      case 'triangle': {
+        const s = ARENA_RADIUS / 40;
+        buildPoly([[0,40*s],[40*s,-40*s],[-40*s,-40*s]]);
         break;
-      case 'pi':
+      }
+      case 'pi': {
+        const s = ARENA_RADIUS / 40;
         buildPoly([
-          [-40,40],[40,40],[40,-40],[20,-40],[20,20],[-20,20],[-20,-40],[-40,-40]
-        ], (a,b)=> a[1]===-40 && b[1]===-40);
+          [-40*s,40*s],[40*s,40*s],[40*s,-40*s],[20*s,-40*s],[20*s,20*s],[-20*s,20*s],[-20*s,-40*s],[-40*s,-40*s]
+        ], (a,b)=> a[1]===-40*s && b[1]===-40*s);
         break;
-      default:
-        buildPoly([[-40,-40],[40,-40],[40,40],[-40,40]]);
+      }
+      default: {
+        const s = ARENA_RADIUS / 40;
+        buildPoly([[-40*s,-40*s],[40*s,-40*s],[40*s,40*s],[-40*s,40*s]]);
+      }
     }
   }
 
