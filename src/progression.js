@@ -274,9 +274,8 @@ export class Progression {
     if (pick?.sidearm){
       const cur = this.ws.inventory;
       const inst = pick.make();
-      if (cur.length === 1) cur.push(new (inst.constructor)());
-      else cur[1] = inst;
-      this.ws.currentIndex = Math.min(this.ws.currentIndex, 0);
+      if (cur.length === 1) cur.push(inst); else cur[1] = inst;
+      this.ws.currentIndex = Math.min(this.ws.currentIndex, this.ws.inventory.length - 1);
       this.ws.updateHUD?.();
       this._closeOffer(true);
       return;
