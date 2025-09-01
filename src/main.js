@@ -1024,19 +1024,7 @@ function startGame(){
     controls.lock();
   }
   panel.parentElement.style.display = 'none';
-  // Reload whichever map is active so each run starts fresh
-  if (currentMap) {
-    levelInfo = obstacleManager.loadFromMap(currentMap, objects);
-    cullGrassUnderObjects(grassMesh, objects);
-    enemyManager.refreshColliders(objects);
-    enemyManager.customSpawnPoints = levelInfo.enemySpawnPoints;
-  } else {
-    obstacleManager.generate(seed, objects);
-    cullGrassUnderObjects(grassMesh, objects);
-    enemyManager.refreshColliders(objects);
-    levelInfo = null;
-    enemyManager.customSpawnPoints = null;
-  }
+  
   reset();
   if (musicChoice === 'suno') { playSuno(); } else { music.start(); }
 }
