@@ -101,3 +101,37 @@ test('sidearm offers exclude current sidearm', () => {
   assert.deepEqual(names.sort(), ['BeamSaber','Grenade']);
 });
 
+test('decline tops off low reserve', () => {
+  setupLocalStorage();
+  const doc = makeStubDoc();
+  let hud = 0;
+  const cur = {
+    cfg: { reserve: 100 },
+    reserve: 20,
+    getReserve(){ return this.reserve; },
+    addReserve(n){ this.reserve += n; }
+  };
+  const ws = { current: cur, updateHUD(){ hud += 1; } };
+  const p = new Progression({ weaponSystem: ws, documentRef: doc, onPause: () => {} });
+  p._decline();
+  assert.equal(cur.reserve, 100);
+  assert.equal(hud, 1);
+});
+
+test('decline grants 50% bonus at or above half reserve', () => {
+  setupLocalStorage();
+  const doc = makeStubDoc();
+  let hud = 0;
+  const cur = {
+    cfg: { reserve: 100 },
+    reserve: 60,
+    getReserve(){ return this.reserve; },
+    addReserve(n){ this.reserve += n; }
+  };
+  const ws = { current: cur, updateHUD(){ hud += 1; } };
+  const p = new Progression({ weaponSystem: ws, documentRef: doc, onPause: () => {} });
+  p._decline();
+  assert.equal(cur.reserve, 110);
+  assert.equal(hud, 1);
+});
+

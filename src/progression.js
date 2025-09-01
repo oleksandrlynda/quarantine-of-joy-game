@@ -264,9 +264,15 @@ export class Progression {
 
   // ---------- Accept / Decline ----------
   _decline(){
-    // +20% reserve to current primary
+    // adjust reserve ammo on decline
     const cur = this.ws.current;
-    if (cur) cur.addReserve(Math.floor((cur.getReserve() || 0) * 0.2));
+    if (cur){
+      const def = cur.cfg?.reserve || 0;
+      const current = cur.getReserve ? (cur.getReserve() || 0) : 0;
+      if (current < def * 0.5) cur.addReserve(def - current);
+      else cur.addReserve(Math.floor(def * 0.5));
+      this.ws.updateHUD?.();
+    }
     this._closeOffer(false);
   }
 
