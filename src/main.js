@@ -985,9 +985,12 @@ function closeSettings(){
   }
 }
 
-function reset(){ // clear enemies
+function reset(isTutorial = false){ // clear enemies
   stopSuno();
+  const prevSuspend = enemyManager.suspendWaves;
+  if (isTutorial) enemyManager.suspendWaves = true;
   enemyManager.reset();
+  if (isTutorial) enemyManager.suspendWaves = prevSuspend;
   pickups.resetAll(); pickups.onWave(enemyManager.wave);
   hp=100; score=0; paused=false; gameOver=false; resetCombo(); if (weaponSystem) weaponSystem.reset(); updateHUD();
   if (levelInfo && levelInfo.playerSpawn) {
@@ -999,7 +1002,10 @@ function reset(){ // clear enemies
   try { player.stamina = player.staminaMax; } catch (e) { logError(e); }
   try { effects.setFatigue(0); } catch (e) { logError(e); }
   try { S.stopBreath(); } catch (e) { logError(e); }
-  try { story?.reset(); story?.startRun(); } catch (e) { logError(e); }
+  try {
+    story?.reset();
+    if (!isTutorial) story?.startRun();
+  } catch (e) { logError(e); }
 }
 
 function startGame(){
@@ -1034,7 +1040,7 @@ async function startTutorial(){
       enemyManager.refreshColliders(objects);
     }
   } catch (e) { logError(e); }
-  reset();
+  reset(true);
   const spawns = levelInfo?.enemySpawnPoints || [];
   pickups.spawn('ammo', new THREE.Vector3(5,0,5));
   tutorial.start(spawns);
@@ -1052,7 +1058,7 @@ function finishTutorial(){
   if (!isMobile) {
     try { controls.unlock(); } catch (e) { logError(e); }
   }
-  reset();
+  reset(true);
   showStartPanel();
 }
 
@@ -1146,9 +1152,6 @@ window.addEventListener('blur', ()=>{
 document.addEventListener('visibilitychange', ()=>{
   if (!gameOver) showPauseMenu();
 });
-
-// Start with a wave ready so there's action immediately after lock (skip in editor)
-if (!wantEditor) enemyManager.startWave();
 
 // Ensure audio resume on first input (mobile/desktop)
 window.addEventListener('pointerup', ()=> S.ensure(), {once:true});
