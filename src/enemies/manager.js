@@ -84,6 +84,11 @@ export class EnemyManager {
     this._initBulletPools();
   }
 
+  setArenaRadius(radius){
+    this.arenaRadius = radius;
+    this.spawnRings = this._computeSpawnRings();
+  }
+
   // Rebuild collidable AABBs after the shared objects list changes (e.g., obstacles destroyed)
   refreshColliders(objects = this.objects) {
     this.objects = objects;
