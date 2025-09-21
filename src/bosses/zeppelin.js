@@ -20,11 +20,13 @@ export class ZeppelinSupport {
 
     // Register engine pods so they can be shot down to lift shield
     this.enginePods = [];
+    const body = this.refs?.body;
     for (const p of (this.refs?.pods || [])) {
       const podRoot = p.root;
       if (!podRoot) continue;
       podRoot.userData = { type: 'boss_pod_engine', hp: 220 };
       this.enemyManager.registerExternalEnemy({ root: podRoot, update(){} }, { countsTowardAlive: true });
+      body?.add(podRoot); // keep pod attached to zeppelin body
       this.enginePods.push(podRoot);
     }
 

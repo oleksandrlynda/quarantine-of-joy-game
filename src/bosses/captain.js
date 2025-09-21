@@ -5,6 +5,8 @@
 import { ZeppelinSupport } from './zeppelin.js';
 import { createInfluencerCaptainAsset, createBillboardWallAsset, createAdZoneMarkerAsset } from '../assets/boss_captain.js';
 
+const zoneRadius = 2.2;
+
 export class Captain {
   constructor({ THREE, mats, spawnPos, enemyManager }) {
     this.THREE = THREE;
@@ -30,7 +32,7 @@ export class Captain {
     this.baseVolleyCadence = 2.8; // between volleys when idle
     this.telegraphTime = 0.0; // for volley windup
     this.telegraphRequired = 0.6; // 0.6s windup
-    this._aimLine = null; // aim telegraph during windup
+    this._telegraph = null; // wedge telegraph during windup
     this._raycaster = new THREE.Raycaster();
 
     // Active volley burst state
@@ -39,16 +41,20 @@ export class Captain {
     this._burstTimer = 0;
     this._burstSpacing = 0.12;
     this._burstBaseDir = new THREE.Vector3(1,0,0);
+    this._burstHalfFan = 0;
 
     // Ad zones
     this.zones = []; // { mesh, timer, center, delay }
-    this._zoneMarkers = []; // visuals using createAdZoneMarkerAsset
     this.zoneCooldown = 5.5 + Math.random() * 1.5; // cadence for marking
 
     // Phase/Shield
     this.invuln = false; // becomes true during zeppelin pods alive
     this._zeppelin = null;
     this._notifyDeath = null; // set by BossManager
+
+    // Billboard wall hazard
+    this._billboard = null; // { root, start, end, t, duration }
+    this._billboardCooldown = 4 + Math.random() * 3; // delay before first spawn
   }
 
   // --- Movement ---
@@ -99,9 +105,10 @@ export class Captain {
   _beginVolleyWindup(ctx){
     this.telegraphTime = 0.0001;
     this._setHeadGlow(true);
-    // simple aim line to player
+    // choose fan once for telegraph and burst
+    this._burstHalfFan = (Math.PI/180) * (10 + Math.random()*6);
     const targetPos = ctx.player.position.clone(); targetPos.y = 1.6;
-    this._updateAimLine(targetPos, ctx.scene, 0xf59e0b);
+    this._updateVolleyTelegraph(targetPos, ctx.scene, 0xf59e0b);
   }
 
   _tickVolley(dt, ctx){
@@ -110,8 +117,7 @@ export class Captain {
       if (this._burstTimer <= 0 && this._burstShotsLeft > 0){
         const totalShots = this._burstTotalShots;
         const shotIndex = totalShots - this._burstShotsLeft;
-        // fan ±10–16° across shots centered at base dir
-        const halfFan = (Math.PI/180) * (10 + Math.random()*6);
+        const halfFan = this._burstHalfFan;
         const t = (totalShots===1) ? 0 : (shotIndex/(totalShots-1))*2 - 1; // -1..1
         const angle = t * halfFan;
         const dir = this._rotateY(this._burstBaseDir, angle);
@@ -128,9 +134,8 @@ export class Captain {
 
     if (this.telegraphTime > 0){
       this.telegraphTime += dt;
-      // keep aim line updated toward player
       const targetPos = ctx.player.position.clone(); targetPos.y = 1.6;
-      this._updateAimLine(targetPos, ctx.scene, 0xf59e0b);
+      this._updateVolleyTelegraph(targetPos, ctx.scene, 0xf59e0b);
       if (this.telegraphTime >= this.telegraphRequired){
         // start burst
         const forward = ctx.player.position.clone().sub(this.root.position); forward.y = 0; if (forward.lengthSq()===0) forward.set(1,0,0); forward.normalize();
@@ -141,7 +146,7 @@ export class Captain {
         this._burstActive = true;
         this.telegraphTime = 0;
         this._setHeadGlow(false);
-        this._updateAimLine(null, ctx.scene);
+        this._updateVolleyTelegraph(null, ctx.scene);
       }
       return;
     }
@@ -183,9 +188,41 @@ export class Captain {
     else { head.scale.setScalar(active ? 1.08 : 1.0); }
   }
 
-  _updateAimLine(targetPos, scene, color = 0xf59e0b){
+  _disposeObject(obj, scene){
+    if (!obj) return;
+    scene?.remove?.(obj);
+    obj.traverse?.(o => {
+      if (o.geometry) o.geometry.dispose?.();
+      if (o.material){
+        if (Array.isArray(o.material)) o.material.forEach(m => m.dispose?.());
+        else o.material.dispose?.();
+      }
+    });
+  }
+
+  _spawnBillboardWall(ctx){
+    if (this._billboard) return;
+    const { root, refs } = createBillboardWallAsset({ THREE: this.THREE });
+    const anchor = refs.anchor;
+    // Reparent so moving the anchor moves the billboard mesh
+    root.remove(anchor);
+    anchor.add(root);
+    const start = this.root.position.clone().add(new this.THREE.Vector3(-5, 1.1, 0));
+    const end = this.root.position.clone().add(new this.THREE.Vector3(5, 1.1, 0));
+    anchor.position.copy(start);
+    ctx.scene.add(anchor);
+    this._billboard = { root: anchor, start, end, t: 0, duration: 4 };
+  }
+
+  _updateVolleyTelegraph(targetPos, scene, color = 0xf59e0b){
     const THREE = this.THREE;
-    if (!targetPos){ if (this._aimLine){ scene.remove(this._aimLine); this._aimLine = null; } return; }
+    if (!targetPos){
+      if (this._telegraph){
+        this._disposeObject(this._telegraph, scene);
+        this._telegraph = null;
+      }
+      return;
+    }
     let from;
     const head = this.root.userData?.head;
     if (head && typeof head.getWorldPosition === 'function'){
@@ -193,13 +230,26 @@ export class Captain {
     } else {
       from = new THREE.Vector3(this.root.position.x, this.root.position.y + 1.6, this.root.position.z);
     }
-    if (!this._aimLine){
-      const g = new THREE.BufferGeometry().setFromPoints([from, targetPos]);
+    // base direction toward player
+    const forward = targetPos.clone().sub(from); forward.y = 0; if (forward.lengthSq()===0) forward.set(1,0,0); forward.normalize();
+    this._burstBaseDir.copy(forward);
+    const range = 26; // match damage range
+    const left = this._rotateY(forward, -this._burstHalfFan).multiplyScalar(range).add(from.clone());
+    const right = this._rotateY(forward, this._burstHalfFan).multiplyScalar(range).add(from.clone());
+    if (!this._telegraph){
+      const positions = new Float32Array([
+        from.x, from.y, from.z, left.x, left.y, left.z,
+        from.x, from.y, from.z, right.x, right.y, right.z,
+      ]);
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(positions,3));
       const m = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.35 });
-      this._aimLine = new THREE.Line(g, m); scene.add(this._aimLine);
+      this._telegraph = new THREE.LineSegments(g, m); scene.add(this._telegraph);
     } else {
-      const pos = this._aimLine.geometry.getAttribute('position');
-      pos.setXYZ(0, from.x, from.y, from.z); pos.setXYZ(1, targetPos.x, targetPos.y, targetPos.z); pos.needsUpdate = true;
+      const pos = this._telegraph.geometry.getAttribute('position');
+      pos.setXYZ(0, from.x, from.y, from.z); pos.setXYZ(1, left.x, left.y, left.z);
+      pos.setXYZ(2, from.x, from.y, from.z); pos.setXYZ(3, right.x, right.y, right.z);
+      pos.needsUpdate = true;
     }
   }
 
@@ -217,11 +267,10 @@ export class Captain {
       // Adjust to safe spot if blocked
       const safe = (typeof this.enemyManager._isSpawnAreaClear === 'function' && this.enemyManager._isSpawnAreaClear(p.clone().setY(0.8), 0.5));
       const center = safe ? p : playerPos.clone(); center.y = 0.06;
-      const marker = createAdZoneMarkerAsset({ THREE, radius: 2.0 });
+      const marker = createAdZoneMarkerAsset({ THREE, radius: zoneRadius });
       marker.root.position.copy(center);
       marker.root.userData = { life: 0 };
       ctx.scene.add(marker.root);
-      this._zoneMarkers.push(marker);
       this.zones.push({ mesh: marker.root, timer: 0, center: center.clone(), delay: 1.0, refs: marker.refs });
     }
     this.zoneCooldown = 6.5 + Math.random()*2.0;
@@ -231,7 +280,7 @@ export class Captain {
     for (let i = this.zones.length - 1; i >= 0; i--){
       const z = this.zones[i]; z.timer += dt; z.mesh.userData.life = (z.mesh.userData.life||0) + dt;
       // pulse elements: ring opacity and pylon scale
-      const ring = z.refs?.ring, disk = z.refs?.disk, pylon = z.refs?.pylon;
+      const ring = z.refs?.ring, pylon = z.refs?.pylon;
       if (ring && ring.material && ring.material.opacity != null){
         ring.material.opacity = Math.max(0.25, 0.9 - z.timer * 0.7);
       }
@@ -240,11 +289,13 @@ export class Captain {
         pylon.scale.set(1, s, 1);
       }
       if (z.timer >= z.delay){
-        // pop: damage if player inside radius 2.2
+        // pop: damage if player inside radius zoneRadius
         const dx = ctx.player.position.x - z.center.x;
         const dz = ctx.player.position.z - z.center.z;
-        if (dx*dx + dz*dz <= 2.2*2.2){ ctx.onPlayerDamage?.(18); }
-        ctx.scene.remove(z.mesh);
+        if (dx*dx + dz*dz <= zoneRadius*zoneRadius){ ctx.onPlayerDamage?.(18); }
+        const pos = z.center.clone(); pos.y = 0;
+        ctx.effects?.spawnExplosion?.(pos, zoneRadius);
+        this._disposeObject(z.mesh, ctx.scene);
         this.zones.splice(i,1);
       }
     }
@@ -275,16 +326,37 @@ export class Captain {
     this._maybeMarkZones(dt, ctx);
     this._updateZones(dt, ctx);
 
+    // Billboard hazard
+    if (this._billboardCooldown > 0) this._billboardCooldown -= dt;
+    if (!this._billboard && this._billboardCooldown <= 0){ this._spawnBillboardWall(ctx); }
+    if (this._billboard){
+      const b = this._billboard;
+      b.t += dt;
+      const alpha = Math.min(b.t / b.duration, 1);
+      b.root.position.lerpVectors(b.start, b.end, alpha);
+      if (alpha >= 1){
+        this._disposeObject(b.root, ctx.scene);
+        this._billboard = null;
+        this._billboardCooldown = 12 + Math.random() * 4;
+      }
+    }
+
     // Phase transition
     this._maybeSummonZeppelin(ctx);
     if (this._zeppelin){ this._zeppelin.update(dt); }
 
     // Cleanup visuals on death
     if (this.root.userData.hp <= 0){
-      if (this._aimLine){ ctx.scene.remove(this._aimLine); this._aimLine = null; }
-      for (const z of this.zones){ ctx.scene.remove(z.mesh); }
+      if (this._telegraph){
+        this._disposeObject(this._telegraph, ctx.scene);
+        this._telegraph = null;
+      }
+      for (const z of this.zones){
+        this._disposeObject(z.mesh, ctx.scene);
+      }
       this.zones.length = 0;
       if (this._zeppelin){ this._zeppelin.cleanup(); this._zeppelin = null; }
+      if (this._billboard){ this._disposeObject(this._billboard.root, ctx.scene); this._billboard = null; }
     }
   }
 
@@ -311,10 +383,16 @@ export class Captain {
   }
 
   onRemoved(scene){
-    if (this._aimLine){ scene.remove(this._aimLine); this._aimLine = null; }
-    for (const z of this.zones){ scene.remove(z.mesh); }
+    if (this._telegraph){
+      this._disposeObject(this._telegraph, scene);
+      this._telegraph = null;
+    }
+    for (const z of this.zones){
+      this._disposeObject(z.mesh, scene);
+    }
     this.zones.length = 0;
     if (this._zeppelin){ this._zeppelin.cleanup(); this._zeppelin = null; }
+    if (this._billboard){ this._disposeObject(this._billboard.root, scene); this._billboard = null; }
   }
 }
 
