@@ -3,10 +3,11 @@ import { createBroodmakerAsset } from '../assets/boss_broodmaker.js';
 import { logError } from '../util/log.js';
 
 export class Broodmaker {
-  constructor({ THREE, mats, spawnPos, enemyManager = null, mode = 'light' }) {
+  constructor({ THREE, mats, spawnPos, enemyManager = null, mode = 'light', rng = Math.random }) {
     this.THREE = THREE;
     this.mats = mats;
     this.enemyManager = enemyManager;
+    this.rng = rng;
     this.mode = mode === 'heavy' ? 'heavy' : 'light';
     this.enablePhase2 = this.mode === 'heavy';
 
@@ -33,19 +34,19 @@ export class Broodmaker {
 
     // Phase 1: Broodlings + Burrow relocate
     this._broodRoots = new Set();
-    this._broodCooldown = 3.5 + Math.random() * 1.0;       // first drip fast
+    this._broodCooldown = 3.5 + this.rng() * 1.0;       // first drip fast
     this._broodCap = this.enablePhase2 ? 8 : 6;            // local cap (also clamped by global cap)
     // Burrow state
-    this._burrowCooldown = (this.enablePhase2 ? 10 : 12) + Math.random() * 4;
+    this._burrowCooldown = (this.enablePhase2 ? 10 : 12) + this.rng() * 4;
     this._burrowPhase = null;   // 'sink' | 'move' | 'rise' | null
     this._burrowTimer = 0;
 
     // Phase 2: Flyers + Goo + weakpoint exposure
-    this._flyerCooldown = 4 + Math.random() * 2;
+    this._flyerCooldown = 4 + this.rng() * 2;
     this._flyerRoots = new Set();
     this._flyerCap = 6;
 
-    this._gooCooldown = 10 + Math.random() * 4;
+    this._gooCooldown = 10 + this.rng() * 4;
     this._goo = [];
     this._gooCap = 4;
     this._lastPlayerPos = null;
@@ -192,7 +193,7 @@ export class Broodmaker {
     if (canSpawn <= 0) { this._broodCooldown = 1.2; return; }
 
     // Spawn 1–3 between boss and player to create pushback space (avoid behind player)
-    const count = Math.min(canSpawn, 1 + (Math.random() < 0.6 ? 1 : 0) + (Math.random() < 0.25 ? 1 : 0));
+    const count = Math.min(canSpawn, 1 + (this.rng() < 0.6 ? 1 : 0) + (this.rng() < 0.25 ? 1 : 0));
     let near = this._computeSpawnBetweenBossAndPlayer(ctx, count, 3.5, 7.0);
     // Fallback: if few valid slots found (tight space), try again with a bit more lateral spread
     if (near.length < count) {
@@ -229,7 +230,7 @@ export class Broodmaker {
       const root = this.enemyManager.spawnAt('broodling', p, { countsTowardAlive: true });
       if (root) {
         // light, fragile adds
-        root.userData.hp = Math.max(8, Math.floor(12 + Math.random() * 6));
+        root.userData.hp = Math.max(8, Math.floor(12 + this.rng() * 6));
         const inst = this.enemyManager.instanceByRoot.get(root);
         if (inst) {
           inst.speed *= 1.05;
@@ -241,7 +242,7 @@ export class Broodmaker {
     }
 
     // Next drip: faster if few spawned (keeps pressure), slower if many
-    this._broodCooldown = (spawned >= 2 ? 3.4 : 2.2) + Math.random() * 0.9;
+    this._broodCooldown = (spawned >= 2 ? 3.4 : 2.2) + this.rng() * 0.9;
   }
 
   // ---------------- Burrow / Relocate (both phases) ----------------
@@ -261,7 +262,7 @@ export class Broodmaker {
     // Juicy FX
     try { window?._EFFECTS?.ring?.(this.root.position.clone(), 1.6, 0xff88aa); } catch (e) { logError(e); }
     // Next time (rarityMul makes it rarer in P2 if desired)
-    this._burrowCooldown = ((this.enablePhase2 ? 9 : 12) + Math.random() * 5) * rarityMul;
+    this._burrowCooldown = ((this.enablePhase2 ? 9 : 12) + this.rng() * 5) * rarityMul;
   }
 
   _updateBurrow(dt, ctx, playerPos) {
@@ -303,8 +304,8 @@ export class Broodmaker {
 
   _pickRelocatePos(playerPos) {
     const THREE = this.THREE;
-    const a = Math.random() * Math.PI * 2;
-    const r = 10 + Math.random() * 6; // 10–16 m from player
+    const a = this.rng() * Math.PI * 2;
+    const r = 10 + this.rng() * 6; // 10–16 m from player
     const pos = new THREE.Vector3(playerPos.x + Math.cos(a) * r, this.root.position.y, playerPos.z + Math.sin(a) * r);
     // clamp to arena
     pos.x = Math.max(-39, Math.min(39, pos.x));
@@ -351,8 +352,8 @@ export class Broodmaker {
     if (head?.material?.emissive) head.material.emissive.setHex(0xbb66ff);
     try { (this.refs?.eggs||[]).forEach(s=>{ if (s.material?.emissiveIntensity!=null) s.material.emissiveIntensity = 0.85; }); } catch (e) { logError(e); }
     // Stagger ability windows
-    this._flyerCooldown = 1.5 + Math.random() * 1.0;
-    this._gooCooldown = 2.0 + Math.random() * 1.5;
+    this._flyerCooldown = 1.5 + this.rng() * 1.0;
+    this._gooCooldown = 2.0 + this.rng() * 1.5;
   }
 
   // ---------------- Phase 2: Weakpoint exposure cycle ----------------
@@ -393,13 +394,13 @@ export class Broodmaker {
     // Spawn from ports (feels like a lay/cough-out), then dive toward player
     const ports = this.refs?.flyerPorts || [];
     let spawned = 0;
-    const want = Math.min(canSpawn, 2 + (Math.random() < 0.5 ? 1 : 0));
+    const want = Math.min(canSpawn, 2 + (this.rng() < 0.5 ? 1 : 0));
     for (let i = 0; i < want && ports.length; i++) {
-      const port = ports[Math.floor(Math.random() * ports.length)];
+      const port = ports[Math.floor(this.rng() * ports.length)];
       const p = port.getWorldPosition(new this.THREE.Vector3());
       const root = this.enemyManager.spawnAt('flyer', p, { countsTowardAlive: true });
       if (root) {
-        root.userData.hp = Math.max(10, Math.floor(18 + Math.random() * 10));
+        root.userData.hp = Math.max(10, Math.floor(18 + this.rng() * 10));
         const inst = this.enemyManager.instanceByRoot.get(root);
         if (inst) {
           inst.speed *= 1.12;
@@ -409,7 +410,7 @@ export class Broodmaker {
         spawned++;
       }
     }
-    this._flyerCooldown = 6 + Math.random() * 2;
+    this._flyerCooldown = 6 + this.rng() * 2;
 
     // Open weakpoint briefly during lay cycle
     if (spawned > 0) {
@@ -440,11 +441,11 @@ export class Broodmaker {
     const toSpawn = Math.max(1, Math.min(2, remainingSlots));
 
     // 50%: drop from abdomen nozzles under boss; 50%: seed near player
-    const rollPorts = Math.random() < 0.5;
+    const rollPorts = this.rng() < 0.5;
     const positions = [];
     if (rollPorts && (this.refs?.gooPorts?.length)) {
       for (let i = 0; i < toSpawn; i++) {
-        const port = this.refs.gooPorts[Math.floor(Math.random() * this.refs.gooPorts.length)];
+        const port = this.refs.gooPorts[Math.floor(this.rng() * this.refs.gooPorts.length)];
         const p = port.getWorldPosition(new this.THREE.Vector3());
         p.y = 0.05;
         positions.push(p);
@@ -459,7 +460,7 @@ export class Broodmaker {
       this._goo.push(g);
       if (this._goo.length >= this._gooCap) break;
     }
-    this._gooCooldown = 10 + Math.random() * 4;
+    this._gooCooldown = 10 + this.rng() * 4;
   }
 
   // ---------------- utils ----------------
@@ -468,8 +469,8 @@ export class Broodmaker {
     const out = [];
     const playerPos = ctx.player.position;
     for (let i = 0; i < count; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const r = minR + Math.random() * (maxR - minR);
+      const a = this.rng() * Math.PI * 2;
+      const r = minR + this.rng() * (maxR - minR);
       const pos = new THREE.Vector3(playerPos.x + Math.cos(a) * r, 1.2, playerPos.z + Math.sin(a) * r);
       pos.x = Math.max(-39, Math.min(39, pos.x));
       pos.z = Math.max(-39, Math.min(39, pos.z));
@@ -510,10 +511,10 @@ export class Broodmaker {
     let attempts = 0;
     while (out.length < count && attempts < maxAttempts) {
       attempts++;
-      const t = safeMinT + Math.random() * (tUpper - safeMinT);
+      const t = safeMinT + this.rng() * (tUpper - safeMinT);
       const base = bossPos.clone().add(dir.clone().multiplyScalar(L * t));
-      const jitterMag = (0.8 + Math.random() * 1.2) * lateralJitterMul;
-      const side = (Math.random() < 0.5 ? -1 : 1);
+      const jitterMag = (0.8 + this.rng() * 1.2) * lateralJitterMul;
+      const side = (this.rng() < 0.5 ? -1 : 1);
       const pos = base.add(orth.clone().multiplyScalar(side * jitterMag));
       pos.y = 1.2;
       pos.x = Math.max(-39, Math.min(39, pos.x));

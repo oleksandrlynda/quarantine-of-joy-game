@@ -2,11 +2,12 @@
 // Creates 3 static pillars around a center, tracks their HP and simple pulse
 import { createSanitizerNodeAsset } from '../assets/boss_sanitizer.js';
 export class SuppressionNodes {
-  constructor({ THREE, mats, center, enemyManager }) {
+  constructor({ THREE, mats, center, enemyManager, rng = Math.random }) {
     this.THREE = THREE;
     this.mats = mats;
     this.center = center.clone();
     this.enemyManager = enemyManager;
+    this.rng = rng;
 
     this.roots = [];
     this._rings = [];

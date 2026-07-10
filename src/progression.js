@@ -2,21 +2,23 @@
 
 // Exported helper for testing weapon offer selection
 import { logError } from './util/log.js';
-export function pickTwoDistinct(pool){
+import { getJSON, setJSON } from './util/storage.js';
+export function pickTwoDistinct(pool, rng = Math.random){
   if (pool.length <= 1) return pool.slice(0, 1);
   // pick two uniformly without replacement
-  const i = Math.floor(Math.random()*pool.length);
-  let j = Math.floor(Math.random()*pool.length);
-  while (j === i) j = Math.floor(Math.random()*pool.length);
+  const i = Math.floor(rng()*pool.length);
+  let j = Math.floor(rng()*pool.length);
+  while (j === i) j = Math.floor(rng()*pool.length);
   return [pool[i], pool[j]];
 }
 
 export class Progression {
-  constructor({ weaponSystem, documentRef, onPause, controls }){
+  constructor({ weaponSystem, documentRef, onPause, controls, rng = Math.random }){
     this.ws = weaponSystem;
     this.doc = documentRef || document;
     this.onPause = onPause || (()=>{});
     this.controls = controls || null;
+    this.rng = rng;
 
     this.UNLOCKS_KEY = 'bs3d_unlocks';
     this.unlocks = this._loadUnlocks();
@@ -35,14 +37,9 @@ export class Progression {
   // ---------- Persistence ----------
   _loadUnlocks(){
     const base = { bestWave:0, smg:false, shotgun:false, rifle:false, dmr:false, beamsaber:false, minigun:false };
-    try {
-      const s = localStorage.getItem(this.UNLOCKS_KEY);
-      return s ? { ...base, ...JSON.parse(s) } : base;
-    } catch {
-      return base;
-    }
+    return { ...base, ...getJSON(this.UNLOCKS_KEY, {}) };
   }
-  _saveUnlocks(){ try { localStorage.setItem(this.UNLOCKS_KEY, JSON.stringify(this.unlocks)); } catch (e) { logError(e); } }
+  _saveUnlocks(){ setJSON(this.UNLOCKS_KEY, this.unlocks); }
 
   // ---------- Wave hooks ----------
   onWave(wave){
@@ -178,7 +175,7 @@ export class Progression {
     if (pool.length === 0) return;
 
     // Choose up to two distinct picks, and if restricted left us short, fill from basePool
-    let picks = pickTwoDistinct(pool);
+    let picks = pickTwoDistinct(pool, this.rng);
     picks = this._expandIfTooShort(picks, basePool);
 
     // Build UI

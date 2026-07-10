@@ -73,10 +73,8 @@ test('pickTwoDistinct returns unique entries', () => {
   const pool = ['a','b','c'];
   let calls = 0;
   const seq = [0.1, 0.1, 0.6];
-  const origRand = Math.random;
-  Math.random = () => seq[calls++];
-  const picks = pickTwoDistinct(pool);
-  Math.random = origRand;
+  const rng = () => seq[calls++];
+  const picks = pickTwoDistinct(pool, rng);
   assert.equal(picks.length, 2);
   assert.notEqual(picks[0], picks[1]);
 });

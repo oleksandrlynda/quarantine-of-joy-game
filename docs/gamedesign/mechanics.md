@@ -11,10 +11,11 @@
 - Pause: `P`
 
 ### Core loop
-1. Lock the mouse, start in the arena with a rifle.
+1. Lock the mouse, start in the arena with a pistol-only courier kit.
 2. Move, kite, and shoot to survive the current wave.
-3. Manage ammo (30‑round mag, 60 reserve). Reload between gaps.
-4. Clear all enemies to trigger the next wave. Repeat until downed.
+3. Clear Wave 1 to auto-equip the SMG as your first primary on Wave 2.
+4. Manage ammo and reload between gaps as stronger primary weapons come online.
+5. Clear all enemies to trigger the next wave. Repeat until downed.
 
 ### Player movement
 - Base speed: 6 units/s; Sprint x1.6; Crouch x0.55
@@ -22,11 +23,11 @@
 - Camera FOV animates 75 → 82 while sprinting
 - Collision vs. arena walls and crates; grounded detection allows jumping
 
-### Combat (hitscan rifle)
-- Fire mode: semi‑auto (one bullet per click)
-- Fire rate cap: ~120 ms per shot (~500 RPM)
-- Magazine: 30; Reserve: 60; `R` fills mag up to 30 from reserve
-- Damage: 40 body, 100 headshot; headshots add extra score
+### Combat onboarding
+- Start weapon: Pistol sidearm only, semi-auto with a small magazine and reserve ammo.
+- Wave 2 reward: SMG is auto-equipped as the first primary to establish the primary/sidearm slot loop.
+- Later primaries: Rifle, Shotgun, Minigun, DMR, and BeamSaber enter through guided wave offers/unlocks.
+- Reload: `R` fills the active weapon magazine from that weapon's reserve.
 - Visuals: tracer line + impact spark; slight enemy pushback on hit
 
 ### Weapons (planned variants)
@@ -165,8 +166,8 @@ Wave & Spawn
 - Spawn min distance: 12 units; LOS bias to out‑of‑sight/occluded spots; ring preference edge→mid, legacy fallback
 
 Weapons & Inputs
-- Slots: Primary (1) and Sidearm (2); start kit Rifle + Pistol
-- Offers: even waves starting at 2; no back‑to‑back swaps if you swapped last offer
+- Slots: Primary (1) and Sidearm (2); Wave 1 starts with Pistol only, then Wave 2 auto-equips SMG as the first Primary while preserving Pistol as Sidearm.
+- Offers: guided early offers begin after the Wave 2 SMG grant, then continue on even waves; no back‑to‑back swaps if you swapped last offer.
 - Swap conversion: floor(0.5 × old reserve) + new default reserve; decline top‑up +20% reserve (clamped)
 - Boss weapon rewards: smaller bonuses — Refine (+5% mag / −5% bloom / +7% falloff, capped per run) or New Primary (1.25× reserve)
 

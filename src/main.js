@@ -22,6 +22,9 @@ import { logError } from './util/log.js';
 import { cullGrassUnderObjects } from './graphics/grass.js';
 import { AchievementsManager } from './achievements.js';
 import { TutorialManager } from './tutorial-manager.js';
+import { GameSession } from './game/session.js';
+import { createWaveStartHandler } from './game/wave-flow.js';
+import { getNumber, getString, setMaxNumber, setNumber, setString } from './util/storage.js';
 
 // Prefer the flag set in index.html; fallback to media query
 const isMobile = (typeof window !== 'undefined' && 'IS_MOBILE' in window && window.IS_MOBILE)
@@ -31,18 +34,14 @@ const isMobile = (typeof window !== 'undefined' && 'IS_MOBILE' in window && wind
 // --- Music selection ---
 const MUSIC_KEY = 'bs3d_music';
 const musicSelect = document.getElementById('musicSelect');
-let musicChoice = 'library';
-try {
-  const saved = localStorage.getItem(MUSIC_KEY);
-  if (saved) musicChoice = saved;
-} catch (e) { logError(e); }
+let musicChoice = getString(MUSIC_KEY, 'library');
 let sunoAudio = null; // HTMLAudioElement for Suno playback
 let sunoTrackIndex = 0; // rotate through SUNO_TRACKS
 if (musicSelect) {
   musicSelect.value = musicChoice;
   musicSelect.addEventListener('change', e => {
     musicChoice = e.target.value;
-    try { localStorage.setItem(MUSIC_KEY, musicChoice); } catch (e) { logError(e); }
+    setString(MUSIC_KEY, musicChoice);
     if (musicChoice === 'suno') {
       playSuno();
     } else {
@@ -57,10 +56,8 @@ const url = new URL(window.location.href);
 const params = url.searchParams;
 const QUALITY_KEY = 'bs3d_quality';
 let startQuality = null;
-try {
-  const savedQ = localStorage.getItem(QUALITY_KEY);
-  if (savedQ && !['aa','shadows','tone','autoDPR'].some(k => params.has(k))) startQuality = savedQ;
-} catch (e) { logError(e); }
+const savedQuality = getString(QUALITY_KEY, null);
+if (savedQuality && !['aa','shadows','tone','autoDPR'].some(k => params.has(k))) startQuality = savedQuality;
 const shapeSelect = document.getElementById('arenaShape');
 // TODO: Implement later different arena shapes
 // let arenaShape = params.get('shape') || (shapeSelect ? shapeSelect.value : 'box');
@@ -234,7 +231,8 @@ const enemyManager = new EnemyManager(
     return { position: pos, forward: f };
   },
   arenaRadius,
-  obstacleManager
+  obstacleManager,
+  makeNamespacedRng(seed, 'enemies')
 );
 // Ensure enemy manager colliders include arena floor and obstacles
 if (enemyManager.refreshColliders) enemyManager.refreshColliders(objects);
@@ -247,7 +245,7 @@ const effects = new Effects(THREE, scene, camera);
 effects.muzzleEnabled = true;
 // First-person simple weapon view (barrel meshes)
 const weaponView = new WeaponView(THREE, camera);
-const pickups = new Pickups(THREE, scene);
+const pickups = new Pickups(THREE, scene, makeNamespacedRng(seed, 'pickups'));
 enemyManager.pickups = pickups;
 const tutorial = new TutorialManager({ documentRef: document, enemyManager });
 
@@ -257,8 +255,8 @@ obstacleManager.pickups = pickups;
 obstacleManager.getPlayer = () => controls.getObject();
 obstacleManager.onScore = (points) => { addScore(points); };
 obstacleManager.onPlayerDamage = (amount) => {
-  if (paused || gameOver) return;
-  hp -= amount; if (hp <= 0) { hp = 0; gameOver = true; document.getElementById('center').style.display='grid'; stopSuno(); }
+  if (paused || session.gameOver) return;
+  const damageResult = session.damage(amount); if (damageResult.died) { document.getElementById('center').style.display='grid'; stopSuno(); }
   // Apply universal hit VFX on any damage source
   if (effects && typeof effects.onPlayerHit === 'function') effects.onPlayerHit(amount);
   updateHUD();
@@ -270,7 +268,7 @@ obstacleManager.onCollidersChanged = (objs) => {
 };
 
 // ------ Gun / Shooting ------
-let hp=100, score=0, best=0, paused=false;
+let paused=false;
 let lastMeleeSfxAt = -1;
 let lastMeleeVfxAt = -1;
 const MELEE_SFX_COOLDOWN = 0.25; // seconds
@@ -334,12 +332,7 @@ function clearTicker(){
 
 // Best score persistence
 const BEST_KEY = 'bs3d_best_score';
-try {
-  const savedBest = localStorage.getItem(BEST_KEY);
-  if (savedBest != null) best = Number(savedBest) || 0;
-} catch (e) { logError(e); }
-
-// Combo state
+const savedBestForSession = getNumber(BEST_KEY, 0);
 const comboCfg = {
   decayTime: 3.5,
   thresholds: [2, 5, 9], // actions required to reach tiers 1,2,3
@@ -350,7 +343,19 @@ const comboEl = document.getElementById('combo');
 const comboLabelEl = document.getElementById('comboLabel');
 const comboBarEl = document.getElementById('comboBar');
 const crosshairEl = document.getElementById('crosshair');
-const combo = { tier:0, multiplier:1.0, streakPoints:0, decayTimer:0 };
+const session = new GameSession({
+  initialBest: savedBestForSession,
+  comboConfig: comboCfg,
+  emergencyAmmoCooldown: EMERGENCY_AMMO_COOLDOWN,
+  onBest: (value) => { setMaxNumber(BEST_KEY, value); },
+  onScore: (points) => achievements.check({ type: 'score', amount: points }),
+  onComboTier: (tier, prev) => {
+    achievements.check({ type: 'combo', tier });
+    if (tier > prev) { effects.promotionPulse(); effects.setTracerTint(tier / comboCfg.maxTier); }
+    else { effects.setTracerTint(tier / comboCfg.maxTier); }
+  }
+});
+const combo = session.combo;
 
 function updateComboLabel(){
   if (!comboEl) return;
@@ -358,26 +363,8 @@ function updateComboLabel(){
   comboEl.classList.remove('tier1','tier2','tier3','tier4');
   if (combo.tier>0) comboEl.classList.add(`tier${combo.tier}`);
 }
-function refreshComboTimer(){ combo.decayTimer = comboCfg.decayTime; if(comboBarEl){ comboBarEl.style.width = '100%'; } }
-function setComboTier(newTier){
-  const clamped = Math.max(0, Math.min(comboCfg.maxTier, newTier|0));
-  const prev = combo.tier;
-  if (clamped === prev) return;
-  combo.tier = clamped;
-  combo.multiplier = comboCfg.multipliers[combo.tier] || 1.0;
-  updateComboLabel();
-  achievements.check({ type: 'combo', tier: combo.tier });
-  if (combo.tier > prev) { effects.promotionPulse(); effects.setTracerTint(combo.tier / comboCfg.maxTier); }
-  else { effects.setTracerTint(combo.tier / comboCfg.maxTier); }
-}
-function addComboAction(points){
-  combo.streakPoints += points;
-  refreshComboTimer();
-  let t = 0;
-  for(let i=0;i<comboCfg.thresholds.length;i++){ if(combo.streakPoints >= comboCfg.thresholds[i]) t = i+1; }
-  setComboTier(t);
-}
-function resetCombo(){ combo.streakPoints=0; setComboTier(0); combo.decayTimer=0; if(comboBarEl){ comboBarEl.style.width = '0%'; } }
+function addComboAction(points){ session.addComboAction(points); updateComboLabel(); }
+function resetCombo(){ session.resetCombo(); updateComboLabel(); if(comboBarEl){ comboBarEl.style.width = '0%'; } }
 
 let weaponSystem; // initialized later
 let progression;  // armory offers + unlocks
@@ -394,7 +381,7 @@ function updateHUD(){
     const iconMap = { Rifle:'assets/icons/weapon-rifle.svg', SMG:'assets/icons/weapon-smg.svg', Shotgun:'assets/icons/weapon-shotgun.svg', DMR:'assets/icons/weapon-dmr.svg', Minigun:'assets/icons/weapon-minigun.svg', Pistol:'assets/icons/weapon-pistol.svg', BeamSaber:'assets/icons/weapon-beamsaber.svg' };
     weaponIconEl.src = iconMap[w?.name] || iconMap.Rifle;
   }
-  hpEl.textContent = Math.floor(hp); ammoEl.textContent=ammoVal; magEl.textContent=reserveVal; scoreEl.textContent=score; if (bestEl) bestEl.textContent = best; if(waveEl) waveEl.textContent = enemyManager.wave;
+  hpEl.textContent = Math.floor(session.hp); ammoEl.textContent=ammoVal; magEl.textContent=reserveVal; scoreEl.textContent=session.score; if (bestEl) bestEl.textContent = session.best; if(waveEl) waveEl.textContent = enemyManager.wave;
   updateHUDComboAndBoss();
 }
 
@@ -406,7 +393,7 @@ function updateHUDComboAndBoss(){
     staminaBarEl.style.width = `${(pct*100).toFixed(1)}%`;
   }
   // Low state cues
-  if (hpPillEl){ hpPillEl.classList.remove('low','crit'); if (hp <= 25) { hpPillEl.classList.add('crit'); } else if (hp <= 50) { hpPillEl.classList.add('low'); } }
+  if (hpPillEl){ hpPillEl.classList.remove('low','crit'); if (session.hp <= 25) { hpPillEl.classList.add('crit'); } else if (session.hp <= 50) { hpPillEl.classList.add('low'); } }
   if (ammoPillEl){ const ammoValLocal = weaponSystem ? weaponSystem.getAmmo() : 30; ammoPillEl.classList.remove('need-reload'); if (ammoValLocal <= 0) ammoPillEl.classList.add('need-reload'); }
   // Hydra lineage aggregate
   let hydraAlive = 0, hydraDesc = 0;
@@ -459,41 +446,34 @@ function updateHUDComboAndBoss(){
 }
 
 function addScore(points){
-  score += points;
-  if (score > best) {
-    best = score;
-    try { localStorage.setItem(BEST_KEY, String(best)); } catch (e) { logError(e); }
-  }
-  achievements.check({ type: 'score', amount: points });
+  session.addScore(points);
   updateHUD();
 }
 updateHUD();
 
 // update HUD when a new wave starts and when remaining enemies changes
-enemyManager.onWave = (_wave, startingAlive) => {
-  if (_wave > 1) {
-    const duration = gameTime - lastWaveStartTime;
-    achievements.check({ type: 'waveComplete', time: duration });
-  }
-  lastWaveStartTime = gameTime;
-  achievements.check({ type: 'wave', number: _wave });
-  // record startingAlive for progress bar
-  enemyManager.waveStartingAlive = startingAlive || 0;
-  updateHUD();
-  pickups.onWave(enemyManager.wave);
-  if (weather && typeof weather.onWave === 'function') weather.onWave();
-  if (player.refreshColliders) player.refreshColliders(objects);
-  if (progression) progression.onWave(enemyManager.wave);
-  if (story) story.onWave(enemyManager.wave);
-  // Toast
-  showToast(`Wave ${_wave} start`);
-};
+enemyManager.onWave = createWaveStartHandler({
+  session,
+  enemyManager,
+  achievements,
+  pickups,
+  weather,
+  player,
+  objects,
+  progression,
+  story,
+  getGameTime: () => gameTime,
+  getLastWaveStartTime: () => lastWaveStartTime,
+  setLastWaveStartTime: value => { lastWaveStartTime = value; },
+  updateHUD,
+  showToast
+});
 enemyManager.onRemaining = () => updateHUD();
 
 // Sounds: create music first, then SFX sharing its context and FX bus
 const baseMusicVol = 0.35;
 const baseSfxVol = 0.65;
-const storedSound = parseFloat(localStorage.getItem('soundVolume') || '1');
+const storedSound = getNumber('soundVolume', 1);
 const music = new Music({ bpm: 132, volume: baseMusicVol * storedSound });
 const S = new SFX({
   audioContextProvider: () => music.getContext(),
@@ -519,7 +499,7 @@ if (soundSlider){
     const v = parseFloat(e.target.value);
     music.setVolume(baseMusicVol * v);
     S.setVolume(baseSfxVol * v);
-    localStorage.setItem('soundVolume', String(v));
+    setNumber('soundVolume', v);
   });
 }
 
@@ -615,7 +595,7 @@ weaponSystem = new WeaponSystem({
 });
 // Set initial weapon view
 try { weaponView.setWeapon(weaponSystem.getPrimaryName()); } catch (e) { logError(e); }
-progression = new Progression({ weaponSystem, documentRef: document, onPause: (lock)=>{ offerActive = !!lock; paused = !!lock; }, controls });
+progression = new Progression({ weaponSystem, documentRef: document, onPause: (lock)=>{ offerActive = !!lock; paused = !!lock; }, controls, rng: makeNamespacedRng(seed, 'progression') });
 tutorial.weaponSystem = weaponSystem;
 story = storyDisabled ? null : new StoryManager({ documentRef: document, onPause: (lock)=>{ paused = !!lock; }, controls, toastFn: (t)=> showToast(t), tickerFn: (t,r,i)=> showTicker(t,r,i) });
 
@@ -682,9 +662,7 @@ updateHUD();
 
 // ------ Game Loop ------
 const clock = new THREE.Clock();
-let gameOver=false;
 let gameTime = 0; // advances only when not paused and controls are locked
-let lastEmergencyAmmoAt = -1000; // so first eligible trigger is allowed
 // FPS limit
 const TARGET_FPS = 60;
 const FRAME_MIN_MS = 1000 / TARGET_FPS;
@@ -714,7 +692,7 @@ function step(){
   _lastFrameAt = now;
 
   const dt = Math.min(0.033, clock.getDelta());
-  if((controls.isLocked || isMobile) && !paused && !gameOver){
+  if((controls.isLocked || isMobile) && !paused && !session.gameOver){
     // advance game time only while active
     gameTime += dt;
     achievements.check({ type: 'time', delta: dt });
@@ -755,7 +733,7 @@ function step(){
     // enemies AI
     const fo = controls.getObject();
     enemyManager.tickAI(fo, dt, (damage, source)=>{
-      hp -= damage; if(hp<=0){ hp=0; gameOver=true; document.getElementById('center').style.display='grid'; S.hurt(); }
+      const damageResult = session.damage(damage); if(damageResult.died){ document.getElementById('center').style.display='grid'; S.hurt(); }
       // VFX for all hits; for melee, pulse at a small cooldown with a stronger bump for readability
       if (effects && typeof effects.onPlayerHit === 'function') {
         if (source === 'melee') {
@@ -776,7 +754,7 @@ function step(){
       }
       updateHUD();
       // Low HP trigger for story
-      try { if (hp <= 25) story?.onLowHp?.(); } catch (e) { logError(e); }
+      try { if (session.hp <= 25) story?.onLowHp?.(); } catch (e) { logError(e); }
     });
 
     // legacy tracers removal (if any left around)
@@ -786,8 +764,8 @@ function step(){
 
     // pickups update (magnet + animation)
     pickups.update(dt, controls.getObject().position, (type, amount, where) => {
-      if (type === 'ammo') { if (weaponSystem) weaponSystem.onAmmoPickup(amount); showToast('+Ammo'); }
-      else if (type === 'med') { hp = Math.min(100, hp + amount); if (S && S.ui) S.ui('pickup'); showToast('+HP'); try { story?.onFirstMedPickup?.(); } catch (e) { logError(e); } }
+      if (type === 'ammo') { session.applyPickup(type, amount, { weaponSystem }); showToast('+Ammo'); }
+      else if (type === 'med') { try { session.applyPickup(type, amount, { story, sfx: S }); } catch (e) { logError(e); } showToast('+HP'); }
       updateHUD();
       achievements.check({ type: 'pickup' });
       tutorial.onPickup?.(type);
@@ -797,30 +775,9 @@ function step(){
     // at most 1 ammo pickup on the map, drop 3 at center to prevent softlocks
     try {
       if (weaponSystem && pickups && pickups.active) {
-        // Compute total ammo across all weapons (mag + reserve for each)
-        let totalAmmo = 0;
-        try {
-          for (const w of (weaponSystem.inventory || [])) {
-            if (w?.name === 'Pistol') continue;
-            const mag = Math.max(0, (typeof w.getAmmo === 'function' ? w.getAmmo() : w.ammoInMag) | 0);
-            const res = Math.max(0, (typeof w.getReserve === 'function' ? w.getReserve() : w.reserveAmmo) | 0);
-            totalAmmo += mag + res;
-          }
-        } catch (e) { logError(e); }
-        if (totalAmmo <= 0 && (gameTime - lastEmergencyAmmoAt) >= EMERGENCY_AMMO_COOLDOWN) {
-          let ammoOnMap = 0;
-          for (const g of pickups.active) { if (g?.userData?.type === 'ammo') ammoOnMap++; }
-          if (ammoOnMap <= 1) {
-            const center = new THREE.Vector3(0, 0, 0);
-            const offsets = [
-              new THREE.Vector3(0, 0, 0),
-              new THREE.Vector3(0.9, 0, 0),
-              new THREE.Vector3(-0.9, 0, 0)
-            ];
-            for (const off of offsets) { pickups.spawn('ammo', center.clone().add(off)); }
-            lastEmergencyAmmoAt = gameTime;
-          }
-        }
+        const center = new THREE.Vector3(0, 0, 0);
+        const drops = session.getEmergencyAmmoDrops({ weaponSystem, pickups, gameTime });
+        for (const off of drops) { pickups.spawn('ammo', center.clone().add(new THREE.Vector3(off.x, off.y, off.z))); }
       }
     } catch (e) { logError(e); }
 
@@ -894,7 +851,7 @@ function step(){
 
   // combo decay + HUD bar update
   if (combo.decayTimer > 0) {
-    combo.decayTimer = Math.max(0, combo.decayTimer - dt);
+    session.decayCombo(dt);
     if (comboBarEl) {
       const pct = Math.max(0, Math.min(1, combo.decayTimer / comboCfg.decayTime));
       comboBarEl.style.width = `${(pct*100).toFixed(1)}%`;
@@ -998,7 +955,7 @@ function reset(isTutorial = false){ // clear enemies
   enemyManager.reset();
   if (isTutorial) enemyManager.suspendWaves = prevSuspend;
   pickups.resetAll(); pickups.onWave(enemyManager.wave);
-  hp=100; score=0; paused=false; gameOver=false; resetCombo(); if (weaponSystem) weaponSystem.reset(); updateHUD();
+  paused=false; session.reset({ weaponSystem, player, effects, sfx: S }); updateHUD();
   if (levelInfo && levelInfo.playerSpawn) {
     player.resetPosition(levelInfo.playerSpawn.x, levelInfo.playerSpawn.y, levelInfo.playerSpawn.z);
   } else {
@@ -1088,7 +1045,7 @@ function showStartPanel(){
 
 function finishTutorial(){
   enemyManager.suspendWaves = false;
-  gameOver = true;
+  session.gameOver = true;
   if (!isMobile) {
     try { controls.unlock(); } catch (e) { logError(e); }
   }
@@ -1115,7 +1072,7 @@ function resumeGame(){
 }
 
 function showPauseMenu(){
-  if (paused || gameOver) return;
+  if (paused || session.gameOver) return;
   panel.style.display='none';
   pauseMenu.style.display='';
   panel.parentElement.style.display='grid';
@@ -1147,29 +1104,29 @@ function highlightQuality(which){
   qHigh?.classList.toggle('selected', which === 'high');
   qUltra?.classList.toggle('selected', which === 'ultra');
 }
-try { highlightQuality(localStorage.getItem(QUALITY_KEY)); } catch (e) { logError(e); }
+highlightQuality(getString(QUALITY_KEY, null));
 function setParams(obj){
   const u = new URL(window.location.href);
   Object.entries(obj).forEach(([k,v])=>{ if (v==null) u.searchParams.delete(k); else u.searchParams.set(k, String(v)); });
   window.location.href = `${u.pathname}?${u.searchParams.toString()}`;
 }
 if (qLow) qLow.onclick = () => {
-  try { localStorage.setItem(QUALITY_KEY, 'low'); } catch (e) { logError(e); }
+  setString(QUALITY_KEY, 'low');
   highlightQuality('low');
   setParams(qualityPresets.low);
 };
 if (qMed) qMed.onclick = () => {
-  try { localStorage.setItem(QUALITY_KEY, 'med'); } catch (e) { logError(e); }
+  setString(QUALITY_KEY, 'med');
   highlightQuality('med');
   setParams(qualityPresets.med);
 };
 if (qHigh) qHigh.onclick = () => {
-  try { localStorage.setItem(QUALITY_KEY, 'high'); } catch (e) { logError(e); }
+  setString(QUALITY_KEY, 'high');
   highlightQuality('high');
   setParams(qualityPresets.high);
 };
 if (qUltra) qUltra.onclick = () => {
-  try { localStorage.setItem(QUALITY_KEY, 'ultra'); } catch (e) { logError(e); }
+  setString(QUALITY_KEY, 'ultra');
   highlightQuality('ultra');
   setParams(qualityPresets.ultra);
 };
@@ -1179,7 +1136,7 @@ if (startQuality && qualityPresets[startQuality]) {
 }
 
 controls.addEventListener('unlock', ()=>{
-  if (gameOver) {
+  if (session.gameOver) {
     pauseMenu.style.display='none';
     panel.style.display='';
     panel.parentElement.style.display='grid';
@@ -1189,11 +1146,11 @@ controls.addEventListener('unlock', ()=>{
 });
 
 window.addEventListener('blur', ()=>{
-  if (!gameOver) showPauseMenu();
+  if (!session.gameOver) showPauseMenu();
 });
 
 document.addEventListener('visibilitychange', ()=>{
-  if (!gameOver) showPauseMenu();
+  if (!session.gameOver) showPauseMenu();
 });
 
 // Ensure audio resume on first input (mobile/desktop)

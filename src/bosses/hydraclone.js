@@ -67,6 +67,7 @@ class HydraGlobal {
         enemyManager: it.enemyManager,
         generation: it.gen,
         bossId: it.bossId,
+        rng: it.rng
       });
       Hydraclone.registerInstance(inst, ctx); // ensures scene + manager registration
     }
@@ -74,14 +75,15 @@ class HydraGlobal {
 }
 
 export class Hydraclone {
-  constructor({ THREE, mats, spawnPos, generation = 0, enemyManager = null, bossId = null }) {
+  constructor({ THREE, mats, spawnPos, generation = 0, enemyManager = null, bossId = null, rng = Math.random }) {
     this.THREE = THREE;
     this.mats = mats;
     this.enemyManager = enemyManager;
+    this.rng = rng;
     this.gen = Math.max(0, Math.min(3, generation));
 
     // Establish lineage id (the very first/gen0 becomes its own bossId)
-    this.bossId = bossId || `hydra_${Date.now().toString(36)}_${Math.floor(Math.random() * 1e6).toString(36)}`;
+    this.bossId = bossId || `hydra_${Date.now().toString(36)}_${Math.floor(this.rng() * 1e6).toString(36)}`;
     this._slot = HydraGlobal.registerSpawn(this.bossId);
 
     // Build asset
@@ -112,8 +114,8 @@ export class Hydraclone {
     this._walkPhase = 0;
 
     // Surround bias – each instance uses a persistent arc angle
-    this._arcAngle = (Math.random() * Math.PI * 2);
-    this._arcSign = (Math.random() < 0.5 ? -1 : 1);
+    this._arcAngle = (this.rng() * Math.PI * 2);
+    this._arcSign = (this.rng() < 0.5 ? -1 : 1);
     this._preferRadius = [5.5, 4.8, 4.2, 3.6][this.gen];
     this._lastPos = this.root.position.clone();
 
@@ -129,7 +131,7 @@ export class Hydraclone {
 
     // Mirror path clone ability
     this._mirrorClones = [];
-    this._mirrorCooldown = 4 + Math.random() * 2;
+    this._mirrorCooldown = 4 + this.rng() * 2;
   }
 
   // --- Manager/scene registration helper (used by global queue spawns) ---
@@ -208,8 +210,8 @@ export class Hydraclone {
     const safeR = 2.0;
     const radius = Math.max(1.1, (this.root.userData?.bounds?.radius || 0.8) + 0.6);
     for (let i = 0; i < splitCount; i++) {
-      const a = (i / splitCount) * Math.PI * 2 + Math.random() * 0.35;
-      const r = radius + 0.25 + Math.random() * 0.35;
+      const a = (i / splitCount) * Math.PI * 2 + this.rng() * 0.35;
+      const r = radius + 0.25 + this.rng() * 0.35;
       const pos = new THREE.Vector3(origin.x + Math.cos(a) * r, origin.y, origin.z + Math.sin(a) * r);
 
       // steer away if too close to player
@@ -219,7 +221,7 @@ export class Hydraclone {
         pos.add(dir.multiplyScalar(safeR - Math.hypot(dx, dz) + 0.1));
       }
 
-      const yJitter = (Math.random() - 0.5) * 0.2;
+      const yJitter = (this.rng() - 0.5) * 0.2;
 
       // Respect global cap: queue if necessary
       HydraGlobal.enqueue({
@@ -227,7 +229,8 @@ export class Hydraclone {
         bossId: this.bossId,
         pos, yJitter,
         THREE: this.THREE, mats: this.mats,
-        enemyManager: this.enemyManager
+        enemyManager: this.enemyManager,
+        rng: this.rng
       });
     }
 
@@ -334,7 +337,7 @@ export class Hydraclone {
       if (L.alive > 3) this._mirrorCooldown -= dt; // faster when many are alive
     }
     if (this._mirrorCooldown <= 0) {
-      this._mirrorCooldown = 6 + Math.random() * 2;
+      this._mirrorCooldown = 6 + this.rng() * 2;
       this._spawnMirrorClones(ctx);
     }
     for (let i = this._mirrorClones.length - 1; i >= 0; i--) {
@@ -463,8 +466,8 @@ export class Hydraclone {
   }
 
   // Utility for external systems to spawn initial boss
-  static spawnBoss({ THREE, mats, spawnPos, enemyManager }) {
-    const inst = new Hydraclone({ THREE, mats, spawnPos, generation: 0, enemyManager });
+  static spawnBoss({ THREE, mats, spawnPos, enemyManager, rng = Math.random }) {
+    const inst = new Hydraclone({ THREE, mats, spawnPos, generation: 0, enemyManager, rng });
     return Hydraclone.registerInstance(inst, { scene: enemyManager?.scene });
   }
 }

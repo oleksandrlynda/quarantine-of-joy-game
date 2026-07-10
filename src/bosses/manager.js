@@ -9,11 +9,12 @@ import { Hydraclone } from './hydraclone.js';
 import { StrikeAdjudicator } from './adjudicator.js';
 
 export class BossManager {
-  constructor({ THREE, scene, mats, enemyManager }) {
+  constructor({ THREE, scene, mats, enemyManager, rng = Math.random }) {
     this.THREE = THREE;
     this.scene = scene;
     this.mats = mats;
     this.enemyManager = enemyManager;
+    this.rng = rng;
 
     this.active = false;
     this.boss = null;
@@ -51,7 +52,7 @@ export class BossManager {
     // Spawn position: prefer manager's spawn selection, else fallback near far edge
     const spawnPos = (typeof this.enemyManager._chooseSpawnPos === 'function'
       ? this.enemyManager._chooseSpawnPos()
-      : new THREE.Vector3((Math.random()*50-25)|0, 0.8, (Math.random()*50-25)|0));
+      : new THREE.Vector3((this.rng()*50-25)|0, 0.8, (this.rng()*50-25)|0));
 
     // Boss selection routing:
     // - Wave 5: Broodmaker (light version)
@@ -63,19 +64,19 @@ export class BossManager {
     // - Wave 35: Strike Adjudicator
     let boss;
     if (wave === 5) {
-      boss = new Broodmaker({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager });
+      boss = new Broodmaker({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager, rng: this.rng });
     } else if (wave == 10) {
-      boss = new Sanitizer({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager });
+      boss = new Sanitizer({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager, rng: this.rng });
     } else if (wave == 15) {
-      boss = new Captain({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager });
+      boss = new Captain({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager, rng: this.rng });
     } else if (wave == 20) {
-      boss = new ShardAvatar({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager });
+      boss = new ShardAvatar({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager, rng: this.rng });
     } else if (wave == 25) {
-      boss = new Broodmaker({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager, mode: 'heavy' });
+      boss = new Broodmaker({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager, mode: 'heavy', rng: this.rng });
     } else if (wave == 30) {
-      boss = new Hydraclone({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager, generation: 0 });
+      boss = new Hydraclone({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager, generation: 0, rng: this.rng });
     } else if (wave == 35) {
-      boss = new StrikeAdjudicator({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager });
+      boss = new StrikeAdjudicator({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager, rng: this.rng });
     }
 
     if (!boss) return false;
@@ -86,7 +87,7 @@ export class BossManager {
     this.boss = boss;
 
     // First ability window 8–12s
-    this.cooldown = 8 + Math.random() * 4;
+    this.cooldown = 8 + this.rng() * 4;
     this.telegraphTime = 0;
     return true;
   }
@@ -124,10 +125,10 @@ export class BossManager {
       this.telegraphTime += dt;
       this._updateTelegraphs(dt, ctx);
       if (this.telegraphTime >= this.telegraphRequired) {
-        this._spawnAddsNearPlayer(3 + (Math.random() * 3 | 0));
+        this._spawnAddsNearPlayer(3 + (this.rng() * 3 | 0));
         this._clearTelegraphs();
         this.telegraphTime = 0;
-        this.cooldown = 8 + Math.random() * 4;
+        this.cooldown = 8 + this.rng() * 4;
       }
       return;
     }
@@ -185,7 +186,7 @@ export class BossManager {
     const playerPos = ctx.player.position;
     for (let i = 0; i < count; i++) {
       const pos = this._findSafeNearPlayer(playerPos, 6, 10, 16);
-      positions.push(pos || playerPos.clone().add(new THREE.Vector3((Math.random()*6-3), 0.8, (Math.random()*6-3))));
+      positions.push(pos || playerPos.clone().add(new THREE.Vector3((this.rng()*6-3), 0.8, (this.rng()*6-3))));
     }
     return positions;
   }
@@ -193,8 +194,8 @@ export class BossManager {
   _findSafeNearPlayer(playerPos, minR, maxR, attempts = 18) {
     const THREE = this.THREE;
     for (let i = 0; i < attempts; i++) {
-      const ang = Math.random() * Math.PI * 2;
-      const r = minR + Math.random() * (maxR - minR);
+      const ang = this.rng() * Math.PI * 2;
+      const r = minR + this.rng() * (maxR - minR);
       const pos = new THREE.Vector3(playerPos.x + Math.cos(ang)*r, 0.8, playerPos.z + Math.sin(ang)*r);
       if (typeof this.enemyManager._isSpawnAreaClear === 'function' && this.enemyManager._isSpawnAreaClear(pos, 0.5)) {
         return pos;

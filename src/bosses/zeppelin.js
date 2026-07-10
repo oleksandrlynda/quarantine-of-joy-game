@@ -4,15 +4,16 @@
 import { createAdZeppelinAsset } from '../assets/boss_captain.js';
 
 export class ZeppelinSupport {
-  constructor({ THREE, mats, enemyManager, scene, onPodsCleared }) {
+  constructor({ THREE, mats, enemyManager, scene, onPodsCleared, rng = Math.random }) {
     this.THREE = THREE;
     this.mats = mats;
     this.enemyManager = enemyManager;
+    this.rng = rng;
     this.scene = scene;
     this.onPodsCleared = onPodsCleared;
     // Build zeppelin asset with engine pods, bomb rails, and gondola pivot
     const built = createAdZeppelinAsset({ THREE, mats, scale: 2.0, podCount: 3 });
-    built.root.position.set(-44, 7.0, -30 + Math.random()*60);
+    built.root.position.set(-44, 7.0, -30 + this.rng()*60);
     built.root.userData = { type: 'boss_zeppelin' };
     this.root = built.root;
     this.refs = built.refs; // { body, gondola, bombRails, pods }
@@ -60,7 +61,7 @@ export class ZeppelinSupport {
     const THREE = this.THREE;
     const podRoot = new THREE.Group();
     // choose a bomb rail and convert to world position
-    const rail = (this.refs?.bombRails || [])[Math.floor(Math.random() * (this.refs?.bombRails?.length || 1))];
+    const rail = (this.refs?.bombRails || [])[Math.floor(this.rng() * (this.refs?.bombRails?.length || 1))];
     const dropPos = rail?.getWorldPosition ? rail.getWorldPosition(new THREE.Vector3()) : this.root.position.clone();
     podRoot.position.set(dropPos.x, 0.8, dropPos.z);
     podRoot.userData = { type: 'boss_bomb', hp: 1 };

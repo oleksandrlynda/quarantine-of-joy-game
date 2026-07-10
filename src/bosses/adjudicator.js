@@ -18,10 +18,11 @@ import { logError } from '../util/log.js';
 import { createStrikeAdjudicatorAsset } from '../assets/boss_adjudicator.js';
 
 export class StrikeAdjudicator {
-  constructor({ THREE, mats, spawnPos, enemyManager = null }) {
+  constructor({ THREE, mats, spawnPos, enemyManager = null, rng = Math.random }) {
     this.THREE = THREE;
     this.mats = mats;
     this.enemyManager = enemyManager;
+    this.rng = rng;
 
     const built = createStrikeAdjudicatorAsset({ THREE, mats, scale: 1.0 });
     built.root.position.copy(spawnPos);
@@ -42,7 +43,7 @@ export class StrikeAdjudicator {
     // Strikes / Citations
     this.strikes = 0;                 // 0..3
     this._strikeTimer = 2.0;          // first citation soon after spawn
-    this._strikeInterval = 11.5 + Math.random() * 2.0;
+    this._strikeInterval = 11.5 + this.rng() * 2.0;
 
     // Verdict cadence (offset ~half cycle so it interleaves with citations)
     this._verdictTimer = this._strikeInterval * 0.5;
@@ -120,16 +121,16 @@ export class StrikeAdjudicator {
     // Light add spawns (bailiffs) while in combat (never more than 3 alive from this boss)
     if (this.enemyManager && (this._addCooldown || 0) <= 0) {
       const mine = Array.from(this.enemyManager.instances || []).filter(inst => inst?.summoner === this).length;
-      if (mine < 3 && Math.random() < 0.18 * dt) {
+      if (mine < 3 && this.rng() < 0.18 * dt) {
         const p = ctx.player.position;
-        const a = Math.random() * Math.PI * 2, r = 10 + Math.random() * 6;
+        const a = this.rng() * Math.PI * 2, r = 10 + this.rng() * 6;
         const pos = new this.THREE.Vector3(p.x + Math.cos(a)*r, 0.8, p.z + Math.sin(a)*r);
         const root = this.enemyManager.spawnAt('bailiff', pos, { countsTowardAlive: true });
         if (root) {
           const inst = this.enemyManager.instanceByRoot?.get(root);
           if (inst) inst.summoner = this;
         }
-        this._addCooldown = 6.5 + Math.random() * 2.0;
+        this._addCooldown = 6.5 + this.rng() * 2.0;
       } else {
         this._addCooldown = 1.2;
       }
@@ -321,7 +322,7 @@ export class StrikeAdjudicator {
       // If heavy (3 strikes), auto-spawn extra nodes for recovery
       if (heavy) {
         for (let i = 0; i < 2; i++) {
-          const a = Math.random()*Math.PI*2, r = 2.2 + Math.random()*1.0;
+          const a = this.rng()*Math.PI*2, r = 2.2 + this.rng()*1.0;
           const pos = this.root.position.clone().add(new this.THREE.Vector3(Math.cos(a)*r, 0.2, Math.sin(a)*r));
           this._spawnNode(ctx, pos);
         }
