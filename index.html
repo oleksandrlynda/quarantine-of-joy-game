@@ -6,29 +6,63 @@
 <link rel="icon" href="assets/icons/favicon.svg" type="image/svg+xml" />
 <meta name="theme-color" content="#0b1220" />
 <title>Quarantine of Joy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Syne:wght@700;800&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="styles/styles.css" />
 </head>
-<body>
-<div id="hud">
-  <div class="row">
-    <div class="pill" id="hpPill"><span data-i18n="hud.hp">HP</span>: <span id="hp">100</span></div>
-    <div class="pill" id="ammoPill"><span data-i18n="hud.ammo">Ammo</span>: <img id="weaponIcon" class="wicon" alt="" /> <span id="weapon">Rifle</span> — <span id="ammo">30</span>/<span id="mag">60</span></div>
-    <div class="pill"><span data-i18n="hud.score">Score</span>: <span id="score">0</span></div>
-    <div class="pill"><span data-i18n="hud.best">Best</span>: <span id="best">0</span></div>
-    <div class="pill" id="combo"><span id="comboLabel"></span><div id="comboBar"></div></div>
-    <div class="pill" id="wavePill"><span data-i18n="hud.wave">Wave</span>: <span id="wave">1</span> <span id="remainingWrap" class="tiny" style="margin-left:6px">(<span id="remaining">0</span> <span data-i18n="hud.left">left</span>)</span> <span id="hydraWrap" class="tiny" style="margin-left:6px; display:none">(<span data-i18n="hud.hydra">Hydra</span> <span id="hydraCount">0/0</span>)</span><div id="waveBar"></div></div>
-    <div class="pill" id="stamina"><span data-i18n="hud.stamina">Stamina</span><div id="staminaBar"></div></div>
-    <div style="display: none !important">
+<body class="menu-open">
+<div id="hud" class="hud-blockjoy">
+  <div id="waveStrip" aria-hidden="true"><div id="waveBar"></div></div>
+
+  <div class="hud-tl">
+    <div id="wavePill">
+      <div class="wave-num"><span data-i18n="hud.wave">Wave</span> <span id="wave">1</span></div>
+      <div id="remainingWrap" class="wave-sub"><span id="remaining">0</span> <span data-i18n="hud.left">left</span></div>
+      <div id="hydraWrap" class="wave-sub" style="display:none"><span data-i18n="hud.hydra">Hydra</span> <span id="hydraCount">0/0</span></div>
+    </div>
+  </div>
+
+  <div class="hud-tc">
+    <div class="score-block"><span id="score">0</span></div>
+    <div id="combo" class="combo-chip">
+      <span id="comboLabel"></span>
+      <div id="comboBar"></div>
+    </div>
+  </div>
+
+  <div class="hud-bl">
+    <div id="hpPill" class="meter-blocks" title="HP">
+      <div id="hpBlocks" class="blocks hp-blocks" aria-hidden="true"></div>
+      <span class="sr-only"><span data-i18n="hud.hp">HP</span>: <span id="hp">100</span></span>
+    </div>
+    <div id="stamina" class="meter-blocks" title="Stamina">
+      <div id="stamBlocks" class="blocks stam-blocks" aria-hidden="true"></div>
+      <span class="stam-label" data-i18n="hud.stamina">Stamina</span>
+      <div id="staminaBar" class="sr-meter" aria-hidden="true"></div>
+    </div>
+  </div>
+
+  <div class="hud-br">
+    <div id="ammoPill" class="ammo-panel">
+      <div class="ammo-wpn">
+        <img id="weaponIcon" class="wicon" alt="" />
+        <span id="weapon">Rifle</span>
+      </div>
+      <div class="ammo-count"><span id="ammo">30</span><small>/<span id="mag">60</span></small></div>
+    </div>
+  </div>
+
+  <div class="hud-util">
     <div class="pill tiny" id="seedPill"><span data-i18n="hud.seed">Seed</span>: <span id="seed"></span>
       <button class="mini" id="copySeed" data-i18n="hud.copy" data-i18n-title="hud.copyTitle">Copy</button>
       <button class="mini" id="newSeed" data-i18n="hud.new" data-i18n-title="hud.newTitle">New</button>
     </div>
     <div class="pill tiny" id="fpsPill"><span data-i18n="hud.fps">FPS</span>: <span id="fps">0</span></div>
-    <div class="pill" id="mute">🔊</div>
+    <button type="button" class="mute-btn" id="mute" aria-label="Mute">🔊</button>
   </div>
-  <div class="row" style="justify-content:flex-end">
-    <div class="pill tiny" id="desktopHelp" data-i18n="hud.desktopHelp">WASD move • Mouse aim • Click shoot • R reload • Shift sprint • C crouch • Space jump • P pause</div>
-  </div>
+
+  <div id="desktopHelp" class="hud-help" data-i18n="hud.desktopHelp">WASD move • Mouse aim • Click shoot • R reload • Shift sprint • C crouch • Space jump • P pause</div>
 </div>
 
 <div id="crosshair">
@@ -83,89 +117,106 @@
   </style>
 </div>
 
-<div id="center"><div id="panel">
-  <h1>Quarantine of <span>Joy</span></h1>
-  <div data-i18n="start.tagline">Meme-fueled shooter. Hijack feeds, raise hype, roast the Bureau.</div>
-  <!-- <div style="display:flex; gap:10px; justify-content:center; margin:12px 0; flex-wrap:wrap"> -->
-  <div style="display: none !important">
-    <div class="pill" data-i18n="feature.waves">Waves of bots</div>
-    <div class="pill" data-i18n="feature.hitscan">Hitscan rifle + tracers</div>
-    <div class="pill" data-i18n="feature.headshot">Headshot bonus</div>
-    <div class="pill" data-i18n="feature.procedural">Procedural arena</div>
-  </div>
-  <div style="display:flex; justify-content:center; gap:8px; margin:12px 0; flex-wrap:wrap">
-    <!-- <select id="arenaShape" class="secondary startSelect" style="cursor:pointer; border:0; border-radius:14px; padding:12px 16px; font-weight:900; box-shadow:0 12px 36px #0000002a;"> -->
-    <select id="arenaShape" class="secondary startSelect" style="display: none !important">
-      <option value="box" data-i18n="arena.box">Box Arena</option>
-      <option value="circle" data-i18n="arena.circle">Circle Arena</option>
-      <option value="diamond" data-i18n="arena.diamond">Diamond Arena</option>
-      <option value="triangle" data-i18n="arena.triangle">Triangle Arena</option>
-      <option value="pi" data-i18n="arena.pi">П Arena</option>
+<div id="center" class="menu-bleed">
+  <div id="panel" class="menu-start">
+    <div class="menu-top">
+      <div class="menu-live" aria-hidden="true"><i></i><span data-i18n="start.live">Feed unlocked</span></div>
+      <select id="arenaShape" class="secondary startSelect" style="display: none !important" aria-hidden="true">
+        <option value="box" data-i18n="arena.box">Box Arena</option>
+        <option value="circle" data-i18n="arena.circle">Circle Arena</option>
+        <option value="diamond" data-i18n="arena.diamond">Diamond Arena</option>
+        <option value="triangle" data-i18n="arena.triangle">Triangle Arena</option>
+        <option value="pi" data-i18n="arena.pi">П Arena</option>
       </select>
-    <select id="langSelect" class="secondary startSelect" style="cursor:pointer; border:0; border-radius:14px; padding:12px 16px; font-weight:900; box-shadow:0 12px 36px #0000002a;">
-      <option value="en" data-i18n="lang.english">English</option>
-      <option value="uk" data-i18n="lang.ukrainian">Ukrainian</option>
-    </select>
-  </div>
-  <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap">
-    <button class="primary" id="play" data-i18n="start.play">▶️ Play</button>
-    <button class="secondary" id="tutorialBtn" data-i18n="start.tutorial">📘 Tutorial</button>
-    <button class="secondary" id="openSettings" data-i18n="settings.title">Settings</button>
-  </div>
-  <div class="tiny" style="margin-top:8px" id="startTip" data-i18n="start.tipDesktop">Click Play, then click to lock the mouse.</div>
-  <div class="tiny" style="margin-top:8px">
-    <a href="https://github.com/oleksandrlynda/quarantine-of-joy-game/issues" target="_blank" rel="noopener" data-i18n="start.bugs">Bugs</a>
-    •
-    <a href="https://github.com/oleksandrlynda/quarantine-of-joy-game/issues/new" target="_blank" rel="noopener" data-i18n="start.reportBug">Report bug</a>
-  </div>
-</div>
-<div id="pauseMenu" style="display:none">
-  <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap">
-    <button class="primary" id="resumeBtn" data-i18n="pause.resume">Resume</button>
-    <button class="secondary" id="pauseRestart" data-i18n="start.retry">🔁 Retry</button>
-    <button class="secondary" id="pauseSettings" data-i18n="settings.title">Settings</button>
-  </div>
-</div>
-<div id="settingsMenu" style="display:none">
-  <h2 data-i18n="settings.title">Settings</h2>
-  <div class="settingsGroup">
-    <h3 data-i18n="settings.quality">Quality</h3>
-    <div style="display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:6px">
-      <button class="secondary" id="qLow" data-i18n="quality.low" data-i18n-title="quality.lowTitle" title="aa=off, shadows=off, auto DPR">Low</button>
-      <button class="secondary" id="qMed" data-i18n="quality.medium" data-i18n-title="quality.medTitle" title="aa=off, shadows=off, auto DPR + ACES">Medium</button>
-      <button class="secondary" id="qHigh" data-i18n="quality.high" data-i18n-title="quality.highTitle" title="aa=on, shadows=on">High</button>
-      <button class="secondary" id="qUltra" data-i18n="quality.ultra" data-i18n-title="quality.ultraTitle" title="aa=on, shadows=on (max)" >Ultra</button>
-    </div>
-  </div>
-  <div class="settingsGroup">
-    <h3 data-i18n="settings.sound">Sound</h3>
-    <div class="pill setting">
-      <label for="soundVolume" data-i18n="settings.volume">Volume</label>
-      <input type="range" id="soundVolume" min="0" max="1" step="0.05" />
-    </div>
-    <div class="pill setting">
-      <label for="musicSelect" data-i18n="settings.music">Music</label>
-      <select id="musicSelect" class="secondary">
-        <option value="library" data-i18n="music.library">chatGPT 5 music</option>
-        <option value="suno" data-i18n="music.suno">Suno Remix</option>
+      <select id="langSelect" class="menu-lang" aria-label="Language">
+        <option value="en" data-i18n="lang.english">English</option>
+        <option value="uk" data-i18n="lang.ukrainian">Ukrainian</option>
       </select>
     </div>
-  </div>
-  <div class="settingsGroup">
-    <h3 data-i18n="settings.mouse">Mouse</h3>
-    <div class="pill setting">
-      <label for="mouseSensitivity" data-i18n="settings.sensitivity">Sensitivity</label>
-      <input type="range" id="mouseSensitivity" min="0.2" max="2" step="0.1" />
+
+    <div class="menu-hero">
+      <h1>Quarantine of <span>Joy</span></h1>
+      <div class="menu-tagline" data-i18n="start.tagline">Meme-fueled shooter. Hijack feeds, raise hype, roast the Bureau.</div>
     </div>
-    <div class="pill setting">
-      <label for="invertLook" data-i18n="settings.invert">Invert look</label>
-      <input type="checkbox" id="invertLook" />
+
+    <div class="menu-bottom">
+      <div class="menu-cta">
+        <button class="primary" id="play" type="button"><span data-i18n="start.play">Play</span></button>
+        <div class="menu-sec-row">
+          <button class="secondary" id="tutorialBtn" type="button"><span data-i18n="start.tutorial">Tutorial</span></button>
+          <button class="secondary" id="openSettings" type="button"><span data-i18n="settings.title">Settings</span></button>
+        </div>
+        <div class="menu-tip tiny" id="startTip" data-i18n="start.tipDesktop">Click Play, then click to lock the mouse.</div>
+      </div>
+      <div class="menu-foot">
+        <div class="tiny appVersion"><span data-i18n="settings.version">Version</span> <span class="appVersionValue"></span></div>
+        <div class="menu-links tiny">
+          <a href="https://github.com/oleksandrlynda/quarantine-of-joy-game/issues" target="_blank" rel="noopener" data-i18n="start.bugs">Bugs</a>
+          <a href="https://github.com/oleksandrlynda/quarantine-of-joy-game/issues/new" target="_blank" rel="noopener" data-i18n="start.reportBug">Report bug</a>
+        </div>
+      </div>
+    </div>
+
+    <div style="display: none !important" aria-hidden="true">
+      <div class="pill" data-i18n="feature.waves">Waves of bots</div>
+      <div class="pill" data-i18n="feature.hitscan">Hitscan rifle + tracers</div>
+      <div class="pill" data-i18n="feature.headshot">Headshot bonus</div>
+      <div class="pill" data-i18n="feature.procedural">Procedural arena</div>
     </div>
   </div>
-  <div style="display:flex; gap:12px; justify-content:center; flex-wrap:wrap">
-    <button class="secondary" id="settingsBack" data-i18n="settings.back">Back</button>
+
+  <div id="pauseMenu" class="menu-modal" style="display:none">
+    <div class="pause-stats tiny">
+      <span data-i18n="hud.best">Best</span>: <span id="best">0</span>
+    </div>
+    <div class="menu-modal-actions">
+      <button class="primary" id="resumeBtn" type="button"><span data-i18n="pause.resume">Resume</span></button>
+      <button class="secondary" id="pauseRestart" type="button"><span data-i18n="start.retry">Retry</span></button>
+      <button class="secondary" id="pauseSettings" type="button"><span data-i18n="settings.title">Settings</span></button>
+    </div>
   </div>
-</div>
+
+  <div id="settingsMenu" class="menu-modal" style="display:none">
+    <h2 data-i18n="settings.title">Settings</h2>
+    <div class="settingsGroup">
+      <h3 data-i18n="settings.quality">Quality</h3>
+      <div class="menu-quality-row">
+        <button class="secondary" id="qLow" data-i18n="quality.low" data-i18n-title="quality.lowTitle" title="aa=off, shadows=off, auto DPR">Low</button>
+        <button class="secondary" id="qMed" data-i18n="quality.medium" data-i18n-title="quality.medTitle" title="aa=off, shadows=off, auto DPR + ACES">Medium</button>
+        <button class="secondary" id="qHigh" data-i18n="quality.high" data-i18n-title="quality.highTitle" title="aa=on, shadows=on">High</button>
+        <button class="secondary" id="qUltra" data-i18n="quality.ultra" data-i18n-title="quality.ultraTitle" title="aa=on, shadows=on (max)">Ultra</button>
+      </div>
+    </div>
+    <div class="settingsGroup">
+      <h3 data-i18n="settings.sound">Sound</h3>
+      <div class="pill setting">
+        <label for="soundVolume" data-i18n="settings.volume">Volume</label>
+        <input type="range" id="soundVolume" min="0" max="1" step="0.05" />
+      </div>
+      <div class="pill setting">
+        <label for="musicSelect" data-i18n="settings.music">Music</label>
+        <select id="musicSelect" class="secondary">
+          <option value="library" data-i18n="music.library">chatGPT 5 music</option>
+          <option value="suno" data-i18n="music.suno">Suno Remix</option>
+        </select>
+      </div>
+    </div>
+    <div class="settingsGroup">
+      <h3 data-i18n="settings.mouse">Mouse</h3>
+      <div class="pill setting">
+        <label for="mouseSensitivity" data-i18n="settings.sensitivity">Sensitivity</label>
+        <input type="range" id="mouseSensitivity" min="0.2" max="2" step="0.1" />
+      </div>
+      <div class="pill setting">
+        <label for="invertLook" data-i18n="settings.invert">Invert look</label>
+        <input type="checkbox" id="invertLook" />
+      </div>
+    </div>
+    <div class="menu-modal-actions">
+      <button class="secondary" id="settingsBack" type="button"><span data-i18n="settings.back">Back</span></button>
+    </div>
+    <div class="tiny appVersion"><span data-i18n="settings.version">Version</span> <span class="appVersionValue"></span></div>
+  </div>
 </div>
 <!-- Loading overlay from performance branch -->
 <div id="loading" style="position:fixed; inset:0; display:grid; place-items:center; background:#0b1220; color:#fff; z-index:9999">
@@ -210,17 +261,20 @@
     // fade help 
     const help = document.getElementById('desktopHelp');
     if (help) {
-      help.style.opacity = '0';
-      setTimeout(() => help.style.display = 'none', 5000);
+      help.classList.add('hidden');
+      setTimeout(() => { if (help) help.style.display = 'none'; }, 800);
     }
     const hud = document.getElementById('hud');
     if (hud) {
-      const row = document.createElement('div');
-      row.className = 'row';
-      row.style.justifyContent = 'flex-end';
-      row.innerHTML = `<div class="pill tiny" id="mobileHelp">${t('hud.mobileHelp')}</div>`;
-      hud.appendChild(row);
-      const hideHelp = () => document.getElementById('mobileHelp')?.remove();
+      const tip = document.createElement('div');
+      tip.id = 'mobileHelp';
+      tip.className = 'hud-help';
+      tip.textContent = t('hud.mobileHelp');
+      hud.appendChild(tip);
+      const hideHelp = () => {
+        tip.classList.add('hidden');
+        setTimeout(() => tip.remove(), 600);
+      };
       setTimeout(hideHelp, 5000);
       ['joystick','btnFire','btnJump','btnReload'].forEach(id=>{
         document.getElementById(id)?.addEventListener('touchstart', hideHelp, {once:true});
@@ -230,6 +284,6 @@
 </script>
 
 <!-- Use the versioned entry from performance branch -->
-<script type="module" src="src/main.js?v=4"></script>
+<script type="module" src="src/main.js?v=1.0.1"></script>
 </body>
 </html>

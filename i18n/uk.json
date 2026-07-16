@@ -25,6 +25,7 @@
   "offer.accept": "Прийняти",
   "offer.keepCurrent": "Поповнити патрони",
   "start.tagline": "Шутер на мемах. Перехоплюй стрічки, підіймай хайп, підсмаж Бюро.",
+  "start.live": "Стрічка відкрита",
   "feature.waves": "Хвилі ботів",
   "feature.hitscan": "Хітскан гвинтівка + трасери",
   "feature.headshot": "Бонус за хедшот",
@@ -36,9 +37,9 @@
   "arena.diamond": "Діамантова арена",
   "arena.triangle": "Трикутна арена",
   "arena.pi": "Арена П",
-  "start.play": "▶️ Грати",
-  "start.retry": "🔁 Повтор",
-  "start.tutorial": "📘 Навчання",
+  "start.play": "Грати",
+  "start.retry": "Повтор",
+  "start.tutorial": "Навчання",
   "start.qualityLabel": "Профілі якості",
   "quality.low": "Низько",
   "quality.medium": "Середньо",
@@ -74,6 +75,7 @@
   "settings.volume": "Гучність",
   "settings.sensitivity": "Чутливість",
   "settings.invert": "Інверсія огляду",
+  "settings.version": "Версія",
   "settings.back": "Назад",
   "loading.message": "Завантаження шейдерів і ресурсів…",
   "loading.models": "Завантаження моделей",
@@ -140,4 +142,3 @@
   "ach.survivor.name": "Вцілілий",
   "ach.survivor.desc": "Виживи 15 хвилин."
 }
-

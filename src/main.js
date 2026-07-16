@@ -25,11 +25,16 @@ import { TutorialManager } from './tutorial-manager.js';
 import { GameSession } from './game/session.js';
 import { createWaveStartHandler } from './game/wave-flow.js';
 import { getNumber, getString, setMaxNumber, setNumber, setString } from './util/storage.js';
+import { APP_VERSION_LABEL } from './version.js';
 
 // Prefer the flag set in index.html; fallback to media query
 const isMobile = (typeof window !== 'undefined' && 'IS_MOBILE' in window && window.IS_MOBILE)
   ? !!window.IS_MOBILE
   : window.matchMedia?.('(pointer:coarse)').matches === true;
+
+document.querySelectorAll('.appVersionValue').forEach(el => {
+  el.textContent = APP_VERSION_LABEL;
+});
 
 // --- Music selection ---
 const MUSIC_KEY = 'bs3d_music';
@@ -256,7 +261,7 @@ obstacleManager.getPlayer = () => controls.getObject();
 obstacleManager.onScore = (points) => { addScore(points); };
 obstacleManager.onPlayerDamage = (amount) => {
   if (paused || session.gameOver) return;
-  const damageResult = session.damage(amount); if (damageResult.died) { document.getElementById('center').style.display='grid'; stopSuno(); }
+  const damageResult = session.damage(amount); if (damageResult.died) { showStartPanel(); stopSuno(); }
   // Apply universal hit VFX on any damage source
   if (effects && typeof effects.onPlayerHit === 'function') effects.onPlayerHit(amount);
   updateHUD();
@@ -276,21 +281,60 @@ const MELEE_VFX_COOLDOWN = 0.10; // seconds; allow gentle pulsing while holding 
 const EMERGENCY_AMMO_COOLDOWN = 22; // seconds of active gameplay between emergency ammo drops
 const hpEl = document.getElementById('hp'), ammoEl = document.getElementById('ammo'), magEl = document.getElementById('mag'), scoreEl = document.getElementById('score'), bestEl = document.getElementById('best'), waveEl = document.getElementById('wave');
 const staminaBarEl = document.getElementById('staminaBar');
+const hpBlocksEl = document.getElementById('hpBlocks');
+const stamBlocksEl = document.getElementById('stamBlocks');
+const hudRootEl = document.getElementById('hud');
+const HP_BLOCKS = 10;
+const STAM_BLOCKS = 10;
+
+function ensureMeterBlocks(container, count){
+  if (!container) return;
+  if (container.childElementCount === count) return;
+  container.innerHTML = '';
+  for (let i = 0; i < count; i++) container.appendChild(document.createElement('span'));
+}
+
+function paintHpBlocks(hp, maxHp = 100){
+  ensureMeterBlocks(hpBlocksEl, HP_BLOCKS);
+  if (!hpBlocksEl) return;
+  const per = maxHp / HP_BLOCKS;
+  const filled = hp / per;
+  const kids = hpBlocksEl.children;
+  for (let i = 0; i < kids.length; i++) {
+    kids[i].classList.remove('on', 'half');
+    if (filled >= i + 1) kids[i].classList.add('on');
+    else if (filled > i) kids[i].classList.add('half');
+  }
+}
+
+function paintStamBlocks(pct01){
+  ensureMeterBlocks(stamBlocksEl, STAM_BLOCKS);
+  if (!stamBlocksEl) return;
+  const onCount = Math.round(Math.max(0, Math.min(1, pct01)) * STAM_BLOCKS);
+  const kids = stamBlocksEl.children;
+  for (let i = 0; i < kids.length; i++) kids[i].classList.toggle('on', i < onCount);
+}
+
+ensureMeterBlocks(hpBlocksEl, HP_BLOCKS);
+ensureMeterBlocks(stamBlocksEl, STAM_BLOCKS);
+paintHpBlocks(100);
+paintStamBlocks(1);
+
 const fpsEl = document.getElementById('fps');
 // Perf HUD toggle via URL (?debug=0 to hide)
 const debugPerf = params.get('debug') !== '0';
+if (hudRootEl && params.get('debug') === '1') hudRootEl.classList.add('debug-util');
 let dbgCallsEl = null;
 if (debugPerf) {
   dbgCallsEl = document.createElement('div');
-  dbgCallsEl.className = 'pill tiny';
-  dbgCallsEl.style.position = 'fixed';
-  dbgCallsEl.style.right = '8px';
-  dbgCallsEl.style.bottom = '8px';
-  dbgCallsEl.style.zIndex = '10';
-  dbgCallsEl.style.pointerEvents = 'none';
   dbgCallsEl.id = 'drawCalls';
+  dbgCallsEl.className = 'debug-perf';
   dbgCallsEl.textContent = 'Calls: 0  Tris: 0  Tex: 0';
-  try { document.body.appendChild(dbgCallsEl); } catch (e) { logError(e); }
+  const util = document.querySelector('.hud-util');
+  try {
+    if (util) util.appendChild(dbgCallsEl);
+    else document.body.appendChild(dbgCallsEl);
+  } catch (e) { logError(e); }
 }
 const weaponNameEl = document.getElementById('weapon');
 const weaponIconEl = document.getElementById('weaponIcon');
@@ -359,7 +403,7 @@ const combo = session.combo;
 
 function updateComboLabel(){
   if (!comboEl) return;
-  comboLabelEl.textContent = `${t('hud.combo')}: x${combo.multiplier.toFixed(1)}`;
+  if (comboLabelEl) comboLabelEl.textContent = `${t('hud.combo')} ×${combo.multiplier.toFixed(1)}`;
   comboEl.classList.remove('tier1','tier2','tier3','tier4');
   if (combo.tier>0) comboEl.classList.add(`tier${combo.tier}`);
 }
@@ -377,24 +421,42 @@ function updateHUD(){
   const ammoVal = weaponSystem ? (isBeamSaber ? '∞' : weaponSystem.getAmmo()) : 30;
   const reserveVal = weaponSystem ? (isBeamSaber ? '∞' : weaponSystem.getReserve()) : 60;
   if (weaponNameEl) weaponNameEl.textContent = w ? w.name : 'Rifle';
+  if (ammoPillEl) {
+    ammoPillEl.classList.remove('weapon-rifle','weapon-smg','weapon-shotgun','weapon-dmr','weapon-minigun','weapon-pistol','weapon-beamsaber');
+    const key = (w?.name || 'Rifle').toLowerCase();
+    ammoPillEl.classList.add(`weapon-${key}`);
+  }
   if (weaponIconEl) {
     const iconMap = { Rifle:'assets/icons/weapon-rifle.svg', SMG:'assets/icons/weapon-smg.svg', Shotgun:'assets/icons/weapon-shotgun.svg', DMR:'assets/icons/weapon-dmr.svg', Minigun:'assets/icons/weapon-minigun.svg', Pistol:'assets/icons/weapon-pistol.svg', BeamSaber:'assets/icons/weapon-beamsaber.svg' };
     weaponIconEl.src = iconMap[w?.name] || iconMap.Rifle;
   }
-  hpEl.textContent = Math.floor(session.hp); ammoEl.textContent=ammoVal; magEl.textContent=reserveVal; scoreEl.textContent=session.score; if (bestEl) bestEl.textContent = session.best; if(waveEl) waveEl.textContent = enemyManager.wave;
+  if (hpEl) hpEl.textContent = Math.floor(session.hp);
+  paintHpBlocks(session.hp, session.maxHp || 100);
+  if (ammoEl) ammoEl.textContent = ammoVal;
+  if (magEl) magEl.textContent = reserveVal;
+  if (scoreEl) scoreEl.textContent = session.score;
+  if (bestEl) bestEl.textContent = session.best;
+  if (waveEl) waveEl.textContent = enemyManager.wave;
   updateHUDComboAndBoss();
 }
 
 function updateHUDComboAndBoss(){
   updateComboLabel();
   // Stamina HUD
-  if (staminaBarEl && player && typeof player.getStamina01 === 'function') {
-    const pct = Math.max(0, Math.min(1, player.getStamina01()));
-    staminaBarEl.style.width = `${(pct*100).toFixed(1)}%`;
+  let stam01 = 1;
+  if (player && typeof player.getStamina01 === 'function') {
+    stam01 = Math.max(0, Math.min(1, player.getStamina01()));
   }
+  if (staminaBarEl) staminaBarEl.style.width = `${(stam01*100).toFixed(1)}%`;
+  paintStamBlocks(stam01);
   // Low state cues
   if (hpPillEl){ hpPillEl.classList.remove('low','crit'); if (session.hp <= 25) { hpPillEl.classList.add('crit'); } else if (session.hp <= 50) { hpPillEl.classList.add('low'); } }
-  if (ammoPillEl){ const ammoValLocal = weaponSystem ? weaponSystem.getAmmo() : 30; ammoPillEl.classList.remove('need-reload'); if (ammoValLocal <= 0) ammoPillEl.classList.add('need-reload'); }
+  if (ammoPillEl){
+    const ammoValLocal = weaponSystem ? weaponSystem.getAmmo() : 30;
+    const isBeam = weaponSystem?.current?.name === 'BeamSaber';
+    ammoPillEl.classList.remove('need-reload');
+    if (!isBeam && ammoValLocal <= 0) ammoPillEl.classList.add('need-reload');
+  }
   // Hydra lineage aggregate
   let hydraAlive = 0, hydraDesc = 0;
   try {
@@ -421,6 +483,7 @@ function updateHUDComboAndBoss(){
     const done01 = Math.max(0, Math.min(1, 1 - (remaining / total)));
     waveBarEl.style.width = `${(done01*100).toFixed(1)}%`;
     if (wavePillEl) wavePillEl.classList.toggle('hydra', hydraAlive > 0);
+    if (hudRootEl) hudRootEl.classList.toggle('wave-hydra', hydraAlive > 0);
   }
   if (remainingEl) { remainingEl.textContent = Math.max(0, enemyManager.alive|0); }
   // Hide remaining when boss active
@@ -709,9 +772,10 @@ function step(){
       weaponView.update(dt);
     } catch (e) { logError(e); }
     // Update stamina HUD every frame
-    if (staminaBarEl && player && typeof player.getStamina01 === 'function') {
+    if (player && typeof player.getStamina01 === 'function') {
       const pct = Math.max(0, Math.min(1, player.getStamina01()));
-      staminaBarEl.style.width = `${(pct*100).toFixed(1)}%`;
+      if (staminaBarEl) staminaBarEl.style.width = `${(pct*100).toFixed(1)}%`;
+      paintStamBlocks(pct);
     }
     // Fatigue visuals + breath SFX when low stamina
     if (effects && typeof effects.setFatigue === 'function' && player && typeof player.getStamina01 === 'function'){
@@ -733,7 +797,7 @@ function step(){
     // enemies AI
     const fo = controls.getObject();
     enemyManager.tickAI(fo, dt, (damage, source)=>{
-      const damageResult = session.damage(damage); if(damageResult.died){ document.getElementById('center').style.display='grid'; S.hurt(); }
+      const damageResult = session.damage(damage); if(damageResult.died){ showStartPanel(); S.hurt(); }
       // VFX for all hits; for melee, pulse at a small cooldown with a stronger bump for readability
       if (effects && typeof effects.onPlayerHit === 'function') {
         if (source === 'melee') {
@@ -931,21 +995,29 @@ const settingsMenu = document.getElementById('settingsMenu');
 const settingsBack = document.getElementById('settingsBack');
 let settingsReturn = 'panel';
 
+function showMenuView(view){
+  document.body.classList.add('menu-open');
+  panel.style.display = view === 'start' ? '' : 'none';
+  pauseMenu.style.display = view === 'pause' ? '' : 'none';
+  settingsMenu.style.display = view === 'settings' ? '' : 'none';
+  panel.parentElement.style.display = 'flex';
+}
+
+function hideMenuView(){
+  document.body.classList.remove('menu-open');
+  panel.style.display = '';
+  pauseMenu.style.display = 'none';
+  settingsMenu.style.display = 'none';
+  panel.parentElement.style.display = 'none';
+}
+
 function openSettings(from){
   settingsReturn = from;
-  panel.style.display='none';
-  pauseMenu.style.display='none';
-  settingsMenu.style.display='';
-  panel.parentElement.style.display='grid';
+  showMenuView('settings');
 }
 
 function closeSettings(){
-  settingsMenu.style.display='none';
-  if (settingsReturn === 'pause'){
-    pauseMenu.style.display='';
-  } else {
-    panel.style.display='';
-  }
+  showMenuView(settingsReturn === 'pause' ? 'pause' : 'start');
 }
 
 function reset(isTutorial = false){ // clear enemies
@@ -971,6 +1043,13 @@ function reset(isTutorial = false){ // clear enemies
   } catch (e) { logError(e); }
 }
 
+function hideCombatHelp(){
+  const help = document.getElementById('desktopHelp');
+  if (!help || help.classList.contains('hidden')) return;
+  help.classList.add('hidden');
+  setTimeout(() => { help.style.display = 'none'; }, 700);
+}
+
 function startGame(){
   enemyManager.suspendWaves = false;
   if (isMobile) {
@@ -980,7 +1059,8 @@ function startGame(){
   } else {
     controls.lock();
   }
-  panel.parentElement.style.display = 'none';
+  hideCombatHelp();
+  hideMenuView();
   if (currentMap?.name === 'tutorial') {
     currentMap = null;
     levelInfo = null;
@@ -1014,7 +1094,8 @@ async function startTutorial(){
   } else {
     controls.lock();
   }
-  panel.parentElement.style.display = 'none';
+  hideCombatHelp();
+  hideMenuView();
   enemyManager.suspendWaves = true;
   try {
     const res = await fetch('assets/levels/tutorial.json');
@@ -1038,9 +1119,8 @@ async function startTutorial(){
 }
 
 function showStartPanel(){
-  pauseMenu.style.display='none';
-  panel.style.display='';
-  panel.parentElement.style.display='grid';
+  settingsReturn = 'panel';
+  showMenuView('start');
 }
 
 function finishTutorial(){
@@ -1065,17 +1145,14 @@ function finishTutorial(){
 tutorial.onEnd = finishTutorial;
 
 function resumeGame(){
-  pauseMenu.style.display='none';
-  panel.parentElement.style.display='none';
+  hideMenuView();
   paused=false;
   controls.lock();
 }
 
 function showPauseMenu(){
   if (paused || session.gameOver) return;
-  panel.style.display='none';
-  pauseMenu.style.display='';
-  panel.parentElement.style.display='grid';
+  showMenuView('pause');
   paused=true;
 }
 
@@ -1137,9 +1214,7 @@ if (startQuality && qualityPresets[startQuality]) {
 
 controls.addEventListener('unlock', ()=>{
   if (session.gameOver) {
-    pauseMenu.style.display='none';
-    panel.style.display='';
-    panel.parentElement.style.display='grid';
+    showStartPanel();
   } else {
     showPauseMenu();
   }
