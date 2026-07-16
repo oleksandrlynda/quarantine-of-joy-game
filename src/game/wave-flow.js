@@ -8,6 +8,8 @@ export function createWaveStartHandler({
   objects,
   progression,
   story,
+  getProgression = () => progression,
+  getStory = () => story,
   getGameTime = () => 0,
   getLastWaveStartTime = () => 0,
   setLastWaveStartTime = () => {},
@@ -23,13 +25,15 @@ export function createWaveStartHandler({
     achievements?.check?.({ type: 'wave', number: wave });
 
     if (enemyManager && session?.onWaveStart) {
+      const currentProgression = getProgression?.() ?? progression;
+      const currentStory = getStory?.() ?? story;
       enemyManager.waveStartingAlive = session.onWaveStart(enemyManager.wave ?? wave, startingAlive, {
         pickups,
         weather,
         player,
         objects,
-        progression,
-        story
+        progression: currentProgression,
+        story: currentStory
       });
     }
 

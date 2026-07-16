@@ -47,7 +47,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const playerSrcPath = path.resolve(__dirname, '../src/player.js');
 let code = fs.readFileSync(playerSrcPath, 'utf8');
 const stub = "class PointerLockControls {\n  constructor(camera, domElement){\n    this.domElement = domElement;\n    this.camera = camera;\n    this.isLocked = true;\n    this._object = new THREE.Object3D();\n  }\n  getObject(){ return this._object; }\n}\n";
-code = code.replace("import { PointerLockControls } from 'https://unpkg.com/three@0.159.0/examples/jsm/controls/PointerLockControls.js?module';\n", stub);
+code = code.replace(
+  /import \{ PointerLockControls \} from 'https:\/\/unpkg\.com\/three@0\.159\.0\/examples\/jsm\/controls\/PointerLockControls\.js\?module';\r?\n/,
+  stub
+);
 const tmpPath = path.resolve(__dirname, './_player_temp.mjs');
 fs.writeFileSync(tmpPath, code);
 const { PlayerController } = await import(pathToFileURL(tmpPath));

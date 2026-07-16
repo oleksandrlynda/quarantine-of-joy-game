@@ -67,3 +67,27 @@ test('wave start after wave one emits wave completion duration before new wave e
   assert.equal(lastWaveStart, 42);
   assert.equal(enemyManager.waveStartingAlive, 11);
 });
+
+test('wave start resolves progression and story lazily for late main initialization', () => {
+  const session = new GameSession();
+  const calls = [];
+  const enemyManager = { wave: 2, waveStartingAlive: 0 };
+  let progression;
+  let story;
+  const handler = createWaveStartHandler({
+    session,
+    enemyManager,
+    getProgression: () => progression,
+    getStory: () => story
+  });
+
+  progression = { onWave: wave => calls.push(['progression', wave]) };
+  story = { onWave: wave => calls.push(['story', wave]) };
+
+  handler(2, 11);
+
+  assert.deepEqual(calls, [
+    ['progression', 2],
+    ['story', 2]
+  ]);
+});
