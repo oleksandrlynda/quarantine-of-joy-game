@@ -21,7 +21,7 @@ function containsExtrudeGeometry(obj){
 }
 
 export class EnemyManager {
-  constructor(THREE, scene, mats, objects = [], getPlayer = null, arenaRadius = Infinity, obstacleManager = null) {
+  constructor(THREE, scene, mats, objects = [], getPlayer = null, arenaRadius = Infinity, obstacleManager = null, rng = Math.random) {
     this.THREE = THREE;
     this.scene = scene;
     this.mats = mats;
@@ -29,6 +29,7 @@ export class EnemyManager {
     this.getPlayer = getPlayer || (() => ({ position: new THREE.Vector3(), forward: new THREE.Vector3(0,0,1) }));
     this.arenaRadius = arenaRadius;
     this.obstacleManager = obstacleManager;
+    this.rng = rng;
     this.enemies = new Set();            // set of root meshes (raycast target) — back-compat
     this.instances = new Set();          // set of enemy instance objects
     this.instanceByRoot = new WeakMap(); // root -> instance
@@ -78,7 +79,7 @@ export class EnemyManager {
     };
 
     // Boss system
-    this.bossManager = new BossManager({ THREE: this.THREE, scene: this.scene, mats: this.mats, enemyManager: this });
+    this.bossManager = new BossManager({ THREE: this.THREE, scene: this.scene, mats: this.mats, enemyManager: this, rng: this.rng });
 
     // Bullet pools (instanced) for enemy projectiles
     this._initBulletPools();
@@ -242,8 +243,8 @@ export class EnemyManager {
     const THREE = this.THREE;
     const { position: playerPos, forward } = this.getPlayer();
     for (let i = 0; i < attempts; i++) {
-      const x = (Math.random() * 70 - 35) | 0;
-      const z = (Math.random() * 70 - 35) | 0;
+      const x = (this.rng() * 70 - 35) | 0;
+      const z = (this.rng() * 70 - 35) | 0;
       const pos = new THREE.Vector3(x, 0.8, z);
 
       const to = pos.clone().sub(playerPos);
@@ -580,7 +581,7 @@ export class EnemyManager {
           if (inst._charging) {
             inst._charging = false;
             inst._dashTimer = 0;
-            inst._recoverTimer = 0.5 + Math.random() * 0.3;
+            inst._recoverTimer = 0.5 + this.rng() * 0.3;
           }
         }
       }
@@ -660,7 +661,7 @@ export class EnemyManager {
   // Factories
   _createInstance(type, spawnPos) {
     const cfg = this.typeConfig[type] || this.typeConfig.grunt;
-    const args = { THREE: this.THREE, mats: this.mats, cfg, spawnPos, enemyManager: this, arenaRadius: this.arenaRadius };
+    const args = { THREE: this.THREE, mats: this.mats, cfg, spawnPos, enemyManager: this, arenaRadius: this.arenaRadius, rng: this.rng };
     switch (cfg.kind) {
       case 'shooter': return new ShooterEnemy(args);
       case 'flyer':   return new FlyerEnemy(args);
@@ -678,7 +679,7 @@ export class EnemyManager {
 
   spawn(type = 'grunt') {
     const range = (this.arenaRadius !== Infinity) ? this.arenaRadius * 0.8 : ARENA_RADIUS * 0.75;
-    const p = this._chooseSpawnPos() || new this.THREE.Vector3((Math.random()*range*2 - range)|0, 0.8, (Math.random()*range*2 - range)|0);
+    const p = this._chooseSpawnPos() || new this.THREE.Vector3((this.rng()*range*2 - range)|0, 0.8, (this.rng()*range*2 - range)|0);
     // Do not increment alive here; startWave already accounted for it
     this.spawnAt(type, p, { countsTowardAlive: false });
   }
@@ -707,7 +708,7 @@ export class EnemyManager {
     if (this.onRemaining) this.onRemaining(this.alive);
 
     for (let i = 0; i < types.length; i++) {
-      const delay = 200 + Math.random() * 200;
+      const delay = 200 + this.rng() * 200;
       setTimeout(() => this.spawn(types[i]), i * delay);
     }
   }
@@ -718,6 +719,9 @@ export class EnemyManager {
     this.instances.clear();
     this.wave = 1; this.alive = 0;
     if (this.bossManager) this.bossManager.reset();
+    this.clearProjectiles();
+    for (const h of this._healSprites) { if (h?.sprite) this.scene.remove(h.sprite); }
+    this._healSprites.length = 0;
     if (!this.suspendWaves) this.startWave();
   }
 
@@ -934,7 +938,7 @@ export class EnemyManager {
     // ambient vocals
     if (this.alive > 0) {
       this._lastAmbientVocalAt = (this._lastAmbientVocalAt || 0);
-      if (this._aiClock - this._lastAmbientVocalAt > 2.2 + Math.random() * 2.0) {
+      if (this._aiClock - this._lastAmbientVocalAt > 2.2 + this.rng() * 2.0) {
         const pick = (() => { for (const e of this.instances) return e; return null; })();
         if (pick && window && window._SFX && typeof window._SFX.enemyVocal === 'function') {
           try { window._SFX.enemyVocal(pick.root?.userData?.type || 'grunt'); } catch (e) { logError(e); }
@@ -1011,11 +1015,11 @@ export class EnemyManager {
     for (let i = 0; i < spawnCount; i++) {
       const mat = new THREE.SpriteMaterial({ map: tex, color: 0xffffff, transparent: true, opacity: 0.9, depthWrite: false });
       const spr = new THREE.Sprite(mat);
-      spr.position.set(pos.x + (Math.random()-0.5)*0.6, pos.y + 1.2 + Math.random()*0.3, pos.z + (Math.random()-0.5)*0.6);
-      const s = 0.25 + Math.random()*0.1; spr.scale.set(s, s, 1);
+      spr.position.set(pos.x + (this.rng()-0.5)*0.6, pos.y + 1.2 + this.rng()*0.3, pos.z + (this.rng()-0.5)*0.6);
+      const s = 0.25 + this.rng()*0.1; spr.scale.set(s, s, 1);
       this.scene.add(spr);
-      const vel = new THREE.Vector3((Math.random()-0.5)*0.2, 0.9 + Math.random()*0.35, (Math.random()-0.5)*0.2);
-      this._healSprites.push({ sprite: spr, velocity: vel, life: 0, maxLife: 0.7 + Math.random()*0.3, rootRef: targetRoot });
+      const vel = new THREE.Vector3((this.rng()-0.5)*0.2, 0.9 + this.rng()*0.35, (this.rng()-0.5)*0.2);
+      this._healSprites.push({ sprite: spr, velocity: vel, life: 0, maxLife: 0.7 + this.rng()*0.3, rootRef: targetRoot });
     }
   }
 
@@ -1092,7 +1096,7 @@ export class EnemyManager {
   spawnAt(type, position, { countsTowardAlive = true } = {}) {
     const inst = this._createInstance(type, position);
     if (type === 'gruntling') {
-      inst.root.userData.hp = 10 + Math.floor(Math.random() * 21); // 10–30
+      inst.root.userData.hp = 10 + Math.floor(this.rng() * 21); // 10–30
     }
     if (inst && inst.root && inst.root.userData) {
       if (inst.root.userData.maxHp == null && inst.root.userData.hp != null) inst.root.userData.maxHp = inst.root.userData.hp;
@@ -1173,7 +1177,7 @@ export class EnemyManager {
         // find an index currently still grunt
         let tries = 0;
         while (tries < 10) {
-          const idx = (Math.random() * total) | 0;
+          const idx = (this.rng() * total) | 0;
           if (types[idx] === 'grunt') { types[idx] = label; break; }
           tries++;
         }
@@ -1197,8 +1201,8 @@ export class EnemyManager {
 
     // mild shuffle
     for (let i = types.length - 1; i > 0; i--) {
-      if (Math.random() < 0.15) {
-        const j = (Math.random() * (i + 1)) | 0;
+      if (this.rng() < 0.15) {
+        const j = (this.rng() * (i + 1)) | 0;
         [types[i], types[j]] = [types[j], types[i]];
       }
     }

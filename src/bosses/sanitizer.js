@@ -11,10 +11,11 @@ import { createSanitizerAsset } from '../assets/boss_sanitizer.js';
 
 
 export class Sanitizer {
-  constructor({ THREE, mats, spawnPos, enemyManager }) {
+  constructor({ THREE, mats, spawnPos, enemyManager, rng = Math.random }) {
     this.THREE = THREE;
     this.mats = mats;
     this.enemyManager = enemyManager;
+    this.rng = rng;
 
     const built = createSanitizerAsset({ THREE, mats, scale: 1.0 });
     built.root.position.copy(spawnPos);
@@ -31,7 +32,7 @@ export class Sanitizer {
     this._raycaster = new THREE.Raycaster();
 
     // Beam (P1 sweep / P2 bursts)
-    this._beamCd = 3 + Math.random() * 2;
+    this._beamCd = 3 + this.rng() * 2;
     this._beamState = 'idle';         // 'idle'|'windup'|'sweep'|'burst'
     this._beamTimer = 0;
     this._beamDir = new THREE.Vector3(1, 0, 0);
@@ -50,7 +51,7 @@ export class Sanitizer {
     this._pulseCd = 3.8;
 
     // Jump wave attack
-    this._jumpCd = 3 + Math.random() * 1.5; // seconds
+    this._jumpCd = 3 + this.rng() * 1.5; // seconds
     this._jumpState = 'idle';
     this._jumpTimer = 0;
     this._jumpDir = new THREE.Vector3(1, 0, 0);
@@ -63,7 +64,7 @@ export class Sanitizer {
     this._panicRushDone = false;
 
     // Elite calls (P1)
-    this._eliteCd = 9 + Math.random() * 3;
+    this._eliteCd = 9 + this.rng() * 3;
     this._eliteCap = 4;
     this._tankCap = 4;
     this._eliteRoots = new Set();
@@ -85,7 +86,7 @@ export class Sanitizer {
 
     // Nodes: register + visuals
     const arenaCenter = new THREE.Vector3(0, 0.8, 0);
-    this.nodes = new SuppressionNodes({ THREE, mats, center: arenaCenter, enemyManager });
+    this.nodes = new SuppressionNodes({ THREE, mats, center: arenaCenter, enemyManager, rng: this.rng });
     this.nodes.addToSceneAndRegister(enemyManager.scene);
   }
 
@@ -242,7 +243,7 @@ export class Sanitizer {
           // P2: set up rapid burst pack
           this._beamState = 'burst';
           this._beamTimer = 0;
-          this._burstLeft = 4 + (Math.random() < 0.35 ? 1 : 0); // 4-5 quick shots
+          this._burstLeft = 4 + (this.rng() < 0.35 ? 1 : 0); // 4-5 quick shots
           this._burstGapTimer = 0;
           if (this._telegraph) { ctx.scene.remove(this._telegraph); this._telegraph = null; }
           this._ensureBeamMesh(ctx);
@@ -261,7 +262,7 @@ export class Sanitizer {
       this._applyBeamDamage(dt, ctx, 15);
       if (this._beamTimer >= 1.8) {
         this._endBeam(ctx);
-        this._beamCd = 5 + Math.random() * 2;
+        this._beamCd = 5 + this.rng() * 2;
       }
       return;
     }
@@ -274,7 +275,7 @@ export class Sanitizer {
         const toP = ctx.player.position.clone().sub(this.root.position); toP.y = 0;
         if (toP.lengthSq() > 0) toP.normalize();
         // add slight jitter to be dodgeable
-        this._beamDir.copy(this._rotateY(toP, (Math.random()-0.5)*0.08));
+        this._beamDir.copy(this._rotateY(toP, (this.rng()-0.5)*0.08));
         this._beamHalfAngle = Math.PI / 18; // tighter (10°)
         this._updateBeamMeshTransform();
         // apply burst damage for 0.2s
@@ -284,7 +285,7 @@ export class Sanitizer {
       }
       if (this._burstLeft <= 0) {
         this._endBeam(ctx);
-        this._beamCd = 2.6 + Math.random() * 0.8; // frequent in P2
+        this._beamCd = 2.6 + this.rng() * 0.8; // frequent in P2
         // close weakpoint a bit after
         this._weakpointTimer = Math.max(this._weakpointTimer, 0.6);
       }
@@ -384,7 +385,7 @@ export class Sanitizer {
       const dir = toPlayer.normalize();
       ctx.player.position.add(dir.multiplyScalar(radius * 0.35));
       try { window?._EFFECTS?.ring?.(e.position.clone(), radius, 0x93c5fd); } catch (e) { logError(e); }
-      this._pulseCd = 3.5 + Math.random() * 1.0;
+      this._pulseCd = 3.5 + this.rng() * 1.0;
     } else {
       this._pulseCd = 0.1;
     }
@@ -433,7 +434,7 @@ export class Sanitizer {
         this._jumpTimer += dt;
         if (this._jumpTimer >= 0.5) {
           this._jumpState = 'idle';
-          this._jumpCd = 3 + Math.random() * 1.5;
+          this._jumpCd = 3 + this.rng() * 1.5;
         }
         return;
       default:
@@ -508,10 +509,10 @@ export class Sanitizer {
     if (!this.enemyManager) { this._eliteCd = 2.0; return; }
     if (this._eliteRoots.size >= this._eliteCap) { this._eliteCd = 2.0; return; }
 
-    const count = 1 + (Math.random() < 0.5 ? 1 : 0);
+    const count = 1 + (this.rng() < 0.5 ? 1 : 0);
     const spawns = this._spawnOnPerimeter(ctx, count, 16, 19);
     for (const p of spawns) {
-      const kind = (Math.random() < 0.5 && this._tankRoots.size < this._tankCap) ? 'tank' : 'shooter';
+      const kind = (this.rng() < 0.5 && this._tankRoots.size < this._tankCap) ? 'tank' : 'shooter';
       const root = this.enemyManager.spawnAt(kind, p, { countsTowardAlive: true });
       if (root) {
         // small buff so they feel “elite”
@@ -522,7 +523,7 @@ export class Sanitizer {
       }
       if (this._eliteRoots.size >= this._eliteCap) break;
     }
-    this._eliteCd = 8 + Math.random() * 3;
+    this._eliteCd = 8 + this.rng() * 3;
   }
 
   _spawnOnPerimeter(ctx, count, minR = 16, maxR = 20) {
@@ -530,8 +531,8 @@ export class Sanitizer {
     const out = [];
     const center = new THREE.Vector3(0, 0.8, 0);
     for (let i=0;i<count;i++){
-      const a = Math.random()*Math.PI*2;
-      const r = minR + Math.random()*(maxR-minR);
+      const a = this.rng()*Math.PI*2;
+      const r = minR + this.rng()*(maxR-minR);
       const p = new THREE.Vector3(center.x + Math.cos(a)*r, 0.8, center.z + Math.sin(a)*r);
       p.x = Math.max(-39, Math.min(39, p.x));
       p.z = Math.max(-39, Math.min(39, p.z));
@@ -553,7 +554,7 @@ export class Sanitizer {
     if (!this.enemyManager) { this._turretCd = 2.0; return; }
     if (this._turretRoots.size >= this._turretCap) { this._turretCd = 2.0; return; }
 
-    const count = Math.min(1 + (Math.random()<0.4?1:0), this._turretCap - this._turretRoots.size);
+    const count = Math.min(1 + (this.rng()<0.4?1:0), this._turretCap - this._turretRoots.size);
     const around = this._spawnOnPerimeter(ctx, count, 10, 14);
     for (const p of around) {
       const root = this.enemyManager.spawnAt('turret_pod', p, { countsTowardAlive: true });
@@ -564,7 +565,7 @@ export class Sanitizer {
         this._turretRoots.add(root);
       }
     }
-    this._turretCd = 7 + Math.random() * 2.5;
+    this._turretCd = 7 + this.rng() * 2.5;
   }
 
   // ------------- tiles hazard -------------
@@ -605,14 +606,14 @@ export class Sanitizer {
     for (let i=0;i<toMake;i++) {
       this._spawnTile(ctx, i);
     }
-    this._tileCd = (this.phase===2 ? 3.5 : 5.0) + Math.random()*1.0;
+    this._tileCd = (this.phase===2 ? 3.5 : 5.0) + this.rng()*1.0;
   }
 
   _spawnTile(ctx, idx) {
     const THREE = this.THREE;
     // choose radius band + angle gap so it's readable
-    const bandR = 6 + idx*3 + Math.random()*2;   // move bands outward
-    const gapA = Math.random()*Math.PI*2;
+    const bandR = 6 + idx*3 + this.rng()*2;   // move bands outward
+    const gapA = this.rng()*Math.PI*2;
     for (let j=0;j<6;j++){ // 6 slices ring; leave one gap
       if (j === 2) continue; // visible safe gap
       const a = gapA + j*(Math.PI/3);
@@ -627,7 +628,7 @@ export class Sanitizer {
       disk.position.set(pos.x, 0.05, pos.z);
       ctx.scene.add(disk);
       this._tiles.push({
-        pos, radius: r, hot: (j%2===0), timer: 0, period: 0.9, life: 10 + Math.random()*4, mesh: disk
+        pos, radius: r, hot: (j%2===0), timer: 0, period: 0.9, life: 10 + this.rng()*4, mesh: disk
       });
       if (this._tiles.length >= this._tileCap) break;
     }

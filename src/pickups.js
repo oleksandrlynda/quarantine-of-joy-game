@@ -1,7 +1,8 @@
 export class Pickups {
-  constructor(THREE, scene) {
+  constructor(THREE, scene, rng = Math.random) {
     this.THREE = THREE;
     this.scene = scene;
+    this.rng = rng;
     this.active = new Set();
 
     // Config
@@ -27,7 +28,7 @@ export class Pickups {
     pAmmo += bonus * 0.5;
     pMed  += bonus * 0.5;
 
-    const r = Math.random();
+    const r = this.rng();
     if (r < pAmmo) {
       this.spawn('ammo', position);
       this.waveCount.ammo++; this.pityMisses = 0;
@@ -47,11 +48,11 @@ export class Pickups {
   dropMultiple(type, pos, count) {
     for (let i = 0; i < count; i++) {
       const t = (type === 'random' || !type)
-        ? (Math.random() < 0.5 ? 'ammo' : 'med')
+        ? (this.rng() < 0.5 ? 'ammo' : 'med')
         : type;
       const p = pos.clone();
-      p.x += (Math.random() - 0.5) * 0.6;
-      p.z += (Math.random() - 0.5) * 0.6;
+      p.x += (this.rng() - 0.5) * 0.6;
+      p.z += (this.rng() - 0.5) * 0.6;
       this.spawn(t, p);
     }
   }
@@ -79,8 +80,8 @@ export class Pickups {
 
     // Amount roll
     const amount = (type === 'ammo')
-      ? (15 + (Math.random() * 15) | 0)
-      : (20 + (Math.random() * 15) | 0);
+      ? (15 + (this.rng() * 15) | 0)
+      : (20 + (this.rng() * 15) | 0);
 
     // Bookkeeping
     group.userData = { type, amount, t: 0 };

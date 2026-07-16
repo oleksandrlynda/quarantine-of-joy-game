@@ -1,5 +1,6 @@
 import { logError } from './util/log.js';
 import { t } from './i18n/index.js';
+import { getJSON, setJSON } from './util/storage.js';
 
 const STORAGE_KEY = 'achievements';
 
@@ -107,27 +108,16 @@ export class AchievementsManager {
   }
 
   load() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const data = JSON.parse(raw);
-        if (Array.isArray(data)) {
-          for (const id of data) {
-            this.unlocked.add(id);
-          }
-        }
+    const data = getJSON(STORAGE_KEY, []);
+    if (Array.isArray(data)) {
+      for (const id of data) {
+        this.unlocked.add(id);
       }
-    } catch (e) {
-      logError(e);
     }
   }
 
   save() {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify([...this.unlocked]));
-    } catch (e) {
-      logError(e);
-    }
+    setJSON(STORAGE_KEY, [...this.unlocked]);
   }
 
   unlock(id) {

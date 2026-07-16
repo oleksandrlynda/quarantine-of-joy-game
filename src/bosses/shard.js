@@ -5,10 +5,11 @@
 import { createShardAvatarAsset, createBeatTimeRingAsset, createGlitchBeamSegment } from '../assets/boss_shard_avatar.js';
 
 export class ShardAvatar {
-  constructor({ THREE, mats, spawnPos, enemyManager }) {
+  constructor({ THREE, mats, spawnPos, enemyManager, rng = Math.random }) {
     this.THREE = THREE;
     this.mats = mats;
     this.enemyManager = enemyManager;
+    this.rng = rng;
 
     // Visuals: use asset pack model for the Shard Avatar
     const { root, head, refs } = createShardAvatarAsset({ THREE, mats, scale: 1.2 });
@@ -19,7 +20,7 @@ export class ShardAvatar {
 
     // Movement tuning: steady pursuit with orbiting bias
     this.speed = 2.0;
-    this._strafeDir = Math.random() < 0.5 ? 1 : -1;
+    this._strafeDir = this.rng() < 0.5 ? 1 : -1;
     this._switchT = 0;
 
     // Barrage state
@@ -31,9 +32,9 @@ export class ShardAvatar {
     this._barrageTimer = 0;
     this._telegraphTime = 0.0;
     this._telegraphRequired = 0.6;
-    this._sweepBase = Math.random() * Math.PI * 2; // base angle for radial pattern
+    this._sweepBase = this.rng() * Math.PI * 2; // base angle for radial pattern
     this._sweepDir = 1; // 1 or -1, alternates in phase 2
-    this._laneOffset = Math.random() * Math.PI * 2; // to create safe lanes
+    this._laneOffset = this.rng() * Math.PI * 2; // to create safe lanes
 
     // Projectiles pool
     this.projectiles = []; // { mesh, pos, vel, speed, life, radius }
@@ -42,7 +43,7 @@ export class ShardAvatar {
 
     // Mirages (visual fakes anchored at refs.mirageAnchors)
     this.mirages = []; // { root, head, anchor, timer, life }
-    this._mirageCooldown = 4.5 + Math.random() * 1.5; // first mirage burst shortly after spawn
+    this._mirageCooldown = 4.5 + this.rng() * 1.5; // first mirage burst shortly after spawn
     this._extraMirages = 0; // additional mirages granted by HP thresholds
     this._belowHalf = false;
     this._belowQuarter = false;
@@ -89,7 +90,7 @@ export class ShardAvatar {
     else {
       const side = new THREE.Vector3(-toPlayer.z, 0, toPlayer.x).multiplyScalar(this._strafeDir);
       desired.add(side);
-      if (this._switchT > 0) this._switchT -= dt; else if (Math.random() < 0.01) { this._strafeDir *= -1; this._switchT = 1.0; }
+      if (this._switchT > 0) this._switchT -= dt; else if (this.rng() < 0.01) { this._strafeDir *= -1; this._switchT = 1.0; }
     }
 
     const avoid = desired.lengthSq() > 0 ? ctx.avoidObstacles(e.position, desired, 1.8) : desired;
@@ -167,11 +168,11 @@ export class ShardAvatar {
 
   _maybeCrossBurst(ctx) {
     if (this.phase !== 2) return;
-    if (Math.random() < 0.65) {
+    if (this.rng() < 0.65) {
       const THREE = this.THREE;
       const baseAngles = [0, Math.PI/2, Math.PI, 3*Math.PI/2];
       const extra = [Math.PI/4, 3*Math.PI/4, 5*Math.PI/4, 7*Math.PI/4];
-      const all = Math.random() < 0.6 ? baseAngles.concat(extra) : baseAngles;
+      const all = this.rng() < 0.6 ? baseAngles.concat(extra) : baseAngles;
       for (const a of all) {
         // Fan 3 pellets per direction with tiny angular offsets
         for (let k = -1; k <= 1; k++) {
@@ -207,7 +208,7 @@ export class ShardAvatar {
         this._maybeCrossBurst(ctx);
         this._telegraphTime = 0;
         // Next cadence
-        this._barrageTimer = 2.4 + Math.random() * 0.6;
+        this._barrageTimer = 2.4 + this.rng() * 0.6;
       }
       return;
     }
@@ -223,7 +224,7 @@ export class ShardAvatar {
       }
     } else {
       // Initialize cadence shortly after spawn
-      this._barrageTimer = 1.2 + Math.random() * 0.6;
+      this._barrageTimer = 1.2 + this.rng() * 0.6;
     }
   }
 
@@ -255,7 +256,7 @@ export class ShardAvatar {
       const dz = p.pos.z - player.z;
       if (dx*dx + dz*dz <= (p.radius + 0.45) * (p.radius + 0.45)) {
         // Apply damage (12–14)
-        const dmg = 12 + (Math.random() * 3 | 0);
+        const dmg = 12 + (this.rng() * 3 | 0);
         ctx.onPlayerDamage?.(dmg);
         ctx.scene.remove(p.mesh);
         this.projectiles.splice(i, 1);
@@ -271,7 +272,7 @@ export class ShardAvatar {
     // Clear existing mirages first
     for (const m of this.mirages) ctx.scene.remove(m.root);
     this.mirages.length = 0;
-    const count = Math.min(anchors.length, 2 + this._extraMirages + (Math.random() < 0.5 ? 0 : 1));
+    const count = Math.min(anchors.length, 2 + this._extraMirages + (this.rng() < 0.5 ? 0 : 1));
     const chosen = new Set();
     const positions = [];
     const makeOffsetPos = (anchor) => {
@@ -279,21 +280,21 @@ export class ShardAvatar {
       const forward = new THREE.Vector3(); anchor.getWorldDirection(forward);
       forward.y = 0; if (forward.lengthSq() === 0) forward.set(1,0,0); forward.normalize();
       const side = new THREE.Vector3(-forward.z, 0, forward.x);
-      const extra = 8.0 + Math.random() * 6.0; // 8–14u away
-      const lateral = (Math.random() * 2 - 1) * 2.4;
+      const extra = 8.0 + this.rng() * 6.0; // 8–14u away
+      const lateral = (this.rng() * 2 - 1) * 2.4;
       return wp.add(forward.multiplyScalar(extra)).add(side.multiplyScalar(lateral));
     };
     // Choose unique anchors and precompute world positions (decoupled from boss afterwards)
     const picked = [];
     while (picked.length < count && chosen.size < anchors.length) {
-      const idx = (Math.random() * anchors.length) | 0;
+      const idx = (this.rng() * anchors.length) | 0;
       if (chosen.has(idx)) continue; chosen.add(idx);
       picked.push(anchors[idx]);
       positions.push(makeOffsetPos(anchors[idx]));
     }
     // Teleport real boss to one of the mirage positions
     if (positions.length > 0) {
-      const realIdx = (Math.random() * positions.length) | 0;
+      const realIdx = (this.rng() * positions.length) | 0;
       const p = positions[realIdx];
       this.root.position.copy(p);
     }
@@ -307,10 +308,10 @@ export class ShardAvatar {
       const inst = {
         root: fake,
         timer: 0,
-        life: 8 + Math.random() * 3,
+        life: 8 + this.rng() * 3,
         target: positions[i].clone(),
-        driftA: Math.random() * Math.PI * 2,
-        driftR: 0.8 + Math.random() * 0.6,
+        driftA: this.rng() * Math.PI * 2,
+        driftR: 0.8 + this.rng() * 0.6,
         update: (dt2, _c2) => {
           inst.timer += dt2;
           inst.driftA += dt2 * 0.6;
@@ -334,7 +335,7 @@ export class ShardAvatar {
     if (this._mirageCooldown > 0) this._mirageCooldown -= dt;
     if (this._mirageCooldown <= 0) {
       this._spawnMirages(ctx);
-      this._mirageCooldown = 10 + Math.random() * 4;
+      this._mirageCooldown = 10 + this.rng() * 4;
     }
     // Flicker heads and allow their registered update to handle motion; remove if cleaned up
     for (let i = this.mirages.length - 1; i >= 0; i--) {
@@ -351,11 +352,11 @@ export class ShardAvatar {
     if (this.phase !== 2) return;
     if (this._ringCooldown > 0) { this._ringCooldown -= ctx.dtForRing || 0; return; }
     const THREE = this.THREE;
-    const count = 1 + (Math.random() < 0.5 ? 0 : 1);
+    const count = 1 + (this.rng() < 0.5 ? 0 : 1);
     for (let i = 0; i < count; i++) {
       const playerPos = ctx.player.position;
-      const ang = Math.random() * Math.PI * 2;
-      const r = 5 + Math.random() * 8;
+      const ang = this.rng() * Math.PI * 2;
+      const r = 5 + this.rng() * 8;
       const center = new THREE.Vector3(playerPos.x + Math.cos(ang)*r, 0.06, playerPos.z + Math.sin(ang)*r);
       const ring = new THREE.Mesh(
         new THREE.RingGeometry(1.6, 2.6, 28),
@@ -366,7 +367,7 @@ export class ShardAvatar {
       ctx.scene.add(ring);
       this.rings.push({ mesh: ring, center: center.clone(), radius: 2.6, life: 0, playerInside: false });
     }
-    this._ringCooldown = 7 + Math.random() * 3.5;
+    this._ringCooldown = 7 + this.rng() * 3.5;
   }
 
   _updateRings(dt, ctx) {
@@ -503,7 +504,7 @@ export class ShardAvatar {
     }
     if (triggered) {
       this._spawnMirages(ctx);
-      this._mirageCooldown = 10 + Math.random() * 4;
+      this._mirageCooldown = 10 + this.rng() * 4;
     }
 
     // Movement

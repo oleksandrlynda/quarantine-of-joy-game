@@ -6,10 +6,11 @@ import { ZeppelinSupport } from './zeppelin.js';
 import { createInfluencerCaptainAsset, createBillboardWallAsset, createAdZoneMarkerAsset } from '../assets/boss_captain.js';
 
 export class Captain {
-  constructor({ THREE, mats, spawnPos, enemyManager }) {
+  constructor({ THREE, mats, spawnPos, enemyManager, rng = Math.random }) {
     this.THREE = THREE;
     this.mats = mats;
     this.enemyManager = enemyManager;
+    this.rng = rng;
 
     // Visual: use asset pack model for the Captain
     const { root, head, refs } = createInfluencerCaptainAsset({ THREE, mats, scale: 1.2 });
@@ -22,7 +23,7 @@ export class Captain {
     this.speed = 2.3;
     this.preferredRange = { min: 12, max: 18 };
     this.engageRange = { min: 24, max: 36 };
-    this.strafeDir = Math.random() < 0.5 ? 1 : -1;
+    this.strafeDir = this.rng() < 0.5 ? 1 : -1;
     this.switchCooldown = 0;
 
     // Attacks
@@ -43,7 +44,7 @@ export class Captain {
     // Ad zones
     this.zones = []; // { mesh, timer, center, delay }
     this._zoneMarkers = []; // visuals using createAdZoneMarkerAsset
-    this.zoneCooldown = 5.5 + Math.random() * 1.5; // cadence for marking
+    this.zoneCooldown = 5.5 + this.rng() * 1.5; // cadence for marking
 
     // Phase/Shield
     this.invuln = false; // becomes true during zeppelin pods alive
@@ -69,7 +70,7 @@ export class Captain {
         const fwd = toPlayer.normalize();
         const side = new THREE.Vector3(-fwd.z, 0, fwd.x).multiplyScalar(this.strafeDir);
         desired.add(side);
-        if (this.switchCooldown > 0) this.switchCooldown -= dt; else if (Math.random() < 0.01) { this.strafeDir *= -1; this.switchCooldown = 1.0; }
+        if (this.switchCooldown > 0) this.switchCooldown -= dt; else if (this.rng() < 0.01) { this.strafeDir *= -1; this.switchCooldown = 1.0; }
       }
     }
 
@@ -111,7 +112,7 @@ export class Captain {
         const totalShots = this._burstTotalShots;
         const shotIndex = totalShots - this._burstShotsLeft;
         // fan ±10–16° across shots centered at base dir
-        const halfFan = (Math.PI/180) * (10 + Math.random()*6);
+        const halfFan = (Math.PI/180) * (10 + this.rng()*6);
         const t = (totalShots===1) ? 0 : (shotIndex/(totalShots-1))*2 - 1; // -1..1
         const angle = t * halfFan;
         const dir = this._rotateY(this._burstBaseDir, angle);
@@ -121,7 +122,7 @@ export class Captain {
       }
       if (this._burstShotsLeft <= 0){
         this._burstActive = false;
-        this.volleyCooldown = this.baseVolleyCadence + Math.random()*0.6;
+        this.volleyCooldown = this.baseVolleyCadence + this.rng()*0.6;
       }
       return;
     }
@@ -135,7 +136,7 @@ export class Captain {
         // start burst
         const forward = ctx.player.position.clone().sub(this.root.position); forward.y = 0; if (forward.lengthSq()===0) forward.set(1,0,0); forward.normalize();
         this._burstBaseDir.copy(forward);
-        this._burstTotalShots = 3 + (Math.random()*3 | 0); // 3–5
+        this._burstTotalShots = 3 + (this.rng()*3 | 0); // 3–5
         this._burstShotsLeft = this._burstTotalShots;
         this._burstTimer = 0; // fire first immediately
         this._burstActive = true;
@@ -208,11 +209,11 @@ export class Captain {
     if (this.zoneCooldown > 0){ this.zoneCooldown -= dt; return; }
     // pick 2–3 positions around player (6–10u)
     const THREE = this.THREE;
-    const count = 2 + (Math.random() < 0.5 ? 0 : 1);
+    const count = 2 + (this.rng() < 0.5 ? 0 : 1);
     const playerPos = ctx.player.position;
     for (let i = 0; i < count; i++){
-      const ang = Math.random() * Math.PI * 2;
-      const r = 6 + Math.random()*4;
+      const ang = this.rng() * Math.PI * 2;
+      const r = 6 + this.rng()*4;
       const p = new THREE.Vector3(playerPos.x + Math.cos(ang)*r, 0.06, playerPos.z + Math.sin(ang)*r);
       // Adjust to safe spot if blocked
       const safe = (typeof this.enemyManager._isSpawnAreaClear === 'function' && this.enemyManager._isSpawnAreaClear(p.clone().setY(0.8), 0.5));
@@ -224,7 +225,7 @@ export class Captain {
       this._zoneMarkers.push(marker);
       this.zones.push({ mesh: marker.root, timer: 0, center: center.clone(), delay: 1.0, refs: marker.refs });
     }
-    this.zoneCooldown = 6.5 + Math.random()*2.0;
+    this.zoneCooldown = 6.5 + this.rng()*2.0;
   }
 
   _updateZones(dt, ctx){
@@ -258,7 +259,7 @@ export class Captain {
     if (hp <= maxHp * 0.6){
       this.invuln = true;
       // Spawn zeppelin which drops pods; lift shield when pods cleared
-      this._zeppelin = new ZeppelinSupport({ THREE: this.THREE, mats: this.mats, enemyManager: this.enemyManager, scene: ctx.scene, onPodsCleared: () => { this.invuln = false; } });
+      this._zeppelin = new ZeppelinSupport({ THREE: this.THREE, mats: this.mats, enemyManager: this.enemyManager, scene: ctx.scene, onPodsCleared: () => { this.invuln = false; }, rng: this.rng });
     }
   }
 
