@@ -4,7 +4,7 @@ This document refines mechanics.md slots and offers into concrete rules, UI, and
 
 ## Loadout & Slots
 - Slot 1 is the swappable Primary and Slot 2 is the permanent Pistol sidearm. Standard runs begin with Pistol only; SMG is granted automatically at Wave 2.
-- Tactical packages permanently add dedicated Slot 3. The player equips either the Grenade Launcher or Dynamite in the Archive; tactical weapons never replace the Primary or Pistol.
+- The classified Grenade Launcher permanently adds dedicated Slot 3. Dynamite, Gravity Well, Satellite Strike, and Punchline Rush occupy the separate equipped Q ability slot and never replace a weapon.
 
 ## Unlocks (persistent)
 - Unlock table (saved locally):
@@ -14,7 +14,6 @@ This document refines mechanics.md slots and offers into concrete rules, UI, and
   - Rifle: classified at first; revealed with a temporary trial at Wave 6, then licensed in the Archive for 10 fragments
   - DMR: classified at first; revealed with a temporary trial after the Wave 10 boss, then licensed for 18 fragments
   - Grenade Launcher: classified at first; revealed with a temporary Slot 3 trial after the Wave 15 boss, then licensed with permanent Slot 3 for 50 fragments
-  - Dynamite (Analog Solution): classified at first; revealed with a temporary Slot 3 trial after the Wave 20 boss, then licensed for 35 fragments
 
 Revealed and owned are separate saved states. The Archive hides a classified weapon's identity, price, and statistics until its reveal milestone. Temporary trials do not unlock that weapon's mastery or optics.
 
@@ -37,7 +36,6 @@ Revealed and owned are separate saved states. The Archive hides a classified wea
 - Wave 6 reveals the Rifle and allows it in that run's guided primary offer.
 - Defeating the Wave 10 boss reveals the DMR and allows it in that run's following guided primary offer.
 - Defeating the Wave 15 boss reveals the Grenade Launcher and immediately installs the temporary weapon in Slot 3.
-- Defeating the Wave 20 boss reveals Dynamite and temporarily replaces the equipped Slot 3 tactical for its one-run trial.
 - Each reveal trial happens once. After that run ends, the classified weapon requires its permanent Archive license.
 
 ## Weapon Crates (drops)
@@ -48,7 +46,7 @@ Revealed and owned are separate saved states. The Archive hides a classified wea
 ## Economy Rules
 - Ammo pickups always add to the equipped weapon's reserve.
 - Reload draws only from that reserve; never negative, clamp to mag size.
-- Soft reserve caps by weapon (for future tuning): Rifle 300, SMG 360, Shotgun 60, DMR 120, Minigun 600, Pistol 120, Grenade 24, Dynamite 9.
+- Soft reserve caps by weapon (for future tuning): Rifle 300, SMG 360, Shotgun 60, DMR 120, Minigun 600, Pistol 120, Grenade 24. Q abilities recharge independently and never consume ammo pickups.
 - Memefragments award 1 after every two cleared waves and 2 per boss through Wave 15. Later rewards rise to 2 and 4 respectively.
 - The first Wave 15 boss victory grants a one-time 5-fragment Classified Dossier. The late escalation supports the 50-fragment Grenade package without trivializing the one-time survival-pool unlocks.
 
@@ -81,26 +79,18 @@ Revealed and owned are separate saved states. The Archive hides a classified wea
 - Primary changes follow the offer schedule; the Pistol remains in Slot 2.
 - Classified cards hide weapon identity until their milestone, reveal only once, and distinguish a temporary trial from permanent ownership.
 - An owned Grenade Launcher is restored in Slot 3 at the start of every standard run; a trial Grenade Launcher disappears on restart or death.
-- Owned tactical weapons share Slot 3; the Archive's equipped choice is restored at the start of a standard run.
+- The Archive restores one equipped Q ability at the start of a standard run.
 - Reserve conversion works; decline yields +20% reserve (clamped).
 - Ammo economy respects per‑weapon reserves; no negatives or overfills.
 
-## Dynamite Playtest Route
+## Q Ability Playtest Routes
 
-- Open `index.html?debug=1&wave=21`, start the run, and press `5` to equip Dynamite from the debug loadout.
-- Left-click throws up to three charges. Each charge explodes automatically 2.6 seconds after it leaves the hand, covering a wide 5.2-metre radius. Press `R` after the blast to load reserve charges.
+- Open `index.html?debug=1&wave=21&ability=dynamite`, start the run, and press `Q`. Dynamite stores three charges; each charge regenerates sequentially in 25 seconds.
+- Each bundle explodes automatically 2.6 seconds after it leaves the hand, covering a wide 5.2-metre radius.
 - Validate three decisions: trap a spawn route, stick a moving regular enemy, and destroy a barricade or low wall with the radial blast.
 
-## Satellite Strike Prototype Route
-
-- Open `index.html?debug=1&wave=21`, start the run, and press `6` to equip the Satellite Designator prototype.
-- Left-click paints a 6.5-metre warning zone at the crosshair. After 1.35 seconds, a vertical beam deals up to 300 damage; only one strike can be pending at a time.
-- Validate target acquisition on open ground, moving packs escaping the warning, and destruction against a barricade. This prototype is intentionally absent from Archive progression until its combat identity is approved.
-
-## Gravity Well Prototype Route
-
-- Open `index.html?debug=1&wave=21`, start the run, and press `7` to equip Gravity Well.
-- Left-click throws one containment sphere. After landing, its 8-metre field captures ground enemies, pulls flyers downward, and drags the player inward for 2.5 seconds before collapsing for up to 240 damage in a 5.5-metre radius.
-- Validate runner containment, airborne capture, player counter-movement, clustered follow-up shots, boss pull immunity, and barricade destruction. Only one well may exist at a time; this prototype remains outside Archive progression until approved.
+- Open `index.html?debug=1&wave=21&ability=satellite_strike` for the 32-second Satellite Strike, or use `ability=gravity_well` for the 40-second Gravity Well.
+- Gravity Well costs 70 fragments because its 8-metre capture field combines the strongest crowd control with a damaging collapse. Satellite Strike costs 32, Dynamite costs 35, and Punchline Rush costs 10.
+- Punchline Rush uses `ability=punchline_rush`, recharges in 12 seconds, and no longer consumes stamina.
 
 See `weapon-tiers.md` for current balance ranking of available weapons.

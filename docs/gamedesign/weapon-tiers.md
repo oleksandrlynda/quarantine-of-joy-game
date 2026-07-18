@@ -1,8 +1,10 @@
 # Weapon Tier List
 
-_Last update: 2026-07-18_
+_Last update: 2026-07-19_
 
 This list ranks primaries and sidearms by overall effectiveness across waves (DPS, effective range, control, ammo economy, utility). It assumes default enemy HP and current weapon configs.
+
+Dynamite, Gravity Well, Satellite Strike, and Punchline Rush are now cooldown-based Q abilities rather than weapons and are excluded from the weapon tier ranking. Gravity Well is priced at 70 fragments as the strongest current ability.
 
 ## Discovery Clearance
 

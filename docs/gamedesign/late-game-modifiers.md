@@ -2,6 +2,8 @@
 
 _Intent:_ add incremental, stackable perks that deepen buildcraft without trivializing enemies. Mods are small, mostly additive, and stack with **diminishing returns** plus **hard caps**.
 
+Dynamite is now a three-charge Q ability rather than an ammo weapon. Its 25-second sequential recharge is fixed; any older reserve-ammo or weapon-slot references below are legacy notes.
+
 ## When & How
 - Make one launch offer at **Wave 41**, after the planned Wave 40 finale, then offer another on every fifth wave (45, 50, 55, ...).
 - Each offer = **pick 1 of 3**. Rarity weights: Common 60%, Rare 30%, Epic 10% (no Legendary at launch).

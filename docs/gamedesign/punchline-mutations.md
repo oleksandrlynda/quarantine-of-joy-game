@@ -2,6 +2,8 @@
 
 Punchline progression separates permanent possibility unlocks, modest weapon mastery, optional stagecraft, and temporary run power. Archive purchases never grant unlimited permanent stat stacking: survival purchases add choices to the run progression pool, while cosmetic or utility purchases state their bounded permanent effect directly.
 
+Current Q ability loadout: Dynamite costs 35 fragments and stores three charges with a 25-second sequential recharge; Gravity Well costs 70 and recharges in 40 seconds; Satellite Strike costs 32 and recharges in 32 seconds; Punchline Rush costs 10 and recharges in 12 seconds. One is equipped at a time, none occupies a weapon slot, and Rush no longer consumes stamina. Any older Slot 3 Dynamite notes below are superseded by this rule.
+
 ## Archive and Memefragments
 
 - The first standard run has no mutation unlocks. The Archive appears after the first death.
