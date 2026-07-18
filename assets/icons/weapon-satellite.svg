@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Satellite Designator</title>
+  <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="4">
+    <path d="M16 24h30v20H16z"/>
+    <path d="M22 30h12v8H22zM46 29l8-7M46 39l8 7M20 44l-4 12h18l-4-12"/>
+    <circle cx="44" cy="34" r="4"/>
+    <path d="M8 12h18M12 8v8M22 8v8"/>
+  </g>
+</svg>

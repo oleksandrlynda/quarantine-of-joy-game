@@ -5,6 +5,8 @@
 // Phase 2: Verdict patterns (alternating sector slams & gavel smashes).
 
 import { logError } from '../util/log.js';
+import { ReusablePool } from './reusable-pool.js';
+import { createAdjudicatorMineVisual } from './visual-cache.js';
 // Player debuffs: -5% move / Strike (max -15%), -0.3s Hype grace / Strike.
 // If 3 Strikes at a Verdict → heavy slam + auto extra nodes.
 //
@@ -57,10 +59,42 @@ export class StrikeAdjudicator {
     // Weakpoint window after each Verdict
     this._weakpointTimer = 0;
 
-    // Purge Nodes / Bailiffs
-    this._nodes = [];                 // { root, hp, bailiff, dead }
-    this._nodeHp = 60;
+    // Citation Mines: shoot the cyan purge core to remove a Strike, or leave
+    // the red perimeter armed and risk a short-fuse proximity detonation.
+    this._nodes = [];
+    this._nodeHp = 90;
     this._nodePerCitation = 2;
+    this._nodeCap = 6;
+    this._nodePool = new ReusablePool({
+      preallocate: 4,
+      create: () => createAdjudicatorMineVisual({ THREE }),
+      reset: visual => {
+        visual.root.visible = true;
+        visual.root.scale.setScalar(1);
+        visual.refs.core.scale.setScalar(1);
+        visual.refs.core.material.color.setHex(0x67e8f9);
+        visual.refs.core.material.emissive?.setHex?.(0x0891b2);
+        visual.refs.core.material.emissiveIntensity = 1.15;
+        visual.refs.floorRing.material.color.setHex(0xf43f5e);
+        visual.refs.floorRing.material.opacity = 0.2;
+        visual.refs.purgeRing.material.opacity = 0.72;
+        for (const ring of visual.refs.cage) {
+          ring.material.color.setHex(0xf43f5e);
+          ring.material.emissive?.setHex?.(0x7f1d1d);
+          ring.material.emissiveIntensity = 0.85;
+        }
+      },
+      release: (visual, scene) => {
+        scene?.remove(visual.root);
+        visual.root.visible = false;
+      },
+      destroy: visual => {
+        visual.refs.core.material?.dispose?.();
+        visual.refs.floorRing.material?.dispose?.();
+        visual.refs.purgeRing.material?.dispose?.();
+        visual.refs.cage[0]?.material?.dispose?.();
+      }
+    });
 
     // Safety
     this._arenaClamp = 39.0;
@@ -72,8 +106,9 @@ export class StrikeAdjudicator {
   // ---------- Lifecycle ----------
   onRemoved(scene) {
     this._clearTele(scene);
-    for (const n of this._nodes) { if (n.root && scene) scene.remove(n.root); }
+    for (const node of this._nodes) this._releaseNode(node, { scene });
     this._nodes.length = 0;
+    this._nodePool.destroy(scene);
     // Clear player debuffs
     this._applyPlayerDebuffs(0, null);
   }
@@ -101,8 +136,16 @@ export class StrikeAdjudicator {
     // Verdict patterns
     this._verdictTimer -= dt;
     if (this._verdictTimer <= 0) {
-      this._verdictTimer = this._verdictInterval;
-      this._beginVerdictTelegraph(ctx);
+      const verdictRange = this._nextVerdictRange();
+      const playerDistance = this.root.position.distanceTo(ctx.player.position);
+      if (playerDistance <= verdictRange) {
+        this._verdictTimer = this._verdictInterval;
+        this._beginVerdictTelegraph(ctx);
+      } else {
+        // Keep the verdict ready while locomotion closes into an honest attack
+        // opportunity; do not spend a telegraph on a guaranteed range miss.
+        this._verdictTimer = 0;
+      }
     }
     this._updateTelegraph(dt, ctx);
 
@@ -127,8 +170,14 @@ export class StrikeAdjudicator {
         const pos = new this.THREE.Vector3(p.x + Math.cos(a)*r, 0.8, p.z + Math.sin(a)*r);
         const root = this.enemyManager.spawnAt('bailiff', pos, { countsTowardAlive: true });
         if (root) {
+          root.userData.summonerRoot = this.root;
+          root.userData.bossOwnerRoot = this.root;
+          root.userData.summonRole = 'citation_bailiff';
           const inst = this.enemyManager.instanceByRoot?.get(root);
           if (inst) inst.summoner = this;
+          ctx.emitAIEvent?.(this.root, 'boss_add_spawned', {
+            ability: 'citation_bailiff', spawnedRoot: root, ownerRoot: this.root
+          });
         }
         this._addCooldown = 6.5 + this.rng() * 2.0;
       } else {
@@ -150,10 +199,30 @@ export class StrikeAdjudicator {
     const dist = toP.length();
     toP.y = 0; if (toP.lengthSq() === 0) return; toP.normalize();
 
+    // A gavel telegraph is a committed melee phase: stop strafing and turn the
+    // attack front toward the target so the visible warning and damage cone
+    // agree. Continuing the orbit here made every otherwise valid gavel miss.
+    if (this._teleData) {
+      const targetYaw = Math.atan2(toP.x, toP.z);
+      const wrap = (a)=>{ while(a>Math.PI)a-=2*Math.PI; while(a<-Math.PI)a+=2*Math.PI; return a; };
+      const yawDelta = wrap(targetYaw - this._yaw);
+      this._yaw = wrap(this._yaw + Math.max(-8 * dt, Math.min(8 * dt, yawDelta)));
+      e.rotation.set(0, this._yaw, 0);
+      return;
+    }
+
+    // The Adjudicator's phase-one gavel only reaches four metres. Its old
+    // eleven-metre orbit anchor made a healthy, unobstructed boss incapable of
+    // ever completing that attack. Keep a phase-aware combat band instead.
     const desired = new this.THREE.Vector3();
-    if (dist > 11) desired.add(toP);
+    const minimumRange = this.phase === 1 ? 2.8 : 4.4;
+    const defaultMaximumRange = this.phase === 1 ? 3.6 : 5.8;
+    const maximumRange = this._verdictTimer <= 0
+      ? Math.min(defaultMaximumRange, this._nextVerdictRange() - 0.35)
+      : defaultMaximumRange;
+    if (dist > maximumRange) desired.add(toP);
+    else if (dist < minimumRange) desired.add(toP.clone().multiplyScalar(-1));
     else {
-      // orbit a bit
       const side = new this.THREE.Vector3(-toP.z, 0, toP.x);
       desired.add(side.multiplyScalar(0.7));
     }
@@ -171,7 +240,7 @@ export class StrikeAdjudicator {
     if (desired.lengthSq() > 0) {
       desired.normalize();
       const step = desired.multiplyScalar(this.speed * dt);
-      ctx.moveWithCollisions(e, step);
+      this._lastMovementResult = ctx.moveWithCollisions(e, step) || null;
       // face movement
       const yaw = Math.atan2(step.x, step.z);
       const wrap = (a)=>{ while(a>Math.PI)a-=2*Math.PI; while(a<-Math.PI)a+=2*Math.PI; return a; };
@@ -187,18 +256,59 @@ export class StrikeAdjudicator {
   // ---------- Citations / Strikes ----------
   _applyCitation(ctx) {
     // Add a strike (cap 3) and spawn nodes
+    const strikesBefore = this.strikes;
     this.strikes = Math.min(3, this.strikes + 1);
     this._updateStrikeUI();
     this._applyPlayerDebuffs(this.strikes, ctx);
 
-    // Spawn Purge Nodes near suggested anchors (asset refs) or around boss
-    const count = this._nodePerCitation;
-    const anchorWorlds = (this.refs?.nodeAnchors || []).map(a => a.getWorldPosition(new this.THREE.Vector3()));
-    for (let i = 0; i < count; i++) {
-      const pos = anchorWorlds[i] ? anchorWorlds[i].clone() :
-        this.root.position.clone().add(new this.THREE.Vector3((i===0? -2.2:2.2), 0.2, 1.6));
-      this._spawnNode(ctx, pos);
+    // Form a readable mine screen toward the player. Asset-local anchors were
+    // only ~2m from the boss and produced an overlapping cage of solid purge
+    // nodes, so they are intentionally not used for collision placement.
+    const count = Math.min(this._nodePerCitation, Math.max(0, this._nodeCap - this._nodes.length));
+    const minesBefore = this._nodes.length;
+    ctx.emitAIEvent?.(this.root, 'citation_applied', {
+      ability: 'citation', strikesBefore, strikesAfter: this.strikes, requestedMines: count
+    });
+    const positions = this._citationMinePositions(ctx, count, { forwardDistance: 5.8, lateralSpacing: 3.2 });
+    for (let i = 0; i < positions.length; i++) this._spawnNode(ctx, positions[i], { slot: i, source: 'citation' });
+    ctx.emitAIEvent?.(this.root, 'citation_formation_completed', {
+      ability: 'citation', requestedMines: count, spawnedMines: this._nodes.length - minesBefore
+    });
+  }
+
+  _citationMinePositions(ctx, count, { forwardDistance = 5.8, lateralSpacing = 3.2, rotation = 0 } = {}) {
+    if (count <= 0) return [];
+    const THREE = this.THREE;
+    const toPlayer = ctx.player.position.clone().sub(this.root.position).setY(0);
+    if (toPlayer.lengthSq() <= 0.0001) toPlayer.set(Math.sin(this._yaw), 0, Math.cos(this._yaw));
+    toPlayer.normalize();
+    if (rotation) {
+      const x = toPlayer.x * Math.cos(rotation) - toPlayer.z * Math.sin(rotation);
+      const z = toPlayer.x * Math.sin(rotation) + toPlayer.z * Math.cos(rotation);
+      toPlayer.set(x, 0, z);
     }
+    const side = new THREE.Vector3(-toPlayer.z, 0, toPlayer.x);
+    const offsets = count === 1
+      ? [0]
+      : Array.from({ length: count }, (_, i) => (i - (count - 1) * 0.5) * lateralSpacing * 2);
+    const results = [];
+    const forwardCandidates = [forwardDistance, forwardDistance + 1.4, forwardDistance - 1.0];
+    for (let i = 0; i < offsets.length; i++) {
+      let selected = null;
+      for (const forward of forwardCandidates) {
+        const candidate = this.root.position.clone()
+          .addScaledVector(toPlayer, forward)
+          .addScaledVector(side, offsets[i]);
+        candidate.y = 0;
+        const bossClearance = candidate.distanceTo(this.root.position);
+        const outsideBossBody = bossClearance >= 4.0;
+        const spawnClear = typeof this.enemyManager?._isSpawnAreaClear !== 'function'
+          || this.enemyManager._isSpawnAreaClear(candidate.clone().setY(0.8), 0.45);
+        if (outsideBossBody && spawnClear) { selected = candidate; break; }
+      }
+      if (selected) results.push(selected);
+    }
+    return results;
   }
 
   _updateStrikeUI() {
@@ -219,64 +329,177 @@ export class StrikeAdjudicator {
     bb.hypeGracePenaltySec = 0.3 * n;                           // 0, 0.3, 0.6, 0.9
   }
 
-  // ---------- Purge Nodes / Bailiffs ----------
-  _spawnNode(ctx, pos) {
-    const THREE = this.THREE;
-    const mat = this.mats.enemy.clone(); mat.color = new THREE.Color(0xf43f5e);
-    const root = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.45, 0.6, 8), mat);
+  // ---------- Citation Mines / Purge Cores ----------
+  _spawnNode(ctx, pos, { slot = null, source = 'citation' } = {}) {
+    const visual = this._nodePool.acquire();
+    const root = visual.root;
     root.position.copy(pos);
-    root.userData = { type: 'purge_node', hp: this._nodeHp };
-    ctx.scene.add(root);
-    const node = { root, hp: this._nodeHp, bailiff: false, dead: false, t: 0 };
+    root.position.y = 0;
+    root.userData = {
+      type: 'purge_node',
+      displayName: 'Citation Mine',
+      hp: this._nodeHp,
+      maxHp: this._nodeHp,
+      head: visual.refs.core,
+      knockbackImmune: true,
+      summonerRoot: this.root,
+      bossOwnerRoot: this.root,
+      summonRole: 'citation_mine'
+    };
+    const node = {
+      root,
+      visual,
+      hp: this._nodeHp,
+      dead: false,
+      armed: false,
+      triggered: false,
+      t: 0,
+      fuse: 0,
+      armDuration: this.phase === 2 ? 0.55 : 0.9,
+      triggerRadius: this.phase === 2 ? 2.7 : 2.25,
+      damage: this.phase === 2 ? 36 : 24
+    };
+    const instance = {
+      root,
+      behaviorId: 'purge_node',
+      update() {},
+      onRemoved: () => { node.registered = false; }
+    };
+    if (this.enemyManager?.registerExternalEnemy) {
+      this.enemyManager.registerExternalEnemy(instance, { countsTowardAlive: false });
+      node.registered = true;
+    } else {
+      ctx.scene.add(root);
+    }
     this._nodes.push(node);
+    ctx.emitAIEvent?.(this.root, 'boss_add_spawned', {
+      ability: 'citation_mine', spawnedRoot: root, ownerRoot: this.root
+    });
+    ctx.emitAIEvent?.(this.root, 'citation_mine_spawned', {
+      ability: 'citation_mine', spawnedRoot: root, ownerRoot: this.root,
+      slot, source, position: root.position.clone(), distanceToBoss: root.position.distanceTo(this.root.position)
+    });
     return node;
   }
 
   _tickNodes(dt, ctx) {
-    // Watch for kills (hp driven by your generic damage system)
     for (let i = this._nodes.length - 1; i >= 0; i--) {
       const n = this._nodes[i];
       if (!n || !n.root) { this._nodes.splice(i,1); continue; }
-      // bailiffs body-block in Phase 2
-      if (n.bailiff && !n.dead) {
-        n.t += dt;
-        const to = ctx.player.position.clone().sub(n.root.position); to.y = 0;
-        const d = to.length();
-        if (d > 0.0001) to.normalize();
-        const want = to.multiplyScalar(1.25 * dt);
-        // jiggle to re-position as wall
-        const side = new this.THREE.Vector3(-to.z, 0, to.x).multiplyScalar(Math.sin(n.t*2.5)*0.3*dt);
-        want.add(side);
-        ctx.moveWithCollisions(n.root, want);
-      }
-      // killed?
       const hp = n.root.userData?.hp ?? n.hp;
       if (hp <= 0 && !n.dead) {
-        n.dead = true;
-        // Remove a Strike
-        if (this.strikes > 0) {
-          this.strikes -= 1;
-          this._updateStrikeUI();
-          this._applyPlayerDebuffs(this.strikes, ctx);
-        }
-        // pop VFX
-        try { window?._EFFECTS?.ring?.(n.root.position.clone(), 0.9, 0x60a5fa); } catch (e) { logError(e); }
-        ctx.scene.remove(n.root);
+        this._purgeNode(n, ctx);
         this._nodes.splice(i, 1);
+        continue;
+      }
+
+      n.t += dt;
+      this._animateNode(n);
+      if (!n.armed && n.t >= n.armDuration) {
+        n.armed = true;
+        n.visual.refs.floorRing.material.opacity = 0.58;
+        ctx.emitAIEvent?.(this.root, 'citation_mine_armed', {
+          ability: 'citation_mine', spawnedRoot: n.root, ownerRoot: this.root,
+          position: n.root.position.clone(), triggerRadius: n.triggerRadius
+        });
+      }
+
+      const dx = ctx.player.position.x - n.root.position.x;
+      const dz = ctx.player.position.z - n.root.position.z;
+      const distance = Math.hypot(dx, dz);
+      let triggeredThisFrame = false;
+      if (n.armed && !n.triggered && distance <= n.triggerRadius) {
+        n.triggered = true;
+        n.fuse = 0.6;
+        triggeredThisFrame = true;
+        ctx.emitAIEvent?.(this.root, 'citation_mine_triggered', {
+          ability: 'citation_mine', spawnedRoot: n.root, ownerRoot: this.root,
+          distanceToPlayer: distance, fuseSeconds: n.fuse
+        });
+      }
+      if (n.triggered && !triggeredThisFrame) {
+        n.fuse -= dt;
+        const flash = Math.sin(n.fuse * 42) > 0;
+        n.visual.refs.core.material.color.setHex(flash ? 0xffffff : 0xf43f5e);
+        n.visual.refs.floorRing.material.opacity = flash ? 0.9 : 0.42;
+        if (n.fuse <= 0) {
+          this._detonateNode(n, ctx);
+          this._nodes.splice(i, 1);
+        }
       }
     }
   }
 
   _enterPhase2(ctx) {
-    // Convert existing nodes into Bailiffs
+    // Existing mines overcharge: larger trigger radius, faster arming, and a
+    // brighter perimeter instead of turning the devices into sliding blocks.
     for (const n of this._nodes) {
-      n.bailiff = true;
-      // visual tweak
-      if (n.root?.material?.emissive) n.root.material.emissive.setHex(0x60a5fa);
+      n.armDuration = Math.min(n.armDuration, 0.55);
+      n.triggerRadius = 2.7;
+      n.damage = 36;
+      n.visual.refs.floorRing.scale.setScalar(1.2);
     }
   }
 
+  _animateNode(node) {
+    const refs = node.visual.refs;
+    refs.core.rotation.y += 0.045;
+    refs.core.position.y = 0.9 + Math.sin(node.t * 4.5) * 0.06;
+    refs.cage[0].rotation.y += 0.018;
+    refs.cage[1].rotation.z -= 0.022;
+    refs.cage[2].rotation.x += 0.02;
+    const pulse = 0.9 + Math.sin(node.t * (node.triggered ? 22 : 7)) * 0.1;
+    refs.floorRing.scale.setScalar((this.phase === 2 ? 1.2 : 1) * pulse);
+    refs.purgeRing.rotation.z += 0.025;
+  }
+
+  _purgeNode(node, ctx) {
+    node.dead = true;
+    if (this.strikes > 0) {
+      this.strikes -= 1;
+      this._updateStrikeUI();
+      this._applyPlayerDebuffs(this.strikes, ctx);
+    }
+    try { globalThis.window?._EFFECTS?.ring?.(node.root.position.clone(), 1.35, 0x67e8f9); } catch (e) { logError(e); }
+    ctx.emitAIEvent?.(this.root, 'citation_mine_purged', {
+      ability: 'citation_mine', spawnedRoot: node.root, ownerRoot: this.root, strikesAfter: this.strikes
+    });
+    this._releaseNode(node, ctx);
+  }
+
+  _detonateNode(node, ctx) {
+    node.dead = true;
+    const away = ctx.player.position.clone().sub(node.root.position).setY(0);
+    const distance = away.length();
+    const hitPlayer = distance <= node.triggerRadius + 0.55;
+    if (hitPlayer) {
+      ctx.onPlayerDamage?.(node.damage, 'mine', {
+        sourceRoot: this.root, ownerRoot: this.root, sourceOrigin: node.root.position.clone(), sourceKind: 'citation_mine'
+      });
+      if (away.lengthSq() > 0) ctx.player.position.add(away.normalize().multiplyScalar(1.15));
+    }
+    ctx.emitAIEvent?.(this.root, 'citation_mine_detonated', {
+      ability: 'citation_mine', spawnedRoot: node.root, ownerRoot: this.root,
+      hitPlayer, damage: hitPlayer ? node.damage : 0, distanceToPlayer: distance
+    });
+    try { globalThis.window?._EFFECTS?.ring?.(node.root.position.clone(), node.triggerRadius, 0xf43f5e); } catch (e) { logError(e); }
+    this._releaseNode(node, ctx);
+  }
+
+  _releaseNode(node, ctx) {
+    if (!node?.visual) return;
+    if (this.enemyManager?.enemies?.has(node.root)) this.enemyManager.remove(node.root);
+    else ctx?.scene?.remove?.(node.root);
+    this._nodePool.release(node.visual, ctx?.scene);
+    node.visual = null;
+  }
+
   // ---------- Verdict (telegraph -> resolve) ----------
+  _nextVerdictRange() {
+    if (this.phase === 1) return 3.9;
+    return (this._verdictIndex % 2) === 0 ? 6.25 : 3.9;
+  }
+
   _beginVerdictTelegraph(ctx) {
     this._clearTele(ctx.scene);
     this._teleTime = 0;
@@ -295,6 +518,10 @@ export class StrikeAdjudicator {
         this._spawnGavelTele(ctx);
       }
     }
+    ctx.emitAIEvent?.(this.root, 'verdict_started', {
+      ability: 'verdict', kind: this._teleData.kind, heavy: !!this._teleData.heavy,
+      distanceToPlayer: this.root.position.distanceTo(ctx.player.position), telegraphSeconds: this._teleReq
+    });
   }
 
   _updateTelegraph(dt, ctx) {
@@ -321,11 +548,11 @@ export class StrikeAdjudicator {
 
       // If heavy (3 strikes), auto-spawn extra nodes for recovery
       if (heavy) {
-        for (let i = 0; i < 2; i++) {
-          const a = this.rng()*Math.PI*2, r = 2.2 + this.rng()*1.0;
-          const pos = this.root.position.clone().add(new this.THREE.Vector3(Math.cos(a)*r, 0.2, Math.sin(a)*r));
-          this._spawnNode(ctx, pos);
-        }
+        const remaining = Math.max(0, this._nodeCap - this._nodes.length);
+        const positions = this._citationMinePositions(ctx, Math.min(2, remaining), {
+          forwardDistance: 6.8, lateralSpacing: 3.5, rotation: Math.PI * 0.5
+        });
+        for (let i = 0; i < positions.length; i++) this._spawnNode(ctx, positions[i], { slot: i, source: 'heavy_verdict' });
       }
     }
   }
@@ -347,8 +574,16 @@ export class StrikeAdjudicator {
     const knock = heavy ? 1.2 : 0.7;
     // Angle test
     const from = this.root.position.clone();
-    const toP = ctx.player.position.clone().sub(from); const dist = toP.length(); if (dist > 6.5) return;
-    toP.y = 0; if (toP.lengthSq() === 0) return; toP.normalize();
+    const toP = ctx.player.position.clone().sub(from); const dist = toP.length();
+    let hitPlayer = false;
+    let worldBlocked = false;
+    if (dist > 6.5 || toP.setY(0).lengthSq() === 0) {
+      ctx.emitAIEvent?.(this.root, 'verdict_released', {
+        ability: 'verdict', kind: 'sector', heavy, hitPlayer, worldBlocked, distanceToPlayer: dist
+      });
+      return;
+    }
+    toP.normalize();
     // recompute sector params from telegraph
     const m = this._telegraph.userData;
     const cosStart = Math.cos(m.start), sinStart = Math.sin(m.start);
@@ -366,13 +601,20 @@ export class StrikeAdjudicator {
         this._ray.set(origin, dir);
         this._ray.far = distToPlayer - 0.1;
         const hits = this._ray.intersectObjects(ctx.objects || [], false);
-        if (!(hits && hits.length > 0)) {
-          ctx.onPlayerDamage(dmg);
+        worldBlocked = !!(hits && hits.length > 0);
+        if (!worldBlocked) {
+          ctx.onPlayerDamage(dmg, 'verdict_sweep', {
+            sourceRoot: this.root, ownerRoot: this.root, sourceOrigin: origin.clone(), sourceKind: 'verdict_sweep'
+          });
+          hitPlayer = true;
           const knockDir = toP.clone().normalize();
           ctx.player.position.add(knockDir.multiplyScalar(knock));
         }
       }
     }
+    ctx.emitAIEvent?.(this.root, 'verdict_released', {
+      ability: 'verdict', kind: 'sector', heavy, hitPlayer, worldBlocked, distanceToPlayer: dist
+    });
     // pulse ring
     try { window?._EFFECTS?.ring?.(from.clone(), 6.5, 0x60a5fa); } catch (e) { logError(e); }
   }
@@ -402,15 +644,22 @@ export class StrikeAdjudicator {
     const origin = this.root.position.clone();
     const forward = new this.THREE.Vector3(Math.sin(this._yaw), 0, Math.cos(this._yaw));
     const toP = ctx.player.position.clone().sub(origin); toP.y = 0;
-    const dist = toP.length(); if (dist > 4.0) return;
-    if (toP.lengthSq() > 0) toP.normalize();
-    const cos = forward.dot(toP);
+    const dist = toP.length();
+    let hitPlayer = false;
+    if (dist <= 4.0 && toP.lengthSq() > 0) toP.normalize();
+    const cos = dist <= 4.0 ? forward.dot(toP) : -1;
     if (cos >= Math.cos(Math.PI/6)) { // ~30° cone
       const dmg = heavy ? 70 : 38;
       const knock = heavy ? 1.5 : 0.9;
-      ctx.onPlayerDamage(dmg);
+      ctx.onPlayerDamage(dmg, 'gavel', {
+        sourceRoot: this.root, ownerRoot: this.root, sourceOrigin: origin.clone(), sourceKind: 'gavel'
+      });
+      hitPlayer = true;
       ctx.player.position.add(toP.multiplyScalar(knock));
     }
+    ctx.emitAIEvent?.(this.root, 'verdict_released', {
+      ability: 'verdict', kind: 'gavel', heavy, hitPlayer, worldBlocked: false, distanceToPlayer: dist
+    });
     // VFX + reset pose
     try { window?._EFFECTS?.ring?.(origin.clone().add(forward.multiplyScalar(2.0)), 1.6, 0x60a5fa); } catch (e) { logError(e); }
     try {

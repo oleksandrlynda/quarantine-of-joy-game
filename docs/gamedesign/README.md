@@ -3,7 +3,9 @@
 Design references for **Quarantine of Joy**, a satirical browser FPS set in the quarantined districts of Echo City. You play the Courier from the Memetic Underground, raiding Bureau of Blandness compounds to steal back the Meme Archive and broadcast joy. Mechanics revolve around scooping memefragments, charging a Hype Meter, and weaponizing punchlines against censorship drones.
 
 - [Overview](./overview.md)
+- [Levels & Asset Plan](./levels.md)
 - [Core Mechanics](./mechanics.md)
+- [Punchline Mutations](./punchline-mutations.md)
 - [Enemies & AI](./enemies.md)
 - [World & Weather](./world.md)
 - [UI & HUD](./ui-hud.md)

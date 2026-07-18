@@ -1,6 +1,6 @@
 import { GooPuddle } from '../hazards/goo.js';
-import { createBroodmakerAsset } from '../assets/boss_broodmaker.js';
 import { logError } from '../util/log.js';
+import { createBroodmakerVisual, getBossSharedGeometry } from './visual-cache.js';
 
 export class Broodmaker {
   constructor({ THREE, mats, spawnPos, enemyManager = null, mode = 'light', rng = Math.random }) {
@@ -12,7 +12,7 @@ export class Broodmaker {
     this.enablePhase2 = this.mode === 'heavy';
 
     // Asset
-    const built = createBroodmakerAsset({ THREE, mats, scale: 1.0 });
+    const built = createBroodmakerVisual({ THREE, mats });
     const type = this.enablePhase2 ? 'boss_broodmaker_heavy' : 'boss_broodmaker';
     built.root.position.copy(spawnPos);
     built.root.userData = { type, head: built.head, hp: this.enablePhase2 ? 18000 : 2800, damageMul: 1.0 };
@@ -24,6 +24,9 @@ export class Broodmaker {
     this._raycaster = new THREE.Raycaster();
     this._frameIndex = 0;
     this._t = 0;
+    this.preferredRange = Object.freeze([15, 22]);
+    this._yaw = built.root.rotation.y || 0;
+    this._strafeSign = this.rng() < 0.5 ? -1 : 1;
 
     // Phases
     this.maxHp = this.root.userData.hp;
@@ -78,10 +81,25 @@ export class Broodmaker {
     toPlayer.y = 0;
     if (toPlayer.lengthSq() === 0) return;
     toPlayer.normalize();
+    const targetYaw = Math.atan2(toPlayer.x, toPlayer.z);
+    let yawDelta = targetYaw - this._yaw;
+    yawDelta = ((yawDelta + Math.PI) % (Math.PI * 2)) - Math.PI;
+    this._yaw += Math.max(-3.5 * dt, Math.min(3.5 * dt, yawDelta));
+    e.rotation.y = this._yaw;
 
     const desired = new this.THREE.Vector3();
-    if (dist > 9) desired.add(toPlayer);
-    else desired.add(new this.THREE.Vector3(-toPlayer.z, 0, toPlayer.x).multiplyScalar(0.6));
+    const [minimumRange, maximumRange] = this.preferredRange;
+    const side = new this.THREE.Vector3(-toPlayer.z, 0, toPlayer.x).multiplyScalar(this._strafeSign);
+    if (dist < minimumRange) {
+      desired.addScaledVector(toPlayer, -1.35).addScaledVector(side, 0.38);
+      if (dist < minimumRange * 0.55) this._burrowCooldown = Math.min(this._burrowCooldown, 0.75);
+    } else if (dist > maximumRange) {
+      desired.add(toPlayer).addScaledVector(side, 0.18);
+    } else {
+      desired.add(side);
+      const center = (minimumRange + maximumRange) * 0.5;
+      desired.addScaledVector(toPlayer, (dist - center) * 0.08);
+    }
     const hasLOS = this._hasLineOfSight(e.position, playerPos, ctx.objects);
     if (!hasLOS && ctx.pathfind) {
       ctx.pathfind.recomputeIfStale(this, playerPos);
@@ -167,7 +185,11 @@ export class Broodmaker {
     // Goo
     for (const g of this._goo) g?.dispose?.(scene);
     this._goo.length = 0;
-    if (this._phaseTelegraphRing) { scene.remove(this._phaseTelegraphRing); this._phaseTelegraphRing = null; }
+    if (this._phaseTelegraphRing) {
+      scene.remove(this._phaseTelegraphRing);
+      this._phaseTelegraphRing.material?.dispose?.();
+      this._phaseTelegraphRing = null;
+    }
   }
 
   // ---------------- Phase 1: Broodlings ----------------
@@ -192,42 +214,14 @@ export class Broodmaker {
     const canSpawn = Math.min(availGlobal, localAvail);
     if (canSpawn <= 0) { this._broodCooldown = 1.2; return; }
 
-    // Spawn 1–3 between boss and player to create pushback space (avoid behind player)
-    const count = Math.min(canSpawn, 1 + (this.rng() < 0.6 ? 1 : 0) + (this.rng() < 0.25 ? 1 : 0));
-    let near = this._computeSpawnBetweenBossAndPlayer(ctx, count, 3.5, 7.0);
-    // Fallback: if few valid slots found (tight space), try again with a bit more lateral spread
-    if (near.length < count) {
-      const extra = this._computeSpawnBetweenBossAndPlayer(ctx, count - near.length, 2.8, 6.5, 1.8);
-      near.push(...extra);
-    }
-    // Last resort: if still not enough, place on front hemisphere around player toward boss
-    if (near.length < count) {
-      const fill = this._computeSpawnAroundPlayer(ctx, count - near.length, 4.0, 8.0, (p) => {
-        const playerPos = ctx.player.position;
-        const fwd = (ctx.blackboard && ctx.blackboard.playerForward) ? ctx.blackboard.playerForward.clone().setY(0) : null;
-        const to = p.clone().sub(playerPos).setY(0);
-        if (to.lengthSq() === 0) return false;
-        to.normalize();
-        if (fwd && fwd.lengthSq() > 0) {
-          const cosHalf = Math.cos(Math.PI / 6); // 60° cone
-          if (fwd.normalize().dot(to) < cosHalf) return false;
-          // Also bias toward boss direction within the cone
-          const toBoss = this.root.position.clone().sub(playerPos).setY(0);
-          if (toBoss.lengthSq() > 0 && toBoss.normalize().dot(to) < -0.1) return false;
-          return true;
-        } else {
-          // If no forward available, at least ensure not behind relative to boss
-          const toBoss = this.root.position.clone().sub(playerPos).setY(0);
-          if (toBoss.lengthSq() > 0) { toBoss.normalize(); if (toBoss.dot(to) < 0) return false; }
-          return true;
-        }
-      });
-      near.push(...fill);
-    }
+    // Build a readable screen of 3–4 bodies between player and boss. Combat
+    // geometry owns the formation, never the direction of the player camera.
+    const count = Math.min(canSpawn, 3 + (this.rng() < 0.35 ? 1 : 0));
+    const near = this._computeSpawnWallBetweenBossAndPlayer(ctx, count);
     let spawned = 0;
 
     for (const p of near) {
-      const root = this.enemyManager.spawnAt('broodling', p, { countsTowardAlive: true });
+      const root = this.enemyManager.spawnAt('gruntling', p, { countsTowardAlive: true });
       if (root) {
         // light, fragile adds
         root.userData.hp = Math.max(8, Math.floor(12 + this.rng() * 6));
@@ -237,6 +231,15 @@ export class Broodmaker {
           if (typeof inst.aggression === 'number') inst.aggression = Math.min(1.0, (inst.aggression || 0.8) + 0.1);
         }
         this._broodRoots.add(root);
+        root.userData.summonerRoot = this.root;
+        root.userData.bossOwnerRoot = this.root;
+        root.userData.summonRole = 'brood_wall';
+        ctx.emitAIEvent?.(this.root, 'boss_add_spawned', {
+          ability: 'brood_wall',
+          spawnedRoot: root,
+          ownerRoot: this.root,
+          betweenBossAndPlayer: true
+        });
         spawned++;
       }
     }
@@ -305,7 +308,7 @@ export class Broodmaker {
   _pickRelocatePos(playerPos) {
     const THREE = this.THREE;
     const a = this.rng() * Math.PI * 2;
-    const r = 10 + this.rng() * 6; // 10–16 m from player
+    const r = 17 + this.rng() * 5; // re-establish the ranged-controller band
     const pos = new THREE.Vector3(playerPos.x + Math.cos(a) * r, this.root.position.y, playerPos.z + Math.sin(a) * r);
     // clamp to arena
     pos.x = Math.max(-39, Math.min(39, pos.x));
@@ -324,7 +327,7 @@ export class Broodmaker {
 
     const THREE = this.THREE;
     const ring = new THREE.Mesh(
-      new THREE.RingGeometry(0.9, 1.8, 28),
+      getBossSharedGeometry(THREE, 'broodmaker-phase-ring', () => new THREE.RingGeometry(0.9, 1.8, 28)),
       new THREE.MeshBasicMaterial({ color: 0xff88aa, transparent: true, opacity: 0.85, side: THREE.DoubleSide })
     );
     ring.rotation.x = -Math.PI / 2;
@@ -347,7 +350,11 @@ export class Broodmaker {
 
   _endPhaseTelegraph(ctx) {
     this._phaseTelegraph = 0;
-    if (this._phaseTelegraphRing) { ctx.scene.remove(this._phaseTelegraphRing); this._phaseTelegraphRing = null; }
+    if (this._phaseTelegraphRing) {
+      ctx.scene.remove(this._phaseTelegraphRing);
+      this._phaseTelegraphRing.material?.dispose?.();
+      this._phaseTelegraphRing = null;
+    }
     const head = this.root.userData.head;
     if (head?.material?.emissive) head.material.emissive.setHex(0xbb66ff);
     try { (this.refs?.eggs||[]).forEach(s=>{ if (s.material?.emissiveIntensity!=null) s.material.emissiveIntensity = 0.85; }); } catch (e) { logError(e); }
@@ -401,12 +408,19 @@ export class Broodmaker {
       const root = this.enemyManager.spawnAt('flyer', p, { countsTowardAlive: true });
       if (root) {
         root.userData.hp = Math.max(10, Math.floor(18 + this.rng() * 10));
+        root.userData.summonerRoot = this.root;
+        root.userData.bossOwnerRoot = this.root;
+        root.userData.summonRole = 'flyer_brood';
         const inst = this.enemyManager.instanceByRoot.get(root);
         if (inst) {
+          inst.summoner = this;
           inst.speed *= 1.12;
           inst.diveSpeed = (inst.diveSpeed || inst.speed * 1.4) * 1.08;
         }
         this._flyerRoots.add(root);
+        ctx.emitAIEvent?.(this.root, 'boss_add_spawned', {
+          ability: 'flyer_brood', spawnedRoot: root, ownerRoot: this.root
+        });
         spawned++;
       }
     }
@@ -479,6 +493,47 @@ export class Broodmaker {
       }
       if (typeof filter === 'function' && !filter(pos)) continue;
       out.push(pos);
+    }
+    return out;
+  }
+
+  _computeSpawnWallBetweenBossAndPlayer(ctx, count) {
+    const out = [];
+    if (!ctx?.player?.position || count <= 0) return out;
+    const bossPos = this.root.position.clone();
+    const playerPos = ctx.player.position.clone();
+    bossPos.y = 0;
+    playerPos.y = 0;
+    const axis = playerPos.clone().sub(bossPos);
+    const distance = axis.length();
+    if (distance < 5) return out;
+    axis.normalize();
+    const lateral = new this.THREE.Vector3(-axis.z, 0, axis.x);
+    const anchorDistance = Math.min(8, Math.max(4.5, distance * 0.38));
+    const anchor = bossPos.clone().addScaledVector(axis, anchorDistance);
+    const spacing = 1.35;
+
+    for (let i = 0; i < count; i++) {
+      const offset = (i - (count - 1) * 0.5) * spacing;
+      const direction = Math.sign(offset || 1);
+      const candidates = [offset, offset + direction * spacing, offset - direction * spacing];
+      let selected = null;
+      for (const candidate of candidates) {
+        const pos = anchor.clone().addScaledVector(lateral, candidate);
+        pos.y = 1.2;
+        pos.x = Math.max(-39, Math.min(39, pos.x));
+        pos.z = Math.max(-39, Math.min(39, pos.z));
+        if (this.enemyManager?._isSpawnAreaClear && !this.enemyManager._isSpawnAreaClear(pos, 0.38)) continue;
+        const crowded = out.some(existing => {
+          const dx = existing.x - pos.x;
+          const dz = existing.z - pos.z;
+          return dx * dx + dz * dz < 1.1 * 1.1;
+        });
+        if (crowded) continue;
+        selected = pos;
+        break;
+      }
+      if (selected) out.push(selected);
     }
     return out;
   }

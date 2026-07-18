@@ -26,7 +26,10 @@
 ### Combat onboarding
 - Start weapon: Pistol sidearm only, semi-auto with a small magazine and reserve ammo.
 - Wave 2 reward: SMG is auto-equipped as the first primary to establish the primary/sidearm slot loop.
-- Later primaries: Rifle, Shotgun, Minigun, DMR, and BeamSaber enter through guided wave offers/unlocks.
+- Shotgun, Minigun, and BeamSaber remain free guided discoveries so the early run develops without Archive grinding.
+- Classified trials: Rifle identity and a one-run trial unlock at Wave 6; DMR unlocks after the Wave 10 boss; Grenade Launcher unlocks after the Wave 15 boss.
+- Permanent licenses: Rifle costs 10 fragments and DMR costs 18, adding them to future primary pools. The 50-fragment Grenade Launcher package permanently creates dedicated Slot 3.
+- Trial access does not count as ownership for weapon mastery or optics. If the player dies before buying a license, that weapon returns to unavailable on the next run.
 - Reload: `R` fills the active weapon magazine from that weapon's reserve.
 - Visuals: tracer line + impact spark; slight enemy pushback on hit
 
@@ -166,7 +169,7 @@ Wave & Spawn
 - Spawn min distance: 12 units; LOS bias to out‑of‑sight/occluded spots; ring preference edge→mid, legacy fallback
 
 Weapons & Inputs
-- Slots: Primary (1) and Sidearm (2); Wave 1 starts with Pistol only, then Wave 2 auto-equips SMG as the first Primary while preserving Pistol as Sidearm.
+- Slots: Primary (1) and Pistol sidearm (2); Wave 1 starts with Pistol only, then Wave 2 auto-equips SMG as the first Primary. Buying the Grenade Launcher package adds persistent Slot 3 for standard runs.
 - Offers: guided early offers begin after the Wave 2 SMG grant, then continue on even waves; no back‑to‑back swaps if you swapped last offer.
 - Swap conversion: floor(0.5 × old reserve) + new default reserve; decline top‑up +20% reserve (clamped)
 - Boss weapon rewards: smaller bonuses — Refine (+5% mag / −5% bloom / +7% falloff, capped per run) or New Primary (1.25× reserve)

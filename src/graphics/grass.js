@@ -9,7 +9,9 @@ export function createGrassMesh({
   windStrength = 0.3
 } = {}) {
   // Base geometry for a single blade
-  const blade = new THREE.PlaneGeometry(0.1, 1, 1, 3);
+  // The sway is linear over blade height, so extra vertical subdivisions add
+  // triangles without changing the silhouette. One quad keeps all 20k blades.
+  const blade = new THREE.PlaneGeometry(0.1, 1, 1, 1);
   blade.translate(0, 0.5, 0); // Pivot at bottom
 
   const geo = new THREE.InstancedBufferGeometry();
@@ -29,6 +31,7 @@ export function createGrassMesh({
 
   const colorA = new THREE.Color(colorRange[0]);
   const colorB = new THREE.Color(colorRange[1]);
+  const color = new THREE.Color();
 
   for (let i = 0; i < bladeCount; i++) {
     // Pick a random triangle on the floor
@@ -53,12 +56,17 @@ export function createGrassMesh({
     const y = u * ay + v * by + w * cy + 0.01; // Offset slightly above floor
     const z = u * az + v * bz + w * cz;
 
-    offsets.set([x, y, z], i * 3);
+    const i3 = i * 3;
+    offsets[i3] = x;
+    offsets[i3 + 1] = y;
+    offsets[i3 + 2] = z;
     angles[i] = Math.random() * Math.PI * 2;
     scales[i] = THREE.MathUtils.randFloat(heightRange[0], heightRange[1]);
 
-    const c = colorA.clone().lerp(colorB, Math.random());
-    colors.set([c.r, c.g, c.b], i * 3);
+    color.copy(colorA).lerp(colorB, Math.random());
+    colors[i3] = color.r;
+    colors[i3 + 1] = color.g;
+    colors[i3 + 2] = color.b;
   }
 
   geo.setAttribute('offset', new THREE.InstancedBufferAttribute(offsets, 3));
@@ -70,6 +78,8 @@ export function createGrassMesh({
     uniforms: {
       time: { value: 0 },
       windStrength: { value: windStrength },
+      leanBias: { value: windStrength * 0.12 },
+      gustStrength: { value: 0.035 },
       windDirection: { value: new THREE.Vector2(1, 0) },
       heightFactor: { value: 1 },
       snowMix: { value: 0 }
@@ -81,6 +91,8 @@ export function createGrassMesh({
       attribute vec3 color;
       uniform float time;
       uniform float windStrength;
+      uniform float leanBias;
+      uniform float gustStrength;
       uniform vec2 windDirection;
       uniform float heightFactor;
       varying vec3 vColor;
@@ -88,10 +100,10 @@ export function createGrassMesh({
         vColor = color;
         vec3 pos = position;
         pos.y *= scale * heightFactor;
-        float sway = sin(time + offset.x + offset.z);
-        float disp = (windStrength * 0.6 + max(0.0, sway) * windStrength +
-          min(0.0, sway) * windStrength * 0.1) * position.y;
-        pos.xz += windDirection * disp;
+        float phase = offset.x * 0.17 + offset.z * 0.19;
+        float sway = sin(time * 2.2 + phase) * 0.68
+          + sin(time * 3.7 + phase * 1.73) * 0.24;
+        float disp = (leanBias + sway * gustStrength) * position.y;
         float c = cos(angle);
         float s = sin(angle);
         pos = vec3(
@@ -99,6 +111,9 @@ export function createGrassMesh({
           pos.y,
           pos.x * s + pos.z * c
         );
+        // Apply one world-space wind vector after random blade orientation so
+        // the entire field leans together instead of forming crossed X shapes.
+        pos.xz += windDirection * disp;
         pos += offset;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
       }
@@ -121,7 +136,7 @@ export function createGrassMesh({
     const now = performance.now() / 1000;
     const dt = now - last;
     last = now;
-    mat.uniforms.time.value += dt * (0.8 + mat.uniforms.windStrength.value);
+    mat.uniforms.time.value += dt * 0.85;
   };
   return mesh;
 }
@@ -129,10 +144,21 @@ export function createGrassMesh({
 // Remove blades that fall within any obstacle's bounding box.
 // `obstacles` should be an array of THREE.Object3D already added to the scene.
 export function cullGrassUnderObjects(grassMesh, obstacles = []) {
-  if (!grassMesh || !obstacles.length) return;
+  if (!grassMesh) return;
   const offsets = grassMesh.geometry.getAttribute('offset');
   const scales = grassMesh.geometry.getAttribute('scale');
   if (!offsets || !scales) return;
+
+  // Every level load starts from the authored field, so unload/reload cannot
+  // accumulate invisible blades from an earlier arena.
+  if (!grassMesh.userData.baseGrassScales || grassMesh.userData.baseGrassScales.length !== scales.count) {
+    grassMesh.userData.baseGrassScales = Float32Array.from(scales.array);
+  }
+  for (let i = 0; i < scales.count; i++) scales.setX(i, grassMesh.userData.baseGrassScales[i]);
+  if (!obstacles.length) {
+    scales.needsUpdate = true;
+    return;
+  }
 
   // Precompute bounding boxes to avoid repeated allocations in the loop
   const boxes = [];

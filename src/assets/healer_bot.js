@@ -27,6 +27,12 @@ export function createHealerBot({ THREE, mats, scale = 1.0, palette } = {}) {
       parent.add(mesh);
       return mesh;
     };
+    const refs = { leftArm: null, rightArm: null, leftLeg: null, rightLeg: null, auraEmitter: null, signalMeshes: [] };
+    const addSignal = (mesh, parent = group, pos = null) => {
+      const signal = add(mesh, parent, pos);
+      refs.signalMeshes.push(signal);
+      return signal;
+    };
   
     // --------- Core body (slimmer chest + abdomen + hips) ----------
     const chest = add(new THREE.Mesh(new THREE.BoxGeometry(0.92, 1.06, 0.70), matArmor),
@@ -37,8 +43,8 @@ export function createHealerBot({ THREE, mats, scale = 1.0, palette } = {}) {
     const plate = add(new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.46, 0.10), matAccent),
                       chest, new THREE.Vector3(0, 0.10, 0.40));
     // “med cross” from two glowing bars
-    add(new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.08, 0.04), matGlow), plate, new THREE.Vector3(0, 0.00, 0.06));
-    add(new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.28, 0.04), matGlow), plate, new THREE.Vector3(0, 0.00, 0.06));
+    addSignal(new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.08, 0.04), matGlow), plate, new THREE.Vector3(0, 0.00, 0.06));
+    addSignal(new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.28, 0.04), matGlow), plate, new THREE.Vector3(0, 0.00, 0.06));
   
     const abdomen = add(new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.40, 0.62), matAccent),
                         group, new THREE.Vector3(0, 1.05 * scale, 0.02));
@@ -53,18 +59,16 @@ export function createHealerBot({ THREE, mats, scale = 1.0, palette } = {}) {
     const head = add(new THREE.Mesh(new THREE.BoxGeometry(0.74, 0.66, 0.74), matHead),
                      group, new THREE.Vector3(0, 2.15 * scale, 0));
     head.userData.bodyPart = 'head';
-    add(new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.10, 0.05), matGlow), head, new THREE.Vector3(0, -0.02, 0.36));
+    addSignal(new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.10, 0.05), matGlow), head, new THREE.Vector3(0, -0.02, 0.36));
   
     // --------- Arms (with glow strips) ----------
-    const refs = { leftArm: null, rightArm: null, leftLeg: null, rightLeg: null, auraEmitter: null };
-  
     const mkArm = (side) => {
       const root = new THREE.Group(); root.position.set(0.84 * side, 1.72 * scale, 0); group.add(root);
       add(new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.46, 0.44), matJoint), root, new THREE.Vector3(0, -0.30, 0));
       const fore = add(new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.62, 0.44), matArmor), root, new THREE.Vector3(0, -0.90, -0.02));
       // twin glow strips on forearm
-      add(new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.26, 0.05), matGlow), fore, new THREE.Vector3( 0.18 * side, -0.10, 0.22));
-      add(new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.26, 0.05), matGlow), fore, new THREE.Vector3( 0.18 * side, -0.10,-0.22));
+      addSignal(new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.26, 0.05), matGlow), fore, new THREE.Vector3( 0.18 * side, -0.10, 0.22));
+      addSignal(new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.26, 0.05), matGlow), fore, new THREE.Vector3( 0.18 * side, -0.10,-0.22));
       return root;
     };
     refs.rightArm = mkArm(1);
@@ -94,10 +98,10 @@ export function createHealerBot({ THREE, mats, scale = 1.0, palette } = {}) {
     const leftCan  = new THREE.Mesh(canGeo, canMat);  leftCan.rotation.z = Math.PI/2; leftCan.position.set( 0.40, 0.00, -0.08); pack.add(leftCan);
     const rightCan = new THREE.Mesh(canGeo, canMat); rightCan.rotation.z = Math.PI/2; rightCan.position.set(-0.40, 0.00, -0.08); pack.add(rightCan);
     // glowing caps
-    add(new THREE.Mesh(new THREE.CylinderGeometry(0.10,0.10,0.06,10), matGlow), leftCan,  new THREE.Vector3(0,  0.32, 0));
-    add(new THREE.Mesh(new THREE.CylinderGeometry(0.10,0.10,0.06,10), matGlow), leftCan,  new THREE.Vector3(0, -0.32, 0));
-    add(new THREE.Mesh(new THREE.CylinderGeometry(0.10,0.10,0.06,10), matGlow), rightCan, new THREE.Vector3(0,  0.32, 0));
-    add(new THREE.Mesh(new THREE.CylinderGeometry(0.10,0.10,0.06,10), matGlow), rightCan, new THREE.Vector3(0, -0.32, 0));
+    addSignal(new THREE.Mesh(new THREE.CylinderGeometry(0.10,0.10,0.06,10), matGlow), leftCan,  new THREE.Vector3(0,  0.32, 0));
+    addSignal(new THREE.Mesh(new THREE.CylinderGeometry(0.10,0.10,0.06,10), matGlow), leftCan,  new THREE.Vector3(0, -0.32, 0));
+    addSignal(new THREE.Mesh(new THREE.CylinderGeometry(0.10,0.10,0.06,10), matGlow), rightCan, new THREE.Vector3(0,  0.32, 0));
+    addSignal(new THREE.Mesh(new THREE.CylinderGeometry(0.10,0.10,0.06,10), matGlow), rightCan, new THREE.Vector3(0, -0.32, 0));
   
     // halo ring (your VFX anchor)
     const ringGeo = new THREE.TorusGeometry(0.42, 0.06, 8, 28);
@@ -105,9 +109,10 @@ export function createHealerBot({ THREE, mats, scale = 1.0, palette } = {}) {
     halo.rotation.x = Math.PI/2;  // face backward/forward
     halo.position.set(0, 0.00, -0.24);
     pack.add(halo);
+    refs.signalMeshes.push(halo);
   
     // small rear badge (extra glow)
-    add(new THREE.Mesh(new THREE.BoxGeometry(0.22,0.22,0.04), matGlow), pack, new THREE.Vector3(0, -0.20, -0.18));
+    addSignal(new THREE.Mesh(new THREE.BoxGeometry(0.22,0.22,0.04), matGlow), pack, new THREE.Vector3(0, -0.20, -0.18));
   
     // final
     group.scale.set(scale, scale, scale);

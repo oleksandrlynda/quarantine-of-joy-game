@@ -1,6 +1,6 @@
 // Suppression Nodes helper for Commissioner Sanitizer
 // Creates 3 static pillars around a center, tracks their HP and simple pulse
-import { createSanitizerNodeAsset } from '../assets/boss_sanitizer.js';
+import { createSanitizerNodeVisual } from './visual-cache.js';
 export class SuppressionNodes {
   constructor({ THREE, mats, center, enemyManager, rng = Math.random }) {
     this.THREE = THREE;
@@ -24,7 +24,7 @@ export class SuppressionNodes {
       );
 
       // Root group holds visual children and HP, using consistent asset style
-      const asset = createSanitizerNodeAsset({ THREE });
+      const asset = createSanitizerNodeVisual({ THREE });
       const root = asset.root;
       root.position.copy(pos);
       root.userData = { type: 'boss_node', hp: 140 };
@@ -81,6 +81,7 @@ export class SuppressionNodes {
         scene.remove(r);
       }
     }
+    for (const ring of this._rings) ring?.material?.dispose?.();
     this.roots.length = 0;
     this._rings.length = 0;
   }

@@ -10,7 +10,7 @@ import { BeamSaber } from './beamsaber.js';
 
 // WeaponSystem orchestrates current weapon, input mapping, and HUD sync
 export class WeaponSystem {
-  constructor({ THREE, camera, raycaster, enemyManager, objects, effects, obstacleManager, pickups, S, updateHUD, addScore, addComboAction, combo, addTracer, applyRecoil, weaponView, achievements }) {
+  constructor({ THREE, camera, raycaster, enemyManager, objects, effects, obstacleManager, pickups, S, updateHUD, addScore, addComboAction, combo, addTracer, applyRecoil, applyPlayerKnockback, getPlayerPosition, setZoomMultiplier, weaponView, achievements, getGameTime, onWeaponSwitch, mutations }) {
     this.THREE = THREE;
     this.camera = camera;
     this.raycaster = raycaster;
@@ -26,15 +26,25 @@ export class WeaponSystem {
     this.combo = combo;
     this.addTracer = addTracer;
     this.applyRecoil = applyRecoil || (()=>{});
+    this.applyPlayerKnockback = applyPlayerKnockback || (()=>{});
+    this.getPlayerPosition = getPlayerPosition || (()=>null);
+    this.setZoomMultiplier = setZoomMultiplier || (()=>{});
     this.weaponView = weaponView;
     this.achievements = achievements;
+    this.getGameTime = getGameTime || (() => 0);
+    this.onWeaponSwitch = typeof onWeaponSwitch === 'function' ? onWeaponSwitch : null;
+    this.mutations = mutations || null;
     this.splitPickupsProportionally = false; // optional economy mode
 
     this.inventory = [];
     this.currentIndex = 0; // primary slot index
+    this.zoomed = false;
 
-    // Start wave 1 with only a Pistol
-    this.inventory.push(new Pistol());  // Sidearm-only start; primary is acquired later
+    // Start wave 1 with the Pistol; the Grenade package is restored separately.
+    this.inventory.push(new Pistol());
+    const tactical = this._makeTacticalWeapon(this._getOwnedTacticalId());
+    if (tactical) this.inventory.push(tactical);
+    for (const weapon of this.inventory) this.mutations?.discoverWeapon?.(weapon?.name);
   }
 
   get current() { return this.inventory[this.currentIndex]; }
@@ -96,7 +106,11 @@ export class WeaponSystem {
       addTracer: this.addTracer,
       applyRecoil: this.applyRecoil,
       applyKnockback: (enemy, vec) => this.enemyManager?.applyKnockback?.(enemy, vec),
-      achievements: this.achievements
+      applyPlayerKnockback: this.applyPlayerKnockback,
+      getPlayerPosition: this.getPlayerPosition,
+      achievements: this.achievements,
+      getGameTime: this.getGameTime,
+      mutations: this.mutations
     };
   }
 
@@ -113,7 +127,16 @@ export class WeaponSystem {
 
   triggerAltDown() {
     const w = this.current; if (!w) return;
-    if (typeof w.altTriggerDown === 'function') w.altTriggerDown(this.context());
+    const ctx = this.context();
+    const zoomMultiplier = Number(w.zoomMultiplier) || 1;
+    if (zoomMultiplier > 1) {
+      if (typeof w.hasAltFire !== 'function' || !w.hasAltFire(ctx)) return false;
+      this.zoomed = !this.zoomed;
+      this.setZoomMultiplier(this.zoomed ? zoomMultiplier : 1);
+      return true;
+    }
+    if (typeof w.altTriggerDown === 'function') return w.altTriggerDown(ctx);
+    return false;
   }
 
   triggerAltUp() {
@@ -121,9 +144,22 @@ export class WeaponSystem {
     if (typeof w.altTriggerUp === 'function') w.altTriggerUp(this.context());
   }
 
+  hasCurrentAltFire() {
+    const w = this.current;
+    if (!w || typeof w.hasAltFire !== 'function') return false;
+    return w.hasAltFire(this.context());
+  }
+
+  cancelZoom() {
+    if (!this.zoomed) return;
+    this.zoomed = false;
+    this.setZoomMultiplier(1);
+  }
+
   reload() {
     const ok = this.current?.reload(() => this.S?.reload?.());
     if (ok) {
+      this.achievements?.check?.({ type: 'reload', weapon: this.current?.name || 'Unknown' });
       // Trigger simple reload tilt on weapon view
       try {
         const name = this.getPrimaryName();
@@ -136,28 +172,112 @@ export class WeaponSystem {
     }
   }
 
-  update(dt) { this.current?.update(dt, this.context()); }
+  update(dt) {
+    const ctx = this.context();
+    for (const weapon of this.inventory) weapon?.update?.(dt, ctx);
+  }
 
-  reset() { for (const w of this.inventory) w.reset(); this.updateHUD?.(); }
+  reset() { this.cancelZoom(); for (const w of this.inventory) w.reset(); this.updateHUD?.(); }
+
+  resetRunInventory({ tutorial = false } = {}) {
+    this.cancelZoom();
+    for (const weapon of this.inventory) {
+      weapon?.triggerUp?.();
+      weapon?.altTriggerCancel?.(this.context());
+      weapon?.clearWorld?.(this.context());
+    }
+    this.inventory = [new Pistol()];
+    const tactical = !tutorial ? this._makeTacticalWeapon(this._getOwnedTacticalId()) : null;
+    if (tactical) this.inventory.push(tactical);
+    this.currentIndex = 0;
+    this.notifyInventoryChange();
+  }
+
+  setDebugWaveLoadout() {
+    this.cancelZoom();
+    for (const weapon of this.inventory) {
+      weapon?.triggerUp?.();
+      weapon?.altTriggerCancel?.(this.context());
+      weapon?.clearWorld?.(this.context());
+    }
+    this.inventory = [
+      new Rifle({ mastery: this.mutations }),
+      new SMG({ mastery: this.mutations }),
+      new DMR({ mastery: this.mutations }),
+      new Pistol()
+    ];
+    for (const weapon of this.inventory) weapon.reset?.();
+    this.currentIndex = 0;
+    this.notifyInventoryChange();
+  }
+
+  ensureGrenadeSlot() {
+    return this.ensureTacticalSlot('grenade');
+  }
+
+  ensureTacticalSlot(weaponId) {
+    const id = String(weaponId || '').toLowerCase();
+    const tactical = this._makeTacticalWeapon(id);
+    if (!tactical) return null;
+    if (this.mutations?.hasWeaponAccess && !this.mutations.hasWeaponAccess(id)) return null;
+    const tacticalIndex = this.inventory.findIndex(weapon => this._isTacticalWeapon(weapon));
+    if (tacticalIndex >= 0) {
+      const old = this.inventory[tacticalIndex];
+      if (old?.name === tactical.name) return old;
+      old?.triggerUp?.();
+      old?.clearWorld?.(this.context());
+      this.inventory[tacticalIndex] = tactical;
+      if (this.currentIndex === tacticalIndex) this.currentIndex = tacticalIndex;
+    } else {
+      this.inventory.push(tactical);
+    }
+    this.notifyInventoryChange();
+    return tactical;
+  }
+
+  _isTacticalWeapon(weapon) {
+    return weapon?.name === 'Grenade';
+  }
+
+  _makeTacticalWeapon(weaponId) {
+    if (weaponId === 'grenade') return new GrenadePistol();
+    return null;
+  }
+
+  _getOwnedTacticalId() {
+    const equipped = this.mutations?.getEquippedTactical?.();
+    if (equipped && this.mutations?.isWeaponOwned?.(equipped)) return equipped;
+    if (this.mutations?.isWeaponOwned?.('grenade')) return 'grenade';
+    return null;
+  }
 
   setObjects(objects) { this.objects = objects; }
+
+  notifyInventoryChange() {
+    for (const weapon of this.inventory) this.mutations?.discoverWeapon?.(weapon?.name);
+    this.updateHUD?.();
+    this.onWeaponSwitch?.();
+  }
 
   switchSlot(slotIndex1Based) {
     const idx = (slotIndex1Based | 0) - 1;
     if (idx >= 0 && idx < this.inventory.length) {
       const old = this.current;
+      this.cancelZoom();
       if (old) {
         old.triggerUp();
         if (typeof old.altTriggerCancel === 'function') old.altTriggerCancel(this.context());
       }
       this.currentIndex = idx;
-      this.updateHUD?.();
+      this.notifyInventoryChange();
     }
   }
 
   // Swap primary to a new weapon instance and convert reserve from old
   swapPrimary(makeWeaponFn) {
-    const old = this.current;
+    const hasNoPrimary = this.inventory[0]?.name === 'Pistol';
+    const old = this.inventory[0];
+    this.cancelZoom();
     if (old) {
       old.triggerUp();
       if (typeof old.altTriggerCancel === 'function') old.altTriggerCancel(this.context());
@@ -167,42 +287,39 @@ export class WeaponSystem {
     newW.reset();
     newW.addReserve(carry);
     // If we are in pistol-only start (no primary yet), insert primary and keep pistol as sidearm
-    if (this.inventory.length === 1 && (this.inventory[0] instanceof Pistol || this.inventory[0]?.name === 'Pistol')) {
+    if (hasNoPrimary) {
       this.inventory.unshift(newW); // new primary at slot 0
-      this.currentIndex = 0;
     } else {
-      this.inventory[this.currentIndex] = newW;
+      this.inventory[0] = newW;
     }
-    this.updateHUD?.();
+    this.currentIndex = 0;
+    this.notifyInventoryChange();
     return newW;
   }
 
   // Offer pool based on unlock flags
   getUnlockedPrimaries(unlocks){
     const list = [];
-    if (unlocks?.rifle) list.push({ name:'Rifle', make: ()=> new Rifle() });
-    if (unlocks?.smg) list.push({ name:'SMG', make: ()=> new SMG() });
+    const hasAccess = weapon => !this.mutations?.isWeaponClassified?.(weapon) || this.mutations?.hasWeaponAccess?.(weapon);
+    if (unlocks?.rifle && hasAccess('rifle')) list.push({ name:'Rifle', make: ()=> new Rifle({ mastery: this.mutations }) });
+    if (unlocks?.smg) list.push({ name:'SMG', make: ()=> new SMG({ mastery: this.mutations }) });
     if (unlocks?.shotgun) list.push({ name:'Shotgun', make: ()=> new Shotgun() });
-    if (unlocks?.dmr) list.push({ name:'DMR', make: ()=> new DMR() });
-    if (unlocks?.minigun) list.push({ name:'Minigun', make: ()=> new Minigun() });
+    if (unlocks?.dmr && hasAccess('dmr')) list.push({ name:'DMR', make: ()=> new DMR({ mastery: this.mutations }) });
+    if (unlocks?.minigun) list.push({ name:'Minigun', make: ()=> new Minigun({ mastery: this.mutations }) });
     if (unlocks?.beamsaber) list.push({ name:'BeamSaber', make: ()=> new BeamSaber() });
-    if (unlocks?.grenade) list.push({ name:'Grenade', make: ()=> new GrenadePistol() });
     return list;
   }
 
-  // Sidearm offers (wave 20+): Pistol vs GrenadePistol
+  // The Pistol remains Slot 2. Grenade is a classified permanent Slot 3 package.
   getSidearms(){
-    return [
-      { name:'Pistol', make: ()=> new Pistol() },
-      { name:'Grenade', make: ()=> new GrenadePistol() }
-    ];
+    return [{ name:'Pistol', make: ()=> new Pistol() }];
   }
 
   onAmmoPickup(amount) {
     const gain = Math.max(0, amount | 0);
     const name = this.current?.name || '';
     // BeamSaber has no ammo economy
-    if (name === 'BeamSaber') return;
+    if (name === 'BeamSaber') return 0;
     // Balance pass: scale ammo pickup by weapon archetype so each drop yields
     // a comparable fraction of that weapon's default reserve.
     // Target avg fraction of default reserve per drop (approx):
@@ -235,11 +352,12 @@ export class WeaponSystem {
       this.current?.addReserve(adjustedGain);
       this.S?.reload?.();
       this.updateHUD?.();
-      return;
+      return adjustedGain;
     }
     // Proportional to deficits against each weapon's nominal reserve
-    const deficits = weapons.map(w => Math.max(0, (w.cfg.reserve || 0) - (w.reserveAmmo || 0)));
+    const deficits = weapons.map(w => Math.max(0, (w.getReserveCapacity?.() ?? w.cfg.reserve ?? 0) - (w.reserveAmmo || 0)));
     const totalDeficit = deficits.reduce((a,b)=>a+b,0);
+    let granted = 0;
     if (totalDeficit <= 0) {
       // Fallback: split evenly
       const per = Math.floor(gain / weapons.length);
@@ -247,24 +365,33 @@ export class WeaponSystem {
       for (let i=0;i<weapons.length;i++) {
         const add = per + (rem>0?1:0); rem = Math.max(0, rem-1);
         weapons[i].addReserve(add);
+        granted += add;
       }
     } else {
       let remaining = gain;
       for (let i=0;i<weapons.length;i++) {
         const share = Math.floor(gain * (deficits[i] / totalDeficit));
         weapons[i].addReserve(share);
+        granted += share;
         remaining -= share;
       }
       // distribute any rounding remainder to current weapon first
-      if (remaining > 0) this.current?.addReserve(remaining);
+      if (remaining > 0) {
+        this.current?.addReserve(remaining);
+        granted += remaining;
+      }
       // If current has a >1 multiplier, grant extra bonus to current to keep feel consistent
       if (multiplier > 1) {
         const bonus = Math.floor(gain * (multiplier - 1));
-        if (bonus > 0) this.current?.addReserve(bonus);
+        if (bonus > 0) {
+          this.current?.addReserve(bonus);
+          granted += bonus;
+        }
       }
     }
     this.S?.reload?.();
     this.updateHUD?.();
+    return granted;
   }
 }
 

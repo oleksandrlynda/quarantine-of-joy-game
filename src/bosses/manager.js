@@ -7,6 +7,9 @@ import { Captain } from './captain.js';
 import { ShardAvatar } from './shard.js';
 import { Hydraclone } from './hydraclone.js';
 import { StrikeAdjudicator } from './adjudicator.js';
+import { AlgorithmBoss } from './algorithm.js';
+import { ReusablePool } from './reusable-pool.js';
+import { getBossSharedGeometry } from './visual-cache.js';
 
 export class BossManager {
   constructor({ THREE, scene, mats, enemyManager, rng = Math.random }) {
@@ -24,6 +27,7 @@ export class BossManager {
     this.telegraphTime = 0;
     this.telegraphRequired = 0.8;
     this.telegraphs = [];
+    this._telegraphPool = null;
 
     this.addRoots = new Set(); // root meshes of spawned adds
     this._onDeathCb = null;
@@ -34,6 +38,10 @@ export class BossManager {
   reset() {
     // Clean up any visuals and state
     this._clearTelegraphs();
+    const hydraId = this.boss?.root?.userData?.type === 'boss_hydraclone'
+      ? this.boss.root.userData.bossId
+      : null;
+    if (hydraId) Hydraclone.resetLineage(hydraId);
     // Attempt to remove any remaining adds (if any)
     for (const root of Array.from(this.addRoots)) {
       if (this.enemyManager.enemies.has(root)) {
@@ -50,7 +58,8 @@ export class BossManager {
     this.wave = wave;
 
     // Spawn position: prefer manager's spawn selection, else fallback near far edge
-    const spawnPos = (typeof this.enemyManager._chooseSpawnPos === 'function'
+    const fixedSpawn = this.enemyManager.encounterHooks?.getBossSpawn?.(wave);
+    const spawnPos = fixedSpawn || (typeof this.enemyManager._chooseSpawnPos === 'function'
       ? this.enemyManager._chooseSpawnPos()
       : new THREE.Vector3((this.rng()*50-25)|0, 0.8, (this.rng()*50-25)|0));
 
@@ -62,6 +71,7 @@ export class BossManager {
     // - Wave 25: Broodmaker (heavy version)
     // - Wave 30: Hydraclone
     // - Wave 35: Strike Adjudicator
+    // - Wave 40: The Algorithm (campaign finale, arena-centered)
     let boss;
     if (wave === 5) {
       boss = new Broodmaker({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager, rng: this.rng });
@@ -77,11 +87,22 @@ export class BossManager {
       boss = new Hydraclone({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager, generation: 0, rng: this.rng });
     } else if (wave == 35) {
       boss = new StrikeAdjudicator({ THREE, mats: this.mats, spawnPos, enemyManager: this.enemyManager, rng: this.rng });
+    } else if (wave == 40) {
+      boss = new AlgorithmBoss({
+        THREE,
+        mats: this.mats,
+        spawnPos: new THREE.Vector3(0, 0.8, 0),
+        enemyManager: this.enemyManager,
+        rng: this.rng
+      });
     }
 
     if (!boss) return false;
 
     this.active = true;
+    // Bosses are encounter anchors. Weapon and radial knockback must never
+    // displace them, regardless of the concrete boss implementation.
+    boss.root.userData.knockbackImmune = true;
     boss._notifyDeath = () => this._onBossDeath();
     this.enemyManager.registerExternalEnemy(boss, { countsTowardAlive: true });
     this.boss = boss;
@@ -97,6 +118,8 @@ export class BossManager {
 
     // If boss got removed externally, treat as death
     if (!this.enemyManager.enemies.has(this.boss.root)) {
+      const data = this.boss.root?.userData;
+      if (data?.type === 'boss_hydraclone' && Hydraclone.hasPending(data.bossId)) return;
       this._onBossDeath();
       return;
     }
@@ -108,12 +131,10 @@ export class BossManager {
 
     // Skip generic add spawns for bosses that manage their own cadence
     const bossType = this.boss?.root?.userData?.type || '';
-    const selfManaged =
-      bossType.startsWith('boss_sanitizer') ||
-      bossType.startsWith('boss_captain') ||
-      bossType.startsWith('boss_shard') ||
-      bossType.startsWith('boss_broodmaker_heavy') ||
-      bossType.startsWith('boss_hydraclone');
+    // Every modern campaign boss owns its encounter composition. The generic
+    // legacy spawner otherwise doubles light Broodmaker and Adjudicator adds
+    // and bypasses their local caps/formation rules.
+    const selfManaged = bossType.startsWith('boss_');
     if (selfManaged) {
       // Only update boss; no telegraphs or adds here
       this.boss.update(dt, ctx);
@@ -148,13 +169,10 @@ export class BossManager {
   _beginTelegraph(ctx) {
     // Create 3 small ground rings near the player as a visual cue
     const THREE = this.THREE;
+    const pool = this._ensureTelegraphPool();
     const positions = this._computeAddSpawnPositions(ctx, 3);
     for (const p of positions) {
-      const ring = new THREE.Mesh(
-        new THREE.RingGeometry(0.4, 0.75, 24),
-        new THREE.MeshBasicMaterial({ color: 0xff5555, transparent: true, opacity: 0.7, side: THREE.DoubleSide })
-      );
-      ring.rotation.x = -Math.PI/2;
+      const ring = pool.acquire();
       ring.position.set(p.x, 0.05, p.z);
       ring.userData = { life: 0 };
       this.scene.add(ring);
@@ -176,12 +194,38 @@ export class BossManager {
   }
 
   _clearTelegraphs() {
-    for (const r of this.telegraphs) this.scene.remove(r);
+    for (const r of this.telegraphs) this._telegraphPool?.release(r);
     this.telegraphs.length = 0;
+  }
+
+  _ensureTelegraphPool() {
+    if (this._telegraphPool) return this._telegraphPool;
+    const THREE = this.THREE;
+    const geometry = getBossSharedGeometry(THREE, 'generic-boss-telegraph', () => new THREE.RingGeometry(0.4, 0.75, 24));
+    this._telegraphPool = new ReusablePool({
+      preallocate: 3,
+      create: () => {
+        const ring = new THREE.Mesh(
+          geometry,
+          new THREE.MeshBasicMaterial({ color: 0xff5555, transparent: true, opacity: 0.7, side: THREE.DoubleSide })
+        );
+        ring.rotation.x = -Math.PI / 2;
+        return ring;
+      },
+      reset: ring => { ring.visible = true; ring.material.opacity = 0.7; ring.scale.set(1, 1, 1); },
+      release: ring => { this.scene.remove(ring); ring.visible = false; }
+    });
+    return this._telegraphPool;
   }
 
   _computeAddSpawnPositions(ctx, count) {
     const THREE = this.THREE;
+    const authored = this.enemyManager.encounterHooks?.getBossAddPositions?.({
+      count,
+      type: 'gruntling',
+      player: ctx.player
+    });
+    if (Array.isArray(authored)) return authored;
     const positions = [];
     const playerPos = ctx.player.position;
     for (let i = 0; i < count; i++) {
@@ -215,8 +259,32 @@ export class BossManager {
     }
   }
 
+  handleEnemyRemoved(enemyRoot) {
+    if (!this.active || !this.boss) return false;
+    const bossRoot = this.boss.root;
+    const bossData = bossRoot?.userData || {};
+    const removedData = enemyRoot?.userData || {};
+
+    if (bossData.type === 'boss_hydraclone') {
+      const sameLineage = removedData.bossId === bossData.bossId;
+      if (!sameLineage || Hydraclone.hasPending(bossData.bossId)) return false;
+      // Boss rewards should land where the final echo fell, not where the core
+      // split earlier in the encounter.
+      if (enemyRoot !== bossRoot && enemyRoot?.position) bossRoot.position.copy(enemyRoot.position);
+      this._onBossDeath();
+      return true;
+    }
+
+    if (enemyRoot !== bossRoot) return false;
+    this._onBossDeath();
+    return true;
+  }
+
   _onBossDeath() {
     if (!this.active) return;
+    const hydraId = this.boss?.root?.userData?.type === 'boss_hydraclone'
+      ? this.boss.root.userData.bossId
+      : null;
     // Mark inactive first so enemyManager.remove auto-advance only after adds cleared
     this.active = false;
     // Remove telegraphs
@@ -231,12 +299,17 @@ export class BossManager {
     // Also purge any lingering boss auxiliaries (e.g., pods/nodes) so waves don't stall
     for (const root of Array.from(this.enemyManager.enemies)) {
       const t = root?.userData?.type || '';
-      if (t.startsWith('boss_pod') || t.startsWith('boss_node')) {
+      if (t.startsWith('boss_pod') || t.startsWith('boss_node') || t.startsWith('boss_algorithm_echo')) {
         this.enemyManager.remove(root);
       }
     }
     // Callback to external listeners
     if (typeof this._onDeathCb === 'function') this._onDeathCb(this.wave);
+    if (hydraId) {
+      Hydraclone.resetLineage(hydraId);
+      const lineages = this.enemyManager?._ctx?.blackboard?.hydraLineages;
+      if (lineages) delete lineages[hydraId];
+    }
     // Boss reference cleared; next wave progression will happen via EnemyManager.remove when alive reaches 0
     this.boss = null;
   }

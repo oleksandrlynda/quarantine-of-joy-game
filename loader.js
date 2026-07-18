@@ -1,5 +1,5 @@
 // src/exportmodels.js
-// Loads all GLB models from /src/assets, keeps a prefab registry,
+// Loads generated GLB models, keeps a prefab registry,
 // provides cheap instantiation, and pre-warms shader programs.
 //
 // Usage:
@@ -14,49 +14,20 @@
 
 import * as THREE from 'https://unpkg.com/three@0.159.0/build/three.module.js';
 import { GLTFLoader } from 'https://unpkg.com/three@0.159.0/examples/jsm/loaders/GLTFLoader.js?module';
-import { DRACOLoader } from 'https://unpkg.com/three@0.159.0/examples/jsm/loaders/DRACOLoader.js?module';
 import { MeshoptDecoder } from 'https://unpkg.com/three@0.159.0/examples/jsm/libs/meshopt_decoder.module.js?module';
 import * as SkeletonUtils from 'https://unpkg.com/three@0.159.0/examples/jsm/utils/SkeletonUtils.js?module';
+import { mergeGeometries } from 'https://unpkg.com/three@0.159.0/examples/jsm/utils/BufferGeometryUtils.js?module';
+import { createRuntimeAssetManifest, GENERATED_ASSET_ROOT } from './src/assets/runtime-manifest.js';
 
 // ---------- Manifest ----------
-// Map a stable key to a GLB path under /src/assets.
-// Add/remove lines here as you export more models.
-const ASSET_MANIFEST = {
-  // Core grunts
-  'gruntbot'          : 'src/assets/gruntbot.glb',
-  'shooterbot'        : 'src/assets/shooterbot.glb',
-  'runnerbot'         : 'src/assets/runnerbot.glb',
-  'healerbot'         : 'src/assets/healer_bot.glb',
-  'sniperbot'         : 'src/assets/sniper_bot.glb',
-  'winged_drone'      : 'src/assets/winged_drone.glb',
-  'swarm_warden'      : 'src/assets/swarm_warden.glb',
-
-  // Tank / BlockBot
-  'blockbot'          : 'src/assets/blockbot.glb',
-
-  // Bosses
-  'boss_broodmaker'   : 'src/assets/boss_broodmaker.glb',
-  'boss_sanitizer'    : 'src/assets/boss_sanitizer.glb',
-  'boss_echo'         : 'src/assets/boss_hydraclone.glb',
-  'boss_influencer'   : 'src/assets/boss_captain.glb',
-  'boss_zeppelin_pod' : 'src/assets/boss_zeppelin_pod.glb',
-  'boss_shard'        : 'src/assets/boss_shard_avatar.glb',
-  'boss_strike'       : 'src/assets/boss_strike_adjudicator.glb',
-};
+const ASSET_MANIFEST = createRuntimeAssetManifest();
 
 // ---------- Loader setup ----------
-function makeLoader({ dracoPath = 'src/assets/decoders/draco/', ktx2Path = 'src/assets/textures/', renderer } = {}) {
+function makeLoader() {
   const loader = new GLTFLoader();
 
   // Meshopt (if your GLBs are meshopt-compressed)
   loader.setMeshoptDecoder(MeshoptDecoder);
-
-  // Draco (optional; safe to leave even if unused)
-  const draco = new DRACOLoader();
-  draco.setDecoderPath(dracoPath);
-  loader.setDRACOLoader(draco);
-
-  // KTX2 optional: disabled to avoid cross-version module issues in browser module environment
 
   return loader;
 }
@@ -65,6 +36,7 @@ function makeLoader({ dracoPath = 'src/assets/decoders/draco/', ktx2Path = 'src/
 const _registry = new Map();   // key -> prefab THREE.Object3D
 const _materialsByName = new Map(); // optional dedupe by mat.name
 let _prewarmed = false;
+let _generatedManifestPromise = null;
 
 // Defensive: some materials may carry stray flags from mismatched libs (e.g., isNodeMaterial)
 // or an "onBuild" property that isn't a function. Strip those to avoid renderer errors.
@@ -87,17 +59,18 @@ function sanitizeMaterialForCompile(mat){
  * @param {object} options
  * @param {THREE.WebGLRenderer} options.renderer - used for shader prewarm (recommended)
  * @param {(done,total)=>void} [options.onProgress]
- * @param {string} [options.dracoPath]
- * @param {string} [options.ktx2Path]
  * @param {boolean} [options.skipWarmup] - if true, do not prewarm shader programs here
  */
-export async function loadAllModels({ renderer, onProgress, dracoPath, ktx2Path, skipWarmup } = {}) {
-  const loader = makeLoader({ dracoPath, ktx2Path, renderer });
+export async function loadAllModels({ renderer, onProgress, skipWarmup } = {}) {
+  const loader = makeLoader();
 
   const keys = Object.keys(ASSET_MANIFEST);
   let done = 0;
 
   const loadOne = (key, url) => new Promise((resolve) => {
+    if (_registry.has(key)) {
+      done++; onProgress?.(done, keys.length); resolve(); return;
+    }
     loader.load(
       url,
       (gltf) => {
@@ -126,6 +99,52 @@ export async function loadAllModels({ renderer, onProgress, dracoPath, ktx2Path,
 }
 
 /**
+ * Loads selected entries from assets/generated/asset-manifest.json.
+ * Static environment prefabs can be merged by material, reducing a source GLB
+ * from dozens of small meshes to a handful of renderer draw calls.
+ */
+export async function loadGeneratedModels({ ids = [], onProgress, optimizeStatic = true } = {}) {
+  if (!_generatedManifestPromise) {
+    _generatedManifestPromise = fetch(`${GENERATED_ASSET_ROOT}/asset-manifest.json`)
+      .then(response => {
+        if (!response.ok) throw new Error(`Generated asset manifest returned ${response.status}`);
+        return response.json();
+      });
+  }
+
+  const manifest = await _generatedManifestPromise;
+  const requested = new Set(ids);
+  const entries = (manifest.assets || []).filter(entry => requested.has(entry.id));
+  const loader = makeLoader();
+  let done = 0;
+
+  const loadOne = entry => new Promise(resolve => {
+    if (_registry.has(entry.id)) {
+      done++; onProgress?.(done, entries.length); resolve(); return;
+    }
+    loader.load(
+      `${GENERATED_ASSET_ROOT}/${entry.file}`,
+      gltf => {
+        let prefab = gltf.scene || gltf.scenes?.[0];
+        normalizePrefab(prefab);
+        dedupeMaterialsByName(prefab);
+        if (optimizeStatic) prefab = mergeStaticPrefabByMaterial(prefab);
+        _registry.set(entry.id, prefab);
+        done++; onProgress?.(done, entries.length); resolve();
+      },
+      undefined,
+      error => {
+        console.warn(`[exportmodels] Failed to load generated asset ${entry.id}`, error);
+        done++; onProgress?.(done, entries.length); resolve();
+      }
+    );
+  });
+
+  await Promise.all(entries.map(loadOne));
+  return { registry: _registry, loaded: entries.map(entry => entry.id) };
+}
+
+/**
  * Returns a deep clone of a prefab ready to use (shares geometry/materials).
  * Uses SkeletonUtils.clone so SkinnedMesh animations still work.
  */
@@ -136,7 +155,15 @@ export function clonePrefab(key) {
     return null;
   }
   const inst = SkeletonUtils.clone(prefab);
-  // Ensure shared materials remain shared unless you change them at runtime.
+  // GLTF extras and Material.clone() can leave a non-callable onBuild value.
+  // Sanitize at the final clone boundary as well as at import time because a
+  // bad value otherwise fails only when WebGLRenderer first sees the mesh.
+  inst.traverse(object => {
+    if (!object.isMesh && !object.isSkinnedMesh) return;
+    if (Array.isArray(object.material)) object.material.forEach(sanitizeMaterialForCompile);
+    else sanitizeMaterialForCompile(object.material);
+  });
+  // Geometry and materials stay shared unless a caller explicitly clones them.
   return inst;
 }
 
@@ -176,7 +203,7 @@ export async function prewarmAllShaders(
     const addRep = (root) => {
       if (!root) return;
       root.traverse((o) => {
-        if (!(o.isMesh || o.isSkinnedMesh || o.isInstancedMesh) || !o.material) return;
+        if (!(o.isMesh || o.isSkinnedMesh || o.isInstancedMesh || o.isLine || o.isLineSegments || o.isPoints) || !o.material) return;
         const mats = Array.isArray(o.material) ? o.material : [o.material];
         for (const m of mats) {
           if (!m) continue;
@@ -299,6 +326,72 @@ function normalizePrefab(root) {
       }
     }
   });
+}
+
+function mergeStaticPrefabByMaterial(root) {
+  if (!root) return root;
+  root.updateMatrixWorld(true);
+  const batches = new Map();
+
+  root.traverse(object => {
+    if (!object.isMesh || object.isSkinnedMesh || !object.geometry || !object.material) return;
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    // Generated environment primitives currently use one material per mesh.
+    // Keep uncommon multi-material meshes intact instead of risking group loss.
+    if (materials.length !== 1) return;
+    const material = materials[0];
+    let geometry = object.geometry.clone();
+    geometry.applyMatrix4(object.matrixWorld);
+    // BufferGeometryUtils requires every geometry in a batch to agree on
+    // indexed state and on its complete attribute schema. Generated GLBs can
+    // legally mix indexed boxes with non-indexed decorative meshes while
+    // sharing one material, so normalize indices and split by schema.
+    if (geometry.index) {
+      const nonIndexed = geometry.toNonIndexed();
+      geometry.dispose();
+      geometry = nonIndexed;
+    }
+    const attributeSignature = Object.keys(geometry.attributes)
+      .sort()
+      .map(name => {
+        const attribute = geometry.attributes[name];
+        return `${name}:${attribute.itemSize}:${attribute.normalized ? 1 : 0}:${attribute.array?.constructor?.name || 'array'}`;
+      })
+      .join('|');
+    const morphSignature = Object.keys(geometry.morphAttributes || {})
+      .sort()
+      .map(name => `${name}:${geometry.morphAttributes[name]?.length || 0}`)
+      .join('|');
+    const key = `${material.uuid}::${attributeSignature}::${morphSignature}::${geometry.morphTargetsRelative ? 1 : 0}`;
+    if (!batches.has(key)) batches.set(key, { material, geometries: [] });
+    batches.get(key).geometries.push(geometry);
+  });
+
+  if (!batches.size) return root;
+  const mergedRoot = new THREE.Group();
+  mergedRoot.name = `${root.name || 'generated-prefab'}_merged`;
+  for (const { material, geometries } of batches.values()) {
+    const mergedGeometry = geometries.length === 1 ? geometries[0] : mergeGeometries(geometries, false);
+    if (!mergedGeometry) {
+      // Defensive preservation: a future Three.js compatibility rule should
+      // reduce batching efficiency, never remove visible asset geometry.
+      for (const geometry of geometries) {
+        const mesh = new THREE.Mesh(geometry, sanitizeMaterialForCompile(material));
+        mesh.name = `${mergedRoot.name}_${material.name || material.type}_part`;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        mergedRoot.add(mesh);
+      }
+      continue;
+    }
+    if (geometries.length > 1) geometries.forEach(geometry => geometry.dispose());
+    const mesh = new THREE.Mesh(mergedGeometry, sanitizeMaterialForCompile(material));
+    mesh.name = `${mergedRoot.name}_${material.name || material.type}`;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mergedRoot.add(mesh);
+  }
+  return mergedRoot.children.length ? mergedRoot : root;
 }
 
 // Re-point equal-named materials to the same instance.

@@ -10,7 +10,7 @@
 //   burrowAnchor: Object3D,       // transform to sink/raise when burrowing
 //   outlineGroup: Object3D|null   // optional white outline shell (for that look)
 // }
-export function createBroodmakerAsset({ THREE, mats, scale = 1.0, palette, outline = true } = {}) {
+export function createBroodmakerAsset({ THREE, mats, scale = 1.0, palette, outline = true, rng = Math.random } = {}) {
     const group = new THREE.Group();
   
     const colors = Object.assign(
@@ -98,7 +98,7 @@ export function createBroodmakerAsset({ THREE, mats, scale = 1.0, palette, outli
     add(new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.1, 1.5), matFlesh), abdomen);
   
     const eggs = [];
-    const mkSac = (x, y, z, s, jitter = Math.random() * Math.PI * 2) => {
+    const mkSac = (x, y, z, s, jitter = rng() * Math.PI * 2) => {
       const sac = add(new THREE.Mesh(new THREE.SphereGeometry(s, 14, 12), matGlow), abdomen, new THREE.Vector3(x, y, z));
       sac.userData.pulse = jitter; // phase seed for simple shaderless pulsing
       eggs.push(sac);

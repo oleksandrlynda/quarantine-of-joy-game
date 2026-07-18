@@ -11,10 +11,11 @@ export class Weapon {
     this.cfg = Object.freeze({ ...config });
 
     // Runtime state
-    this.ammoInMag = this.cfg.magSize;
-    this.reserveAmmo = this.cfg.reserve;
+    this.ammoInMag = this.getMagazineCapacity();
+    this.reserveAmmo = this.getReserveCapacity();
     this._nextFireAtMs = 0;
     this._triggerHeld = false;
+    this._attackSequence = 0;
   }
 
   get name() { return this.cfg.name || 'Weapon'; }
@@ -23,8 +24,55 @@ export class Weapon {
   getAmmo() { return this.ammoInMag; }
   getReserve() { return this.reserveAmmo; }
 
+  getMagazineCapacity() {
+    const resolved = typeof this.cfg.getMagSize === 'function' ? this.cfg.getMagSize() : this.cfg.magSize;
+    return Math.max(0, Math.floor(Number(resolved) || 0));
+  }
+
+  getReserveCapacity() {
+    const resolved = typeof this.cfg.getReserveSize === 'function' ? this.cfg.getReserveSize() : this.cfg.reserve;
+    return Math.max(0, Math.floor(Number(resolved) || 0));
+  }
+
   canFire(nowMs) {
     return this.ammoInMag > 0 && nowMs >= this._nextFireAtMs;
+  }
+
+  beginAttack(ctx) {
+    this._attackSequence += 1;
+    const attackId = `${this.name}:${this._attackSequence}`;
+    if (ctx) ctx.attackId = attackId;
+    ctx?.achievements?.check?.({
+      type: 'shot',
+      weapon: this.name,
+      attackId,
+      magazineRemaining: this.ammoInMag
+    });
+    return attackId;
+  }
+
+  recordCombatHit(ctx, target, {
+    damage = 0,
+    killed = false,
+    isHead = false,
+    distance = 0,
+    attackId = ctx?.attackId
+  } = {}) {
+    ctx?.achievements?.check?.({
+      type: 'combatHit',
+      weapon: ctx?.combatSourceName || this.name,
+      attackId,
+      targetId: target?.uuid || target?.userData?.achievementId || null,
+      targetType: target?.userData?.type || 'enemy',
+      damage,
+      killed,
+      isHead,
+      distance,
+      magazineRemaining: ctx?.combatSourceName ? null : this.ammoInMag,
+      remainingBefore: Number(ctx?.enemyManager?.alive) || 0,
+      gameTime: Number(ctx?.getGameTime?.()) || 0,
+      generation: Number(target?.userData?.generation) || 0
+    });
   }
 
   tryFire(ctx) {
@@ -32,8 +80,9 @@ export class Weapon {
     if (!this.canFire(now)) return false;
     this.ammoInMag -= 1;
     this._nextFireAtMs = now + (this.cfg.fireDelayMs || 0);
+    this.beginAttack(ctx);
     this.onFire(ctx);
-    ctx?.achievements?.check?.({ type: 'shot' });
+    ctx?.weaponView?.onFire?.();
     return true;
   }
 
@@ -69,7 +118,7 @@ export class Weapon {
   }
 
   reload(playSoundFn) {
-    const capacity = Math.max(0, (this.cfg.magSize | 0));
+    const capacity = this.getMagazineCapacity();
     const current = Math.max(0, this.ammoInMag | 0);
     const reserve = Math.max(0, this.reserveAmmo | 0);
     if (current >= capacity) return false;
@@ -86,10 +135,11 @@ export class Weapon {
   }
 
   reset() {
-    this.ammoInMag = this.cfg.magSize;
-    this.reserveAmmo = this.cfg.reserve;
+    this.ammoInMag = this.getMagazineCapacity();
+    this.reserveAmmo = this.getReserveCapacity();
     this._nextFireAtMs = 0;
     this._triggerHeld = false;
+    this._attackSequence = 0;
   }
 }
 

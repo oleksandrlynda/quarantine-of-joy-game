@@ -1,6 +1,9 @@
 import { PointerLockControls } from 'https://unpkg.com/three@0.159.0/examples/jsm/controls/PointerLockControls.js?module';
 import { logError } from '../src/util/log.js';
 
+const MAX_LOOK_RADIANS_PER_EVENT = Math.PI / 4;
+const MAX_LOOK_DEGREES_PER_EVENT = 45;
+
 function containsExtrudeGeometry(obj){
   if (obj.geometry?.isExtrudeGeometry) return true;
   for (const child of obj.children || []){
@@ -24,6 +27,10 @@ export class PlayerController {
     // In current THREE PointerLockControls, yaw is applied to the controls object,
     // and pitch is applied directly on the camera's rotation.x
     this.pitchObject = this.camera;
+    // Keep direct Euler updates in the same order PointerLockControls uses.
+    // Mixing the default XYZ order with PointerLockControls' YXZ quaternion
+    // updates can choose the opposite Euler representation near steep pitch.
+    if (this.camera?.rotation) this.camera.rotation.order = 'YXZ';
     // Do NOT reparent when controls return the camera itself (modern THREE)
     // If getObject() returns a separate yaw carrier, you may attach the camera to it,
     // but only when they are distinct objects. We avoid touching hierarchy here.
@@ -32,6 +39,8 @@ export class PlayerController {
     this.keys = new Set();
     this.crouching = false;
     this.canJump = false;
+    this.headBobEnabled = true;
+    this.onLookAnomaly = null;
 
     // Movement params
     this.moveSpeed = 6;
@@ -42,9 +51,11 @@ export class PlayerController {
     this.velXZ = new THREE.Vector3();
     this.baseFov = 75;
     this.sprintFov = 82;
+    this.zoomMultiplier = 1;
 
     // Stamina system
-    this.staminaMax = 100;
+    this.baseStaminaMax = 100;
+    this.staminaMax = this.baseStaminaMax;
     this.stamina = this.staminaMax;
     this.staminaRegenPerSec = 18;     // per design: 18/s
     this.staminaSprintCostPerSec = 12;// per design: ~12/s while sprinting
@@ -52,6 +63,19 @@ export class PlayerController {
     this.staminaRegenDelay = 0.5;     // seconds after last spend
     this._staminaRegenCooldown = 0;   // countdown timer until regen resumes
     this.lowStaminaThreshold = 15;    // cannot jump below this; reduced sprint speed when low
+
+    // Punchline Rush is an unlock-gated combat verb configured by main.js.
+    this._rush = {
+      active: false,
+      direction: new THREE.Vector3(0, 0, -1),
+      distance: 0,
+      travelled: 0,
+      duration: 0,
+      elapsed: 0,
+      speed: 0
+    };
+    this.onRushStep = null;
+    this.onRushEnd = null;
 
     // Recoil (softer, spring-damped)
     this.recoilPitchOffset = 0;     // radians (current offset)
@@ -64,7 +88,7 @@ export class PlayerController {
 
     // Collision helpers (skip extruded walls)
     this.objectBBs = this.objects
-      .filter(o => !containsExtrudeGeometry(o))
+      .filter(o => !containsExtrudeGeometry(o) && !o?.userData?.walkableSurface)
       .map(o => new THREE.Box3().setFromObject(o));
     this.colliderHalf = new THREE.Vector3(0.35, 0.9, 0.35); // approx capsule half extents
     this.fullHeight = this.colliderHalf.y * 2; // ~1.8m
@@ -128,15 +152,14 @@ export class PlayerController {
         this.keys.delete(e.code);
         if(e.code==='KeyC') this.crouching = false;
       });
-      this.domElement.addEventListener('mousemove', e=>{
+      // PointerLockControls listens for mousemove on ownerDocument. Capture on
+      // that same target so every event takes exactly one rotation path,
+      // regardless of whether the browser targets body, canvas, or document.
+      const lookEventTarget = this.domElement.ownerDocument || this.domElement;
+      lookEventTarget.addEventListener('mousemove', e=>{
         if (this.controls.isLocked !== true) return;
         e.stopImmediatePropagation();
-        const movementX = e.movementX || 0;
-        const movementY = e.movementY || 0;
-        this.yawObject.rotation.y -= movementX * 0.002 * this.lookSensitivity;
-        const inv = this.invertLook ? -1 : 1;
-        this.pitchObject.rotation.x -= movementY * 0.002 * this.lookSensitivity * inv;
-        this.pitchObject.rotation.x = Math.max(-Math.PI/2 + 0.01, Math.min(Math.PI/2 - 0.01, this.pitchObject.rotation.x));
+        this._applyLookDelta(e.movementX, e.movementY, 0.002);
       }, true);
     } else {
       // Virtual joystick for movement
@@ -198,10 +221,7 @@ export class PlayerController {
           const t = Array.from(e.touches).find(tt=>tt.identifier===lookId);
           if(!t) return;
           const dx = t.clientX - lx; const dy = t.clientY - ly;
-          this.yawObject.rotation.y -= dx * 0.0025 * this.lookSensitivity;
-          const inv = this.invertLook ? -1 : 1;
-          this.pitchObject.rotation.x -= dy * 0.0025 * this.lookSensitivity * inv;
-          this.pitchObject.rotation.x = Math.max(-Math.PI/2 + 0.01, Math.min(Math.PI/2 - 0.01, this.pitchObject.rotation.x));
+          this._applyLookDelta(dx, dy, 0.0025, false);
           lx = t.clientX; ly = t.clientY;
         }, {passive:false});
         const endLook = e=>{
@@ -213,6 +233,37 @@ export class PlayerController {
         this.domElement.addEventListener('touchend', endLook);
         this.domElement.addEventListener('touchcancel', endLook);
     }
+  }
+
+  _applyLookDelta(rawX, rawY, radiansPerUnit, rejectOutlier = true){
+    const movementX = Number(rawX) || 0;
+    const movementY = Number(rawY) || 0;
+    if (!Number.isFinite(movementX) || !Number.isFinite(movementY)) return false;
+    const scale = Number.isFinite(radiansPerUnit) ? radiansPerUnit : 0.002;
+    const sensitivity = Number.isFinite(this.lookSensitivity) ? this.lookSensitivity : 1;
+    const yawDelta = movementX * scale * sensitivity;
+    const inv = this.invertLook ? -1 : 1;
+    const pitchDelta = movementY * scale * sensitivity * inv;
+    // Pointer-lock acquisition and display-buffer resizes can occasionally
+    // report a synthetic screen-sized delta. Reject any single event that
+    // would teleport the view by more than 45 degrees at the chosen sensitivity.
+    if (rejectOutlier && (Math.abs(yawDelta) > MAX_LOOK_RADIANS_PER_EVENT || Math.abs(pitchDelta) > MAX_LOOK_RADIANS_PER_EVENT)) {
+      try {
+        this.onLookAnomaly?.({
+          movementX,
+          movementY,
+          yawDeltaDegrees: yawDelta * 180 / Math.PI,
+          pitchDeltaDegrees: pitchDelta * 180 / Math.PI,
+          thresholdDegrees: MAX_LOOK_DEGREES_PER_EVENT,
+          sensitivity
+        });
+      } catch {}
+      return false;
+    }
+    this.yawObject.rotation.y -= yawDelta;
+    this.pitchObject.rotation.x -= pitchDelta;
+    this.pitchObject.rotation.x = Math.max(-Math.PI/2 + 0.01, Math.min(Math.PI/2 - 0.01, this.pitchObject.rotation.x));
+    return true;
   }
 
   jump(){
@@ -227,7 +278,7 @@ export class PlayerController {
     const THREE = this.THREE;
     this.objects = objects;
     this.objectBBs = this.objects
-      .filter(o => !containsExtrudeGeometry(o))
+      .filter(o => !containsExtrudeGeometry(o) && !o?.userData?.walkableSurface)
       .map(o => new THREE.Box3().setFromObject(o));
   }
 
@@ -249,24 +300,34 @@ export class PlayerController {
     t.fwd.set(0,0,-1).applyQuaternion(this.yawObject.quaternion); t.fwd.y = 0; t.fwd.normalize();
     t.right.crossVectors(t.fwd, t.up).normalize();
 
+    const rushing = this._rush.active;
     t.wish.set(0,0,0);
-    if (this.keys.has('KeyW')) t.wish.add(t.fwd);
-    if (this.keys.has('KeyS')) t.wish.addScaledVector(t.fwd, -1);
-    if (this.keys.has('KeyA')) t.wish.addScaledVector(t.right, -1);
-    if (this.keys.has('KeyD')) t.wish.add(t.right);
+    if (rushing) {
+      t.wish.copy(this._rush.direction);
+    } else {
+      if (this.keys.has('KeyW')) t.wish.add(t.fwd);
+      if (this.keys.has('KeyS')) t.wish.addScaledVector(t.fwd, -1);
+      if (this.keys.has('KeyA')) t.wish.addScaledVector(t.right, -1);
+      if (this.keys.has('KeyD')) t.wish.add(t.right);
+    }
     const wishLenSq0 = t.wish.lengthSq();
 
     const wantsSprint = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
     const hasStaminaForSprint = this.stamina > 0.5; // allow minor underflow guard
-    const effectiveSprint = wantsSprint && hasStaminaForSprint;
+    const effectiveSprint = !rushing && wantsSprint && hasStaminaForSprint;
     // Low stamina penalty: reduced sprint speed if stamina below threshold
     const sprintMultiplier = effectiveSprint ? ((this.stamina <= this.lowStaminaThreshold) ? 1.2 : 1.6) : 1.0;
-    const targetSpeed = this.moveSpeed * sprintMultiplier * (this.crouching ? 0.55 : 1.0);
+    const targetSpeed = rushing
+      ? this._rush.speed
+      : this.moveSpeed * sprintMultiplier * (this.crouching ? 0.55 : 1.0);
 
     if (wishLenSq0 > 0) {
       t.wish.normalize().multiplyScalar(targetSpeed);
-      t.step.copy(t.wish).sub(this.velXZ).clampLength(0, this.accel * dt);
-      this.velXZ.add(t.step);
+      if (rushing) this.velXZ.copy(t.wish);
+      else {
+        t.step.copy(t.wish).sub(this.velXZ).clampLength(0, this.accel * dt);
+        this.velXZ.add(t.step);
+      }
     } else {
       const damp = Math.max(0, 1 - this.damping * dt);
       this.velXZ.multiplyScalar(damp);
@@ -274,7 +335,10 @@ export class PlayerController {
 
     // Stamina drain/regeneration
     // Drain only while actively sprinting and actually trying to move
-    if (wantsSprint && wishLenSq0 > 0 && this.velXZ.lengthSq() > 0.0001) {
+    if (rushing) {
+      // Rush spends its entire bar on activation. Its long recovery delay starts
+      // counting down only after the committed movement has finished.
+    } else if (wantsSprint && wishLenSq0 > 0 && this.velXZ.lengthSq() > 0.0001) {
       const drain = this.staminaSprintCostPerSec * dt;
       this._spendStamina(drain);
     } else {
@@ -301,21 +365,34 @@ export class PlayerController {
       this.appliedRecoilPitch = this.recoilPitchOffset;
     }
 
-    // FOV handling combines sprint FOV and recoil kick
-    const desiredFovBase = effectiveSprint ? this.sprintFov : this.baseFov;
+    // FOV handling combines sprint FOV with weapon magnification.
+    const desiredFovBase = (effectiveSprint || rushing) ? this.sprintFov : this.baseFov;
     // No recoil FOV kick by default; ensure sprint FOV is preserved
     const desiredFov = desiredFovBase;
     const prevFov = this.camera.fov;
+    const prevZoom = Number.isFinite(this.camera.zoom) ? this.camera.zoom : 1;
     this.camera.fov += (desiredFov - this.camera.fov) * 0.18;
+    this.camera.zoom = prevZoom + (this.zoomMultiplier - prevZoom) * 0.18;
     this._fovCooldown -= dt;
-    if (this._fovCooldown <= 0 && Math.abs(this.camera.fov - prevFov) > this._fovEps) {
+    const projectionChanged = Math.abs(this.camera.fov - prevFov) > this._fovEps
+      || Math.abs(this.camera.zoom - prevZoom) > this._fovEps;
+    if (this._fovCooldown <= 0 && projectionChanged) {
       this.camera.updateProjectionMatrix();
       this._fovCooldown = 1/60;
     }
 
     // Attempt move with collision (axis-separated slide)
     const step = t.step.copy(this.velXZ).multiplyScalar(dt);
+    if (rushing) {
+      const remainingRushDistance = Math.max(0, this._rush.distance - this._rush.travelled);
+      const plannedDistance = step.length();
+      if (plannedDistance > remainingRushDistance && plannedDistance > 0) {
+        step.multiplyScalar(remainingRushDistance / plannedDistance);
+      }
+    }
     const pos = t.pos.copy(o.position);
+    const rushStartX = o.position.x;
+    const rushStartZ = o.position.z;
     // Cache ground at start and thresholds for step/jump assist
     const groundAt = this._groundHeightAt(pos.x, pos.z);
     // Track the resolved ground used later for gravity snap so we don't
@@ -386,6 +463,21 @@ export class PlayerController {
       resolvedGround = groundAt;
     }
 
+    if (rushing) {
+      const moved = Math.hypot(o.position.x - rushStartX, o.position.z - rushStartZ);
+      this._rush.travelled += moved;
+      this._rush.elapsed += dt;
+      this.onRushStep?.({
+        position: o.position,
+        direction: this._rush.direction,
+        travelled: this._rush.travelled,
+        distance: this._rush.distance
+      });
+      if (this._rush.travelled >= this._rush.distance - 0.01 || this._rush.elapsed >= this._rush.duration) {
+        this._finishRush();
+      }
+    }
+
     // Gravity, ground, head-bob
     const eyeHeight = this.crouching ? 1.25 : 1.7;
     // Use the ground we resolved during the step/jump phase to avoid
@@ -395,12 +487,19 @@ export class PlayerController {
     this.velocityY -= this.gravity * dt; o.position.y += this.velocityY * dt;
     if (o.position.y <= desiredEyeY) { o.position.y = desiredEyeY; this.velocityY = 0; this.canJump = true; }
     const speed2D = this.velXZ.lengthSq();
-    if (this.canJump && speed2D > 0.04) { o.position.y += Math.sin(this._time*6.0) * 0.03; }
+    if (this.headBobEnabled !== false && this.canJump && speed2D > 0.04) {
+      o.position.y += Math.sin(this._time*6.0) * 0.03;
+    }
   }
 
   // External API for weapons: vertical-only kick (applied as a velocity impulse)
   applyRecoil({ pitchRad = 0 } = {}){
     this.recoilPitchVel += pitchRad * this.recoilImpulse;
+  }
+
+  setZoomMultiplier(multiplier = 1){
+    const next = Number(multiplier);
+    this.zoomMultiplier = Number.isFinite(next) && next > 1 ? next : 1;
   }
 
   // Allow external systems to push the player horizontally
@@ -412,6 +511,58 @@ export class PlayerController {
   // Public helpers for HUD
   getStamina01(){ return Math.max(0, Math.min(1, this.stamina / this.staminaMax)); }
   getStamina(){ return this.stamina; }
+
+  canStartRush({ requireFullStamina = true } = {}){
+    return !this._rush.active && (!requireFullStamina || this.stamina >= this.staminaMax - 0.01);
+  }
+
+  startRush({ distance = 10, duration = 0.6, regenDelay = 8, requireFullStamina = true, consumeStamina = true } = {}){
+    if (!this.canStartRush({ requireFullStamina })) return false;
+    const forward = this._rush.direction.set(0, 0, -1).applyQuaternion(this.yawObject.quaternion);
+    forward.y = 0;
+    if (forward.lengthSq() <= 1e-6) forward.set(0, 0, -1);
+    forward.normalize();
+    this._rush.active = true;
+    this._rush.distance = Math.max(0.1, Number(distance) || 10);
+    this._rush.duration = Math.max(0.1, Number(duration) || 0.6);
+    this._rush.travelled = 0;
+    this._rush.elapsed = 0;
+    this._rush.speed = this._rush.distance / this._rush.duration;
+    if (consumeStamina) this.stamina = 0;
+    if (regenDelay > 0) this._staminaRegenCooldown = Math.max(this._rush.duration, Number(regenDelay) || 0);
+    return true;
+  }
+
+  isRushing(){ return this._rush.active; }
+  isInvulnerable(){ return this._rush.active; }
+
+  _finishRush(){
+    if (!this._rush.active) return;
+    this._rush.active = false;
+    this.velXZ.set(0, 0, 0);
+    this.onRushEnd?.({ travelled: this._rush.travelled, distance: this._rush.distance });
+  }
+
+  addStaminaCapacity(amount, { fill = true } = {}){
+    const gain = Math.max(0, Number(amount) || 0);
+    this.staminaMax = Math.max(this.baseStaminaMax, this.staminaMax + gain);
+    if (fill) this.stamina = Math.min(this.staminaMax, this.stamina + gain);
+    return this.staminaMax;
+  }
+
+  restoreStamina(amount){
+    const before = this.stamina;
+    this.stamina = Math.min(this.staminaMax, this.stamina + Math.max(0, Number(amount) || 0));
+    return this.stamina - before;
+  }
+
+  resetStaminaCapacity(){
+    this._finishRush();
+    this.staminaMax = this.baseStaminaMax;
+    this.stamina = this.staminaMax;
+    this._staminaRegenCooldown = 0;
+    return this.staminaMax;
+  }
 
   // --- Internal stamina helpers ---
   _spendStamina(amount){

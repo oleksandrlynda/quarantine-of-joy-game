@@ -1,6 +1,8 @@
-import { createBlockBot } from '../assets/blockbot.js';
-import { createGruntBot } from '../assets/gruntbot.js';
-import { createGruntlingBot } from '../assets/gruntlingbot.js';
+import {
+  createEnhancedBlockBot,
+  createEnhancedGruntBot,
+  createEnhancedGruntlingBot
+} from '../assets/enemy-retrofits.js';
 import { logError } from '../util/log.js';
 // Asset cache: build models once and clone for spawns
 const _enemyAssetCache = {
@@ -24,14 +26,15 @@ const TANK_ATTACKS = [
 ];
 
 export class MeleeEnemy {
-  constructor({ THREE, mats, cfg, spawnPos }) {
+  constructor({ THREE, mats, cfg, spawnPos, rng = Math.random }) {
     this.THREE = THREE;
     this.cfg = cfg;
+    this.rng = rng;
 
     // Model
     let body, head;
     if (cfg && cfg.type === 'tank') {
-      if (!_enemyAssetCache.tank) _enemyAssetCache.tank = createBlockBot({ THREE, mats, scale: 1.1 });
+      if (!_enemyAssetCache.tank) _enemyAssetCache.tank = createEnhancedBlockBot({ THREE, mats, scale: 1.1 });
       const src = _enemyAssetCache.tank;
       const clone = src.root.clone(true);
       // Remap anim refs from original asset graph to this clone so animations affect the visible mesh
@@ -57,7 +60,7 @@ cur = cur.children[idx]; }
       };
       body = clone; head = clone.userData?.head || src.head; this._animRefs = remapRefs(src.root, clone, src.refs || {});
     } else if (cfg && cfg.type === 'gruntling') {
-      if (!_enemyAssetCache.gruntling) _enemyAssetCache.gruntling = createGruntlingBot({ THREE, mats, cfg, scale: 0.7 });
+      if (!_enemyAssetCache.gruntling) _enemyAssetCache.gruntling = createEnhancedGruntlingBot({ THREE, mats, cfg, scale: 0.7 });
       const src = _enemyAssetCache.gruntling;
       const clone = src.root.clone(true);
       // Remap anim refs from original asset graph to this clone so animations affect the visible mesh
@@ -82,7 +85,7 @@ cur = cur.children[idx]; }
       };
       body = clone; head = clone.userData?.head || src.head; this._animRefs = remapRefs(src.root, clone, src.refs || {});
     } else {
-      if (!_enemyAssetCache.grunt) _enemyAssetCache.grunt = createGruntBot({ THREE, mats, scale: 0.88 });
+      if (!_enemyAssetCache.grunt) _enemyAssetCache.grunt = createEnhancedGruntBot({ THREE, mats, scale: 0.88 });
       const src = _enemyAssetCache.grunt;
       const clone = src.root.clone(true);
       const remapRefs = (srcRoot, cloneRoot, refs) => {
@@ -121,7 +124,7 @@ cur = cur.children[idx]; }
     try { if (head && head.material) head.material = head.material.clone(); } catch (e) { logError(e); }
     this.root = body;
 
-    this.speed = cfg.speedMin + Math.random() * (cfg.speedMax - cfg.speedMin);
+    this.speed = cfg.speedMin + this.rng() * (cfg.speedMax - cfg.speedMin);
 
     this._lastPos = body.position.clone();
     this._stuckTime = 0;
@@ -140,9 +143,9 @@ cur = cur.children[idx]; }
     this._walkPhase = 0;
 
     // Roles
-    this._flankBack = 4 + Math.random() * 4;
-    this._flankSide = 4 + Math.random() * 4;
-    this._anchorSlack = 1.0 + Math.random() * 0.6;
+    this._flankBack = 4 + this.rng() * 4;
+    this._flankSide = 4 + this.rng() * 4;
+    this._anchorSlack = 1.0 + this.rng() * 0.6;
 
     // Reactions
     this._hitJukeTime = 0;
@@ -169,27 +172,42 @@ cur = cur.children[idx]; }
   update(dt, ctx) {
     const e = this.root;
     const playerPos = ctx.player.position.clone();
-    const toPlayer = playerPos.clone().sub(e.position);
-    const dist = toPlayer.length();
+    const toPlayerActual = playerPos.clone().sub(e.position);
+    const dist = toPlayerActual.length();
+    const sense = ctx.sensePlayer?.(e, dt) || {
+      rawWorldLOS: this._hasLineOfSight(e.position, playerPos, ctx.objects),
+      stableWorldLOS: this._hasLineOfSight(e.position, playerPos, ctx.objects),
+      locomotionClear: true,
+      pursuitTarget: playerPos.clone()
+    };
 
     this._attackCooldown = Math.max(0, this._attackCooldown - dt);
     this._slamCooldown   = Math.max(0, this._slamCooldown   - dt);
 
-    // Handle melee first (can early-return)
-    this._updateMelee(dt, ctx, dist, toPlayer, playerPos);
-    if (dist > 60) return;
+    this._updateMelee(dt, ctx, dist, toPlayerActual, playerPos, sense.rawWorldLOS && sense.locomotionClear);
+    if (this._attack && (this._attackPhase === 'windup' || this._attackPhase === 'active')) {
+      ctx.setAIState?.(e, `melee_${this._attackPhase}`);
+      return;
+    }
+    const navigationTarget = sense.pursuitTarget;
+    if (dist > 60 || !navigationTarget) {
+      ctx.setAIState?.(e, sense.searchActive ? 'searching' : 'idle_unaware');
+      return;
+    }
 
-    // --- movement / steering (unchanged, trimmed) ---
+    const toPlayer = navigationTarget.clone().sub(e.position);
     toPlayer.y = 0; if (toPlayer.lengthSq() === 0) return; toPlayer.normalize();
 
     // Player velocity EMA (for next frame predictions)
-    if (this._prevPlayerPos) {
+    if (sense.stableWorldLOS && this._prevPlayerPos) {
       const delta = playerPos.clone().sub(this._prevPlayerPos);
       const instVel = delta.multiplyScalar(dt > 0 ? 1 / dt : 0);
       this._playerVel.lerp(instVel, Math.min(1, 0.35 + dt * 0.5));
       this._playerVel.y = 0;
     }
-    this._prevPlayerPos = playerPos.clone();
+    if (sense.stableWorldLOS) this._prevPlayerPos = playerPos.clone();
+
+    const steeringTarget = sense.stableWorldLOS ? playerPos : navigationTarget;
 
 
     // If designated flanker, bias movement toward an anchor point to the player's rear/side
@@ -198,7 +216,7 @@ cur = cur.children[idx]; }
       const pfwd = (ctx.blackboard && ctx.blackboard.playerForward) ? ctx.blackboard.playerForward.clone() : toPlayer.clone().multiplyScalar(-1);
       pfwd.y = 0; if (pfwd.lengthSq() > 0) pfwd.normalize();
       const side = new this.THREE.Vector3(-pfwd.z, 0, pfwd.x).multiplyScalar(this.flankSign || 1);
-      const anchor = playerPos.clone()
+      const anchor = steeringTarget.clone()
         .add(pfwd.clone().multiplyScalar(-this._flankBack))
         .add(side.clone().multiplyScalar(this._flankSide));
       const toAnchor = anchor.sub(e.position); toAnchor.y = 0;
@@ -212,7 +230,7 @@ cur = cur.children[idx]; }
       }
     } else if (this.role === 'cutter') {
       // Target an arc position ±30–45° around the player at a comfortable ring radius
-      const toPlayerFlat = playerPos.clone().setY(0).sub(new this.THREE.Vector3(e.position.x, 0, e.position.z));
+      const toPlayerFlat = steeringTarget.clone().setY(0).sub(new this.THREE.Vector3(e.position.x, 0, e.position.z));
       const pfwd = (ctx.blackboard && ctx.blackboard.playerForward) ? ctx.blackboard.playerForward.clone() : toPlayerFlat.clone().normalize();
       pfwd.y = 0; if (pfwd.lengthSq()>0) pfwd.normalize();
       const right = new this.THREE.Vector3(-pfwd.z, 0, pfwd.x);
@@ -222,24 +240,25 @@ cur = cur.children[idx]; }
       const dir = pfwd.clone().multiplyScalar(Math.cos(this.cutterAngle || (Math.PI/6)))
         .add(side.clone().multiplyScalar(Math.sin(this.cutterAngle || (Math.PI/6)))).normalize();
       const radius = this.cutterRadius || 7.5;
-      const arcTarget = playerPos.clone().add(dir.multiplyScalar(radius));
+      const arcTarget = steeringTarget.clone().add(dir.multiplyScalar(radius));
       const toArc = arcTarget.sub(e.position); toArc.y = 0;
       if (toArc.lengthSq() > 0) desired = toArc.normalize();
     } else {
       // Pursuers use simple intercept: lead toward predicted future player position
-      const toPlayerFlat = playerPos.clone().setY(0).sub(new this.THREE.Vector3(e.position.x, 0, e.position.z));
+      const toPlayerFlat = steeringTarget.clone().setY(0).sub(new this.THREE.Vector3(e.position.x, 0, e.position.z));
       const horizDist = toPlayerFlat.length();
       const speed = Math.max(0.1, this.speed);
       const leadTime = Math.max(0, Math.min(0.8, (horizDist / speed) * 0.35));
-      const predicted = playerPos.clone().add(this._playerVel.clone().multiplyScalar(leadTime));
+      const predicted = steeringTarget.clone().add(sense.stableWorldLOS ? this._playerVel.clone().multiplyScalar(leadTime) : new this.THREE.Vector3());
       const toPred = predicted.sub(e.position); toPred.y = 0;
       if (toPred.lengthSq() > 0) desired = toPred.normalize();
     }
 
-    const hasLOS = this._hasLineOfSight(e.position, playerPos, ctx.objects);
+    const hasLOS = sense.stableWorldLOS;
     const isStuck = this._stuckTime > 0.4;
-    if ((!hasLOS || isStuck) && ctx.pathfind) {
-      ctx.pathfind.recomputeIfStale(this, playerPos).then(p => { this._path = p; });
+    if ((!hasLOS || !sense.locomotionClear || isStuck) && ctx.pathfind) {
+      ctx.setAIState?.(e, sense.searchActive ? 'searching' : 'routing');
+      ctx.pathfind.recomputeIfStale(this, navigationTarget).then(p => { this._path = p; });
       const wp = ctx.pathfind.nextWaypoint(this);
       if (wp) {
         const dir = new this.THREE.Vector3(wp.x - e.position.x, 0, wp.z - e.position.z);
@@ -248,6 +267,7 @@ cur = cur.children[idx]; }
     } else if (hasLOS && !isStuck && ctx.pathfind) {
       ctx.pathfind.clear(this);
       this._path = null;
+      ctx.setAIState?.(e, this._attackPhase === 'recover' ? 'melee_recover' : 'pursuing');
     }
 
     // Anti-kite zigzag/jukes when mid-range and LOS is clear
@@ -255,13 +275,13 @@ cur = cur.children[idx]; }
     if (this._jukeTime > 0) this._jukeTime = Math.max(0, this._jukeTime - dt);
     const inMidRange = dist >= 6 && dist <= 12;
     if (inMidRange && hasLOS && this._jukeCooldown <= 0 && this._jukeTime <= 0) {
-      if (Math.random() < 0.9 * dt) {
+      if (this.rng() < 0.9 * dt) {
         const fwd = desired.lengthSq()>0 ? desired.clone() : toPlayer.clone();
         fwd.y = 0; if (fwd.lengthSq()>0) fwd.normalize();
         const side = new this.THREE.Vector3(-fwd.z, 0, fwd.x);
-        this._jukeDir.copy(side.multiplyScalar(Math.random() < 0.5 ? 1 : -1));
-        this._jukeTime = 0.4 + Math.random() * 0.4;
-        this._jukeCooldown = 1.0 + Math.random() * 0.6;
+        this._jukeDir.copy(side.multiplyScalar(this.rng() < 0.5 ? 1 : -1));
+        this._jukeTime = 0.4 + this.rng() * 0.4;
+        this._jukeCooldown = 1.0 + this.rng() * 0.6;
       }
     }
 
@@ -273,7 +293,7 @@ cur = cur.children[idx]; }
       const allies = ctx.alliesNearbyCount(e.position, 8.0, e);
       if (allies <= 0) {
         // start or continue pause timer
-        if (this._regroupTimer <= 0) this._regroupTimer = 1.0 + Math.random() * 1.0; // 1–2s
+        if (this._regroupTimer <= 0) this._regroupTimer = 1.0 + this.rng() * 1.0; // 1–2s
         else this._regroupTimer = Math.max(0, this._regroupTimer - dt);
       } else {
         this._regroupTimer = 0; // buddy nearby, engage normally
@@ -284,7 +304,7 @@ cur = cur.children[idx]; }
     const regroupPausedAfter = (this._regroupTimer && this._regroupTimer > 0);
     // Detect end of regroup pause to trigger a small gap-close burst
     if (regroupPausedBefore && !regroupPausedAfter) {
-      this._burstTimer = 0.45 + Math.random() * 0.15; // 0.45–0.6s
+      this._burstTimer = 0.45 + this.rng() * 0.15; // 0.45–0.6s
     }
 
     // Cache last forward used for movement to orient hit-jukes
@@ -390,8 +410,8 @@ cur = cur.children[idx]; }
     if (attempted > 0.001 && moved < 0.006) {
       this._stuckTime += dt;
       if (this._stuckTime > 0.8 && this._nudgeCooldown <= 0) {
-        const lateral = new this.THREE.Vector3(-toPlayer.z, 0, toPlayer.x).normalize().multiplyScalar((Math.random() < 0.5 ? -1 : 1) * 0.35);
-        e.position.add(lateral);
+        const lateral = new this.THREE.Vector3(-toPlayer.z, 0, toPlayer.x).normalize().multiplyScalar((this.rng() < 0.5 ? -1 : 1) * 0.35);
+        ctx.moveWithCollisions(e, lateral);
         this._stuckTime = 0;
         this._nudgeCooldown = 0.9;
       }
@@ -402,7 +422,7 @@ cur = cur.children[idx]; }
     this._lastPos.copy(e.position);
   }
 
-  _updateMelee(dt, ctx, dist, toPlayer, playerPos) {
+  _updateMelee(dt, ctx, dist, toPlayer, playerPos, attackLineClear = true) {
     const isTank = (this.cfg && this.cfg.type === 'tank');
     const attacks = isTank ? TANK_ATTACKS : GRUNT_ATTACKS;
 
@@ -472,9 +492,14 @@ cur = cur.children[idx]; }
         const reachGrace = (this._attack.reach || reach) + 0.12; // <= grace
         if (!this._didHitThisSwing &&
             this._attack.name !== 'slam' &&
-            dist <= reachGrace && facingCos > 0.5 && ctx.onPlayerDamage) {
+            attackLineClear && dist <= reachGrace && facingCos > 0.5 && ctx.damagePlayer) {
           this._didHitThisSwing = true;
-          ctx.onPlayerDamage(this._attack.damage, 'melee');
+          ctx.damagePlayer(this._attack.damage, {
+            sourceKind: this.cfg?.type === 'tank' ? `tank_${this._attack.name}` : `melee_${this._attack.name}`,
+            sourceRoot: this.root,
+            ownerRoot: this.root
+          });
+          ctx.emitAIEvent?.(this.root, 'melee_hit', { attack: this._attack.name, damage: this._attack.damage });
           const kb = this._attack.knockback || 0;
           if (kb > 0 && ctx.player && ctx.player.position) {
             ctx.player.position.add(toP.clone().multiplyScalar(-kb));
@@ -495,15 +520,15 @@ cur = cur.children[idx]; }
         if (this._attackTimer <= 0) {
           this._attack = null;
           this._attackPhase = 'idle';
-          this._attackCooldown = 0.25 + Math.random() * 0.2;
+          this._attackCooldown = 0.25 + this.rng() * 0.2;
         }
         return;
       }
     }
 
     // --- Consider starting a new attack ---
-    const canStartByPredict = (this._attackCooldown <= 0) && (predictedClosing <= (reach + 0.15));
-    const canStartNow       = (this._attackCooldown <= 0) && dist <= (isTank ? 2.0 : 1.9);
+    const canStartByPredict = attackLineClear && (this._attackCooldown <= 0) && (predictedClosing <= (reach + 0.15));
+    const canStartNow       = attackLineClear && (this._attackCooldown <= 0) && dist <= (isTank ? 2.0 : 1.9);
     if (canStartByPredict || canStartNow) {
       // Tank slam gates: cooldown + LOS + range + vertical clearance
       const hasLOS = this._hasLineOfSight(this.root.position, playerPos, ctx.objects);
@@ -516,18 +541,19 @@ cur = cur.children[idx]; }
       let prefer; // default pick
       if (isTank) {
         // 25% chance prefer slam (only if allowed), else haymaker
-        prefer = (canSlam && Math.random() < 0.25) ? TANK_ATTACKS[2] : TANK_ATTACKS[0];
+        prefer = (canSlam && this.rng() < 0.25) ? TANK_ATTACKS[2] : TANK_ATTACKS[0];
       } else {
         prefer = GRUNT_ATTACKS[0]; // jab
       }
       const alt = isTank ? TANK_ATTACKS[1] : GRUNT_ATTACKS[1]; // shove | hook
-      const choice = (Math.random() < 0.3 ? alt : prefer);
+      const choice = (this.rng() < 0.3 ? alt : prefer);
 
       this._beginAttack(choice);
+      ctx.emitAIEvent?.(this.root, 'melee_started', { attack: choice.name });
 
       // NEW: arm a per-slam cooldown as soon as we commit
       if (choice.name === 'slam') {
-        this._slamCooldown = 3.5 + Math.random() * 1.0; // 3.5–4.5s
+        this._slamCooldown = 3.5 + this.rng() * 1.0; // 3.5–4.5s
       }
 
       // Small step-in and orientation
@@ -542,7 +568,7 @@ cur = cur.children[idx]; }
   _beginAttack(desc) {
     this._attack = { ...desc };
     this._attackPhase = 'windup';
-    const jitter = (v) => v * (0.9 + Math.random()*0.2);
+    const jitter = (v) => v * (0.9 + this.rng()*0.2);
     this._attackTimer = jitter(desc.windup);
     this._didHitThisSwing = false;
   }
@@ -575,11 +601,7 @@ cur = cur.children[idx]; }
       if (lead) { lead.rotation.x = thrust*0.9; lead.rotation.z = -0.05; }
       if (rear) { rear.rotation.x = thrust*0.9; rear.rotation.z = 0.05; }
     }
-    if (!this._strikeLungeApplied) {
-      const fwd = new this.THREE.Vector3(Math.sin(this._yaw||0), 0, Math.cos(this._yaw||0)).normalize();
-      this.root.position.add(fwd.multiplyScalar(0.12));
-      this._strikeLungeApplied = true;
-    }
+    this._strikeLungeApplied = true;
   }
 
   _animateArmsRecover(_attack, dt) {
@@ -601,11 +623,11 @@ cur = cur.children[idx]; }
   }
 
   onHit(damage, isHead) {
-    const base = 0.12 + Math.random() * 0.08;
+    const base = 0.12 + this.rng() * 0.08;
     this._hitJukeTime = Math.max(this._hitJukeTime, base);
     const fwd = this._lastFwd.lengthSq() > 0 ? this._lastFwd.clone() : new this.THREE.Vector3(0,0,1);
     const side = new this.THREE.Vector3(-fwd.z, 0, fwd.x);
-    const sideSign = Math.random() < 0.5 ? 1 : -1;
+    const sideSign = this.rng() < 0.5 ? 1 : -1;
     this._hitJukeDir.copy(side.multiplyScalar(sideSign));
 
     if (this.cfg && this.cfg.type === 'tank') {
@@ -616,8 +638,8 @@ cur = cur.children[idx]; }
 
     const heavy = damage >= 30;
     if ((isHead || heavy) && this._staggerImmunityTimer <= 0) {
-      this._staggerTimer = 0.18 + Math.random() * 0.06;
-      this._staggerImmunityTimer = 0.6 + Math.random() * 0.2;
+      this._staggerTimer = 0.18 + this.rng() * 0.06;
+      this._staggerImmunityTimer = 0.6 + this.rng() * 0.2;
       this._jukeTime = 0;
     }
   }
@@ -668,7 +690,9 @@ cur = cur.children[idx]; }
     const d = toP.length();
     if (d <= radius) {
       const falloff = 1.0 - (d / radius);
-      if (ctx.onPlayerDamage) ctx.onPlayerDamage(Math.round((this._attack.radialDamage || 28) * falloff), 'melee');
+      if (ctx.damagePlayer) ctx.damagePlayer(Math.round((this._attack.radialDamage || 28) * falloff), {
+        sourceKind: 'tank_slam', sourceRoot: this.root, ownerRoot: this.root
+      });
       if (ctx.player && ctx.player.position) {
         const dirOut = d > 0 ? toP.multiplyScalar(1/d) : new THREE.Vector3();
         const knock = (this._attack.radialKnock || 1.0) * (0.6 + 0.4*falloff);

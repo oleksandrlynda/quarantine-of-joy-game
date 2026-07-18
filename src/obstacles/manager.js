@@ -483,6 +483,29 @@ export class ObstacleManager {
     return { handled: true, destroyed: !!res.destroyed, type: inst.type };
   }
 
+  handleRadialHit(center, radius, damage) {
+    if (!center || radius <= 0 || damage <= 0) return { handled: 0, destroyed: 0 };
+    const bounds = new this.THREE.Box3();
+    const closest = new this.THREE.Vector3();
+    let handled = 0;
+    let destroyed = 0;
+    for (const root of Array.from(this.obstacles)) {
+      const inst = this.rootToDestructible.get(root);
+      if (!inst) continue;
+      bounds.setFromObject(root).clampPoint(center, closest);
+      const distance = closest.distanceTo(center);
+      if (distance > radius) continue;
+      handled += 1;
+      const falloff = 0.35 + 0.65 * (1 - distance / radius);
+      const result = inst.damage(Math.floor(damage * falloff));
+      if (result.destroyed) {
+        destroyed += 1;
+        this._onDestroyed(inst);
+      }
+    }
+    return { handled, destroyed };
+  }
+
   _onDestroyed(inst) {
     // remove from scene + collisions
     const root = inst.root;

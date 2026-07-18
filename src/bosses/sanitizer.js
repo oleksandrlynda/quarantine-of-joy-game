@@ -7,7 +7,8 @@
 import { logError } from '../util/log.js';
 
 import { SuppressionNodes } from './nodes.js';
-import { createSanitizerAsset } from '../assets/boss_sanitizer.js';
+import { createSanitizerVisual, getBossSharedGeometry } from './visual-cache.js';
+import { ReusablePool } from './reusable-pool.js';
 
 
 export class Sanitizer {
@@ -17,7 +18,7 @@ export class Sanitizer {
     this.enemyManager = enemyManager;
     this.rng = rng;
 
-    const built = createSanitizerAsset({ THREE, mats, scale: 1.0 });
+    const built = createSanitizerVisual({ THREE, mats });
     built.root.position.copy(spawnPos);
     built.root.userData = { type: 'boss_sanitizer', head: built.head, hp: 4200, damageMul: 1.0 };
     this.root = built.root;
@@ -27,6 +28,8 @@ export class Sanitizer {
     this._lastHp = this.maxHp;
     this.phase = 1;                   // -> 2 when nodes==0
     this.speed = 1.8;
+    this._yaw = 0;
+    this._moveDelta = new THREE.Vector3();
 
     // Utility
     this._raycaster = new THREE.Raycaster();
@@ -62,6 +65,7 @@ export class Sanitizer {
     this._panicRushTimer = 0;
     this._panicRushWaves = 0;
     this._panicRushDone = false;
+    this._panicRoots = new Set();
 
     // Elite calls (P1)
     this._eliteCd = 9 + this.rng() * 3;
@@ -79,6 +83,21 @@ export class Sanitizer {
     this._tileCd = 5.0;
     this._tiles = [];   // {pos,radius,hot,timer,life}
     this._tileCap = 7;
+    const tileGeometry = getBossSharedGeometry(THREE, 'sanitizer-tile', () => new THREE.CircleGeometry(1.6, 24));
+    this._tilePool = new ReusablePool({
+      preallocate: this._tileCap,
+      create: () => {
+        const mesh = new THREE.Mesh(
+          tileGeometry,
+          new THREE.MeshBasicMaterial({ color: 0x93c5fd, transparent: true, opacity: 0.25, depthWrite: false })
+        );
+        mesh.rotation.x = -Math.PI / 2;
+        return mesh;
+      },
+      reset: mesh => { mesh.visible = true; mesh.material.opacity = 0.25; },
+      release: (mesh, scene) => { scene?.remove(mesh); mesh.visible = false; },
+      destroy: mesh => mesh.material?.dispose?.()
+    });
 
     // Weakpoint window (P2)
     this._weakpointTimer = 0;
@@ -93,16 +112,26 @@ export class Sanitizer {
   // ------------- lifecycle -------------
   onRemoved(scene) {
     if (this.nodes) this.nodes.cleanup(scene);
-    if (this._beamMesh && scene) { scene.remove(this._beamMesh); this._beamMesh = null; }
-    if (this._telegraph) { scene.remove(this._telegraph); this._telegraph = null; }
+    if (this._beamMesh) {
+      scene?.remove(this._beamMesh);
+      this._beamMesh.material?.dispose?.();
+      this._beamMesh = null;
+    }
+    if (this._telegraph) {
+      scene?.remove(this._telegraph);
+      this._telegraph.material?.dispose?.();
+      this._telegraph = null;
+    }
     // cleanup spawns/hazards
     if (this.enemyManager) {
       for (const r of Array.from(this._eliteRoots)) if (this.enemyManager.enemies.has(r)) this.enemyManager.remove(r);
       for (const r of Array.from(this._turretRoots)) if (this.enemyManager.enemies.has(r)) this.enemyManager.remove(r);
+      for (const r of Array.from(this._panicRoots)) if (this.enemyManager.enemies.has(r)) this.enemyManager.remove(r);
     }
-    this._eliteRoots.clear(); this._tankRoots.clear(); this._turretRoots.clear();
-    for (const t of this._tiles) scene.remove(t.mesh||null);
+    this._eliteRoots.clear(); this._tankRoots.clear(); this._turretRoots.clear(); this._panicRoots.clear();
+    for (const t of this._tiles) this._tilePool.release(t.mesh, scene);
     this._tiles.length = 0;
+    this._tilePool.destroy(scene);
   }
 
   // ------------- frame update -------------
@@ -180,8 +209,10 @@ export class Sanitizer {
     toPlayer.y = 0; if (toPlayer.lengthSq() === 0) return;
     toPlayer.normalize();
     const desired = new this.THREE.Vector3();
-    if (dist > 10) desired.add(toPlayer);
-    else desired.add(new this.THREE.Vector3(-toPlayer.z, 0, toPlayer.x).multiplyScalar(0.7));
+    const side = new this.THREE.Vector3(-toPlayer.z, 0, toPlayer.x);
+    if (dist < 13) desired.addScaledVector(toPlayer, -1.2).addScaledVector(side, 0.25);
+    else if (dist > 22) desired.add(toPlayer);
+    else desired.addScaledVector(side, 0.7);
     const hasLOS = this._hasLineOfSight(e.position, playerPos, ctx.objects);
     if (!hasLOS && ctx.pathfind) {
       ctx.pathfind.recomputeIfStale(this, playerPos);
@@ -196,8 +227,16 @@ export class Sanitizer {
     if (desired.lengthSq() > 0) {
       desired.normalize();
       const step = desired.multiplyScalar(this.speed * dt);
+      this._moveDelta.copy(e.position);
       ctx.moveWithCollisions(e, step);
+      this._moveDelta.subVectors(e.position, this._moveDelta);
+      this._moveDelta.y = 0;
     }
+    const targetYaw = Math.atan2(toPlayer.x, toPlayer.z);
+    let yawDelta = targetYaw - this._yaw;
+    yawDelta = ((yawDelta + Math.PI) % (Math.PI * 2)) - Math.PI;
+    this._yaw += Math.max(-4.5 * dt, Math.min(4.5 * dt, yawDelta));
+    e.rotation.set(0, this._yaw, 0);
   }
 
   // ------------- beam logic -------------
@@ -236,20 +275,22 @@ export class Sanitizer {
           const start = this._rotateY(fwd, -Math.PI / 6);
           this._beamDir.copy(start);
           this._beamAngularSpeed = (Math.PI / 3) / 1.8;
-          if (this._telegraph) { ctx.scene.remove(this._telegraph); this._telegraph = null; }
+          if (this._telegraph) { ctx.scene.remove(this._telegraph); this._telegraph.visible = false; }
           this._ensureBeamMesh(ctx);
           this._updateBeamMeshTransform();
+          ctx.emitAIEvent?.(this.root, 'ability_released', { ability: 'sanitizer_beam', kind: 'sweep' });
         } else {
           // P2: set up rapid burst pack
           this._beamState = 'burst';
           this._beamTimer = 0;
           this._burstLeft = 4 + (this.rng() < 0.35 ? 1 : 0); // 4-5 quick shots
           this._burstGapTimer = 0;
-          if (this._telegraph) { ctx.scene.remove(this._telegraph); this._telegraph = null; }
+          if (this._telegraph) { ctx.scene.remove(this._telegraph); this._telegraph.visible = false; }
           this._ensureBeamMesh(ctx);
           // open weakpoint during bursts
           this._setWeakpoint(true);
           this._weakpointTimer = 2.3;
+          ctx.emitAIEvent?.(this.root, 'ability_released', { ability: 'sanitizer_beam', kind: 'burst' });
         }
       }
       return;
@@ -299,15 +340,21 @@ export class Sanitizer {
     this._windupTime = windupSeconds;
     // Telegraph ring
     const THREE = this.THREE;
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(0.8, 1.5, 24),
-      new THREE.MeshBasicMaterial({ color: p2Burst ? 0x93c5fd : 0x60a5fa, transparent: true, opacity: 0.8, side: THREE.DoubleSide })
+    const ring = this._telegraph || new THREE.Mesh(
+      getBossSharedGeometry(THREE, 'sanitizer-telegraph', () => new THREE.RingGeometry(0.8, 1.5, 24)),
+      new THREE.MeshBasicMaterial({ color: 0x60a5fa, transparent: true, opacity: 0.8, side: THREE.DoubleSide })
     );
+    ring.material.color.setHex(p2Burst ? 0x93c5fd : 0x60a5fa);
+    ring.material.opacity = 0.8;
+    ring.visible = true;
     ring.rotation.x = -Math.PI / 2;
     ring.position.set(this.root.position.x, 0.06, this.root.position.z);
     ring.userData = { life: 0 };
-    ctx.scene.add(ring);
+    if (ring.parent !== ctx.scene) ctx.scene.add(ring);
     this._telegraph = ring;
+    ctx.emitAIEvent?.(this.root, 'ability_started', {
+      ability: 'sanitizer_beam', kind: p2Burst ? 'burst' : 'sweep', telegraphSeconds: windupSeconds
+    });
   }
 
   _applyBeamDamage(dt, ctx, dps) {
@@ -331,9 +378,16 @@ export class Sanitizer {
     this._raycaster.set(origin, dir);
     this._raycaster.far = dist - 0.1;
     const hits = ctx.objects ? this._raycaster.intersectObjects(ctx.objects, false) : [];
-    if (hits && hits.length > 0) return;
+    if (hits && hits.length > 0) {
+      ctx.emitAIEvent?.(this.root, 'beam_blocked_by_world', {
+        ability: 'sanitizer_beam', kind: 'beam', origin: origin.clone(), impact: hits[0].point?.clone?.()
+      });
+      return;
+    }
 
-    ctx.onPlayerDamage(dps * dt, 'beam');
+    ctx.onPlayerDamage(dps * dt, 'beam', {
+      sourceRoot: this.root, ownerRoot: this.root, sourceOrigin: origin.clone(), sourceKind: 'sanitizer_beam'
+    });
   }
 
   _endBeam(ctx) {
@@ -344,9 +398,13 @@ export class Sanitizer {
   }
 
   _ensureBeamMesh(ctx) {
-    if (this._beamMesh) return;
+    if (this._beamMesh) {
+      this._beamMesh.visible = true;
+      if (this._beamMesh.parent !== ctx.scene) ctx.scene.add(this._beamMesh);
+      return;
+    }
     const THREE = this.THREE;
-    const geo = new THREE.CylinderGeometry(0.12, 0.12, this._beamLen, 10, 1, true);
+    const geo = getBossSharedGeometry(THREE, 'sanitizer-beam', () => new THREE.CylinderGeometry(0.12, 0.12, this._beamLen, 10, 1, true));
     const mat = new THREE.MeshBasicMaterial({ color: 0x60a5fa, transparent: true, opacity: 0.7, depthWrite: false });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.userData = { type: 'boss_sanitizer_beam' };
@@ -368,9 +426,7 @@ export class Sanitizer {
   _removeBeamMesh(ctx) {
     if (!this._beamMesh) return;
     ctx.scene?.remove(this._beamMesh);
-    this._beamMesh.geometry.dispose?.();
-    this._beamMesh.material.dispose?.();
-    this._beamMesh = null;
+    this._beamMesh.visible = false;
   }
 
   // ------------- pulse knockback -------------
@@ -381,7 +437,7 @@ export class Sanitizer {
     toPlayer.y = 0; const d2 = toPlayer.lengthSq();
     const radius = 4.0;
     if (d2 <= radius * radius) {
-      ctx.onPlayerDamage(10, 'pulse');
+      ctx.onPlayerDamage(10, 'pulse', { sourceRoot: this.root, ownerRoot: this.root });
       const dir = toPlayer.normalize();
       ctx.player.position.add(dir.multiplyScalar(radius * 0.35));
       try { window?._EFFECTS?.ring?.(e.position.clone(), radius, 0x93c5fd); } catch (e) { logError(e); }
@@ -426,7 +482,7 @@ export class Sanitizer {
           if (dist <= radius) {
             toP.normalize();
             const ang = Math.acos(Math.max(-1, Math.min(1, this._jumpDir.dot(toP))));
-            if (ang <= angle * 0.5) ctx.onPlayerDamage(18, 'shockwave');
+            if (ang <= angle * 0.5) ctx.onPlayerDamage(18, 'shockwave', { sourceRoot: this.root, ownerRoot: this.root });
           }
         }
         return;
@@ -445,6 +501,10 @@ export class Sanitizer {
   // ------------- panic rusher waves -------------
   _maybePanicRushers(dt, ctx) {
     if (!this.enemyManager) return;
+
+    for (const root of Array.from(this._panicRoots)) {
+      if (!this.enemyManager.enemies.has(root)) this._panicRoots.delete(root);
+    }
 
     const hpRatio = this.root.userData.hp / this.maxHp;
     if (!this._panicRushActive && !this._panicRushDone && hpRatio < 0.2) {
@@ -482,7 +542,16 @@ export class Sanitizer {
     }
 
     for (const p of spawns) {
-      this.enemyManager.spawnAt('rusher', p, { countsTowardAlive: true });
+      const root = this.enemyManager.spawnAt('rusher', p, { countsTowardAlive: true });
+      if (root) {
+        root.userData.summonerRoot = this.root;
+        root.userData.bossOwnerRoot = this.root;
+        root.userData.summonRole = 'panic_rusher';
+        this._panicRoots.add(root);
+        ctx.emitAIEvent?.(this.root, 'boss_add_spawned', {
+          ability: 'panic_rush', spawnedRoot: root, ownerRoot: this.root
+        });
+      }
     }
 
     this._panicRushWaves--;
@@ -515,11 +584,17 @@ export class Sanitizer {
       const kind = (this.rng() < 0.5 && this._tankRoots.size < this._tankCap) ? 'tank' : 'shooter';
       const root = this.enemyManager.spawnAt(kind, p, { countsTowardAlive: true });
       if (root) {
+        root.userData.summonerRoot = this.root;
+        root.userData.bossOwnerRoot = this.root;
+        root.userData.summonRole = kind === 'tank' ? 'elite_tank' : 'elite_shooter';
         // small buff so they feel “elite”
         const inst = this.enemyManager.instanceByRoot.get(root);
-        if (inst) { inst.speed *= 1.05; inst.cooldownBase = Math.max(0.7, (inst.cooldownBase||1.0)*0.9); }
+        if (inst) { inst.summoner = this; inst.speed *= 1.05; inst.cooldownBase = Math.max(0.7, (inst.cooldownBase||1.0)*0.9); }
         this._eliteRoots.add(root);
         if (kind === 'tank') this._tankRoots.add(root);
+        ctx.emitAIEvent?.(this.root, 'boss_add_spawned', {
+          ability: 'elite_call', spawnedRoot: root, ownerRoot: this.root, kind
+        });
       }
       if (this._eliteRoots.size >= this._eliteCap) break;
     }
@@ -557,12 +632,26 @@ export class Sanitizer {
     const count = Math.min(1 + (this.rng()<0.4?1:0), this._turretCap - this._turretRoots.size);
     const around = this._spawnOnPerimeter(ctx, count, 10, 14);
     for (const p of around) {
-      const root = this.enemyManager.spawnAt('turret_pod', p, { countsTowardAlive: true });
+      const root = this.enemyManager.spawnAt('shooter', p, { countsTowardAlive: true });
       if (root) {
+        // Preserve the legacy pod's 100 HP budget while giving it the intended
+        // ranged behavior instead of the unknown-type Grunt fallback.
+        root.userData.hp = 100;
+        root.userData.maxHp = 100;
+        root.userData.summonerRoot = this.root;
+        root.userData.bossOwnerRoot = this.root;
+        root.userData.summonRole = 'turret_pod';
         // give lifetime so arena doesn't clog
         const inst = this.enemyManager.instanceByRoot.get(root);
-        if (inst) inst.maxLife = (inst.maxLife||30) * 1.0; // seconds
+        if (inst) {
+          inst.summoner = this;
+          inst.speed = Math.min(inst.speed, 0.8);
+          inst.maxLife = (inst.maxLife||30) * 1.0; // seconds
+        }
         this._turretRoots.add(root);
+        ctx.emitAIEvent?.(this.root, 'boss_add_spawned', {
+          ability: 'turret_pod', spawnedRoot: root, ownerRoot: this.root, kind: 'shooter'
+        });
       }
     }
     this._turretCd = 7 + this.rng() * 2.5;
@@ -587,14 +676,14 @@ export class Sanitizer {
         const dx = ctx.player.position.x - t.pos.x;
         const dz = ctx.player.position.z - t.pos.z;
         if ((dx*dx + dz*dz) <= (t.radius*t.radius)) {
-          ctx.onPlayerDamage(6 * dt, 'tile');
+          ctx.onPlayerDamage(6 * dt, 'tile', { sourceRoot: this.root, ownerRoot: this.root });
           ctx.blackboard = ctx.blackboard || {};
           ctx.blackboard.playerSlowMul = Math.min( ctx.blackboard.playerSlowMul||1.0, 0.65 );
         }
       }
       t.life -= dt;
       if (t.life <= 0) {
-        ctx.scene.remove(t.mesh||null);
+        this._tilePool.release(t.mesh, ctx.scene);
         this._tiles.splice(i,1);
       }
     }
@@ -620,11 +709,7 @@ export class Sanitizer {
       const pos = new THREE.Vector3(Math.cos(a)*bandR, 0.05, Math.sin(a)*bandR);
       // visual disk
       const r = 1.6;
-      const disk = new THREE.Mesh(
-        new THREE.CircleGeometry(r, 24),
-        new THREE.MeshBasicMaterial({ color: 0x93c5fd, transparent: true, opacity: 0.25, depthWrite: false })
-      );
-      disk.rotation.x = -Math.PI/2;
+      const disk = this._tilePool.acquire();
       disk.position.set(pos.x, 0.05, pos.z);
       ctx.scene.add(disk);
       this._tiles.push({

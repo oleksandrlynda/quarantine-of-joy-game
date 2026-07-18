@@ -1,5 +1,17 @@
 // WeatherSystem module: rain, snow, fog (can blend with rain), sandstorm, windy, dynamic cycle, thunder for rain
 import { logError } from './util/log.js';
+import { getThunderNoiseBuffer } from './game/weather-audio.js';
+
+// Weather remains visibly dense, but bounded particle fields avoid spending
+// fill-rate on thousands of overlapping translucent sprites.
+export const WEATHER_PARTICLE_BUDGETS = Object.freeze({
+  rain: 4200,
+  snow: 1800,
+  fog: 700,
+  sand: 1000,
+  wind: 900
+});
+
 export class WeatherSystem {
   constructor(ctx){
     this.THREE = ctx.THREE; this.scene = ctx.scene; this.skyMat = ctx.skyMat; this.hemi = ctx.hemi; this.dir = ctx.dir; this.mats = ctx.mats;
@@ -15,12 +27,12 @@ export class WeatherSystem {
     this.height = 80;
 
     // Particles
-    this.rain = this.createRainPoints(6000);
-    this.snow = this.createSnowPoints(2600);
-    this.fog = this.createFogPoints(1100);
+    this.rain = this.createRainPoints(WEATHER_PARTICLE_BUDGETS.rain);
+    this.snow = this.createSnowPoints(WEATHER_PARTICLE_BUDGETS.snow);
+    this.fog = this.createFogPoints(WEATHER_PARTICLE_BUDGETS.fog);
     // Denser sandstorm particle field than fog for visibility
-    this.sand = this.createSandPoints(1600);
-    this.windPoints = this.createWindPoints(1500);
+    this.sand = this.createSandPoints(WEATHER_PARTICLE_BUDGETS.sand);
+    this.windPoints = this.createWindPoints(WEATHER_PARTICLE_BUDGETS.wind);
     this.rain.visible = false; this.snow.visible = false; this.fog.visible = false; this.sand.visible = false; this.windPoints.visible = false;
 
     // Crossfade state for smoother transitions
@@ -71,6 +83,7 @@ export class WeatherSystem {
     // Sky flash uniform via hemisphere intensity is subtle; we’ll tint directional light color briefly
     this.baseDirColor = this.dir.color.clone();
     this.flashColor = new this.THREE.Color(0xffffe0);
+    this._thunderNoiseCache = {};
 
     // Auto weather cycle tied to waves
     // _wavesElapsed counts how many waves have used the current weather
@@ -89,11 +102,17 @@ export class WeatherSystem {
     const hasFog  = m.includes('fog');
     const hasSand = m.includes('sand');
     const hasWind = m.includes('wind');
-    this.precip = hasRain ? 'rain' : (hasSnow ? 'snow' : 'none');
+    const isRelayCordon = m.includes('relay-cordon');
+    const isRelayAlarm = m.includes('relay-alarm');
+    const isRelayRain = m.includes('relay-rain');
+    const isRelaySignalStorm = m.includes('relay-signalstorm');
+    const isRelayInfestationStorm = m.includes('relay-infestationstorm');
+    const relayRain = isRelayRain || isRelaySignalStorm || isRelayInfestationStorm;
+    this.precip = (hasRain || relayRain) ? 'rain' : (hasSnow ? 'snow' : 'none');
 
     // Particle targets (capture current as start for easing)
     this._mixStart = { rain: this._mix.rain, snow: this._mix.snow, fog: this._mix.fog, sand: this._mix.sand, wind: this._mix.wind };
-    this._mixTarget.rain = hasRain ? 1 : 0;
+    this._mixTarget.rain = (hasRain || relayRain) ? 1 : 0;
     this._mixTarget.snow = hasSnow ? 1 : 0;
     this._mixTarget.fog  = hasFog  ? 1 : 0;
     this._mixTarget.sand = hasSand ? 1 : 0;
@@ -110,7 +129,32 @@ export class WeatherSystem {
       dirIntensity: this.dir.intensity,
     };
     const C = this.THREE.Color;
-    if (hasRain && hasFog){
+    if (isRelayInfestationStorm) {
+      this._envTarget.fogColor = new C(0x586a70);
+      this._envTarget.fogNear = 11; this._envTarget.fogFar = 82;
+      this._envTarget.skyTop = new C('#334653'); this._envTarget.skyBottom = new C('#957875');
+      this._envTarget.hemiIntensity = .38; this._envTarget.dirIntensity = .58;
+    } else if (isRelaySignalStorm) {
+      this._envTarget.fogColor = new C(0x6e8790);
+      this._envTarget.fogNear = 13; this._envTarget.fogFar = 92;
+      this._envTarget.skyTop = new C('#435e6d'); this._envTarget.skyBottom = new C('#a3b5b2');
+      this._envTarget.hemiIntensity = .44; this._envTarget.dirIntensity = .68;
+    } else if (isRelayRain) {
+      this._envTarget.fogColor = new C(0x81979c);
+      this._envTarget.fogNear = 16; this._envTarget.fogFar = 105;
+      this._envTarget.skyTop = new C('#566f7d'); this._envTarget.skyBottom = new C('#b3c0bd');
+      this._envTarget.hemiIntensity = .5; this._envTarget.dirIntensity = .72;
+    } else if (isRelayAlarm) {
+      this._envTarget.fogColor = new C(0x8b9895);
+      this._envTarget.fogNear = 17; this._envTarget.fogFar = 112;
+      this._envTarget.skyTop = new C('#536a75'); this._envTarget.skyBottom = new C('#bbc1b7');
+      this._envTarget.hemiIntensity = .5; this._envTarget.dirIntensity = .82;
+    } else if (isRelayCordon) {
+      this._envTarget.fogColor = new C(0x929e9b);
+      this._envTarget.fogNear = 18; this._envTarget.fogFar = 118;
+      this._envTarget.skyTop = new C('#617683'); this._envTarget.skyBottom = new C('#c4c8bd');
+      this._envTarget.hemiIntensity = .54; this._envTarget.dirIntensity = .86;
+    } else if (hasRain && hasFog){
       this._envTarget.fogColor = new C(0xa8c2d8);
       this._envTarget.fogNear = 14; this._envTarget.fogFar = 95;
       this._envTarget.skyTop = new C('#8fbbe0'); this._envTarget.skyBottom = new C('#d8e6f5');
@@ -320,12 +364,10 @@ export class WeatherSystem {
     if (!window._weatherAudio){ window._weatherAudio = new (window.AudioContext||window.webkitAudioContext)(); }
     const a = window._weatherAudio;
     const now = a.currentTime;
-    // Noise buffer
-    const bufferSize = 2 * a.sampleRate;
-    const buffer = a.createBuffer(1, bufferSize, a.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i=0;i<bufferSize;i++){ data[i] = (Math.random()*2-1) * (1 - i/bufferSize); }
-    const noise = a.createBufferSource(); noise.buffer = buffer; noise.loop = false;
+    // Reuse a short looping noise buffer. The gain envelope supplies the
+    // two-second decay without rebuilding a large buffer during gameplay.
+    const buffer = getThunderNoiseBuffer(a, this._thunderNoiseCache);
+    const noise = a.createBufferSource(); noise.buffer = buffer; noise.loop = true;
     const lpf = a.createBiquadFilter(); lpf.type = 'lowpass'; lpf.frequency.setValueAtTime(800, now);
     const g = a.createGain(); g.gain.setValueAtTime(0.0001, now); g.gain.exponentialRampToValueAtTime(0.5, now+0.02); g.gain.exponentialRampToValueAtTime(0.0001, now+2.0);
     noise.connect(lpf).connect(g).connect(a.destination); noise.start(now); noise.stop(now+2.2);

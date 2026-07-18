@@ -1,4 +1,33 @@
 import { logError } from '../util/log.js';
+import { buildWeaponModel, createWeaponGeometryPool, WEAPON_MUZZLE_AXES } from './models.js';
+
+const WEAPON_VIEW_LENGTHS = Object.freeze({
+  pistol: .2646,
+  rifle: .72,
+  smg: .48,
+  shotgun: .70,
+  dmr: .74,
+  minigun: .68,
+  grenade: .50,
+  dynamite: .38,
+  satellite: .23,
+  gravitywell: .43,
+  beamsaber: .95
+});
+
+const WEAPON_ACTION_DURATIONS = Object.freeze({
+  pistol: .18,
+  rifle: .10,
+  smg: .065,
+  shotgun: .36,
+  dmr: .16,
+  minigun: .05,
+  grenade: .22,
+  dynamite: .28,
+  satellite: .32,
+  gravitywell: .3,
+  beamsaber: .16
+});
 
 export class WeaponView {
     constructor(THREE, camera){
@@ -23,7 +52,16 @@ export class WeaponView {
   
       // hip offset (початкова позиція зброї у камері)
       this._hipOffset = new THREE.Vector3(0.12, -0.08, 0.0);
+      this._adsOffset = new THREE.Vector3();
+      this._sprintOffset = new THREE.Vector3();
+      this._offsetTarget = new THREE.Vector3();
       this.root.position.copy(this._hipOffset);
+
+      // Opt-in diagnostic overrides. They remain inert in normal play.
+      this.debugMotionFrozen = false;
+      this.debugBasicMaterial = false;
+      this._debugBasicMaterials = null;
+      this._debugOriginalMaterials = new Map();
   
       // state
       this._current = null; // { meshes:[], dispose:fn }
@@ -68,11 +106,31 @@ export class WeaponView {
       this._kRot = 55.0;
       this._damp = 10.0;  
   
-      // geometry materials
-      this._matMetal = new THREE.MeshStandardMaterial({ color: 0x4c5560, roughness: 0.35, metalness: 0.65, emissive: 0x000000 });
-      this._matBody  = new THREE.MeshStandardMaterial({ color: 0x23272b, roughness: 0.7,  metalness: 0.2,  emissive: 0x060606 });
+      // Camera-attached viewmodels use unlit materials. This keeps their palette
+      // stable and avoids paying for world-lighting shaders while the camera moves.
+      this._matMetal = new THREE.MeshBasicMaterial({ color: 0x7f8983 });
+      this._matBody  = new THREE.MeshBasicMaterial({ color: 0x202722 });
+      this._matDark  = new THREE.MeshBasicMaterial({ color: 0x0c110e });
+      this._matGrip  = new THREE.MeshBasicMaterial({ color: 0x303832 });
+      this._matWhite = new THREE.MeshBasicMaterial({ color: 0xe1e7e1 });
+      this._matGlass = new THREE.MeshBasicMaterial({ color: 0x72d8e4 });
+      this._weaponAccents = new Map([
+        ['pistol', new THREE.MeshBasicMaterial({ color: 0xd7ff3f })],
+        ['rifle', new THREE.MeshBasicMaterial({ color: 0x45a6ff })],
+        ['smg', new THREE.MeshBasicMaterial({ color: 0x5ce1d3 })],
+        ['shotgun', new THREE.MeshBasicMaterial({ color: 0xff9a4c })],
+        ['dmr', new THREE.MeshBasicMaterial({ color: 0xff6a2f })],
+        ['minigun', new THREE.MeshBasicMaterial({ color: 0xf3c64b })],
+        ['grenade', new THREE.MeshBasicMaterial({ color: 0xffb52e })],
+        ['dynamite', new THREE.MeshBasicMaterial({ color: 0xe2382f })],
+        ['satellite', new THREE.MeshBasicMaterial({ color: 0x63e6ff })],
+        ['gravitywell', new THREE.MeshBasicMaterial({ color: 0xb56cff })],
+        ['beamsaber', new THREE.MeshBasicMaterial({ color: 0x62a8ff })]
+      ]);
       this._matBlade = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0x60a5fa, emissiveIntensity: 4.0, roughness: 0.2, metalness: 0.0 });
       this._baseBladeIntensity = this._matBlade.emissiveIntensity;
+      this._spinnerVelocity = 0;
+      this._actionState = { active: false, t: 0, dur: .12 };
 
       this.setWeapon('rifle');
     }
@@ -82,12 +140,72 @@ export class WeaponView {
     setLook(dx, dy){ this._look.set(dx||0, dy||0); }
     setADS(t){ this._ads = Math.max(0, Math.min(1, t||0)); }
     setSprint(t){ this._sprint = Math.max(0, Math.min(1, t||0)); }
+
+    setDebugMotionFrozen(enabled){
+      this.debugMotionFrozen = enabled === true;
+    }
+
+    setDebugBasicMaterial(enabled){
+      const next = enabled === true;
+      if (next === this.debugBasicMaterial) return;
+
+      if (next) {
+        if (!this._debugBasicMaterials) {
+          this._debugBasicMaterials = {
+            mesh: new this.THREE.MeshBasicMaterial({ color: 0xffffff }),
+            line: new this.THREE.LineBasicMaterial({ color: 0xffffff })
+          };
+        }
+        this._debugOriginalMaterials.clear();
+        for (const object of this._current?.meshes || []) {
+          if (!object?.material) continue;
+          this._debugOriginalMaterials.set(object, object.material);
+          object.material = object.isLine
+            ? this._debugBasicMaterials.line
+            : this._debugBasicMaterials.mesh;
+        }
+      } else {
+        for (const [object, material] of this._debugOriginalMaterials) {
+          object.material = material;
+        }
+        this._debugOriginalMaterials.clear();
+      }
+
+      this.debugBasicMaterial = next;
+    }
   
     onFire(strength=1){
       // recoil
       const s = Math.max(0.2, Math.min(1.5, strength));
       this._kickVelPos -= 0.55 * s;
       this._kickVelRot += 0.35 * s;
+      if (this._current?.spinner) this._spinnerVelocity = Math.min(24, this._spinnerVelocity + 4.5 * s);
+      if (this._current?.actionParts?.length) {
+        this._actionState.active = true;
+        this._actionState.t = 0;
+        this._actionState.dur = WEAPON_ACTION_DURATIONS[this._current.weaponKey] || .12;
+      }
+    }
+
+    updateActionCycle(dt){
+      const state = this._actionState;
+      const parts = this._current?.actionParts;
+      if (!state.active || !parts?.length) return;
+
+      state.t += dt;
+      const progress = Math.min(1, state.t / state.dur);
+      const offset = -Math.sin(progress * Math.PI) * .035;
+      for (const part of parts) {
+        if (part.userData.basePosition) part.position.x = part.userData.basePosition.x + offset;
+      }
+
+      if (progress >= 1) {
+        state.active = false;
+        state.t = 0;
+        for (const part of parts) {
+          if (part.userData.basePosition) part.position.x = part.userData.basePosition.x;
+        }
+      }
     }
 
     startSlash(opts){
@@ -151,8 +269,16 @@ export class WeaponView {
     }
   
     update(dt){
-      const THREE = this.THREE;
+      if (this.debugMotionFrozen) return;
       this._time += dt;
+
+      if (this._current?.spinner) {
+        this._current.spinner.rotation.x += dt * (1.8 + this._spinnerVelocity);
+        this._spinnerVelocity *= Math.exp(-dt * 2.8);
+      } else {
+        this._spinnerVelocity = 0;
+      }
+      this.updateActionCycle(dt);
   
       // ---- sway/bob target ----
       const moveLen = Math.max(0, Math.min(1, this._move.length()));
@@ -162,9 +288,11 @@ export class WeaponView {
       const swayY = ( this._move.y * this._swayAmount*0.7) + ( this._look.y * this._lookSway*0.8) + bob;
   
       // ADS offset 
-      const adsOff = new THREE.Vector3().copy(this._hipOffset).lerp(new THREE.Vector3(0.02, -0.03, -0.02), this._ads);
+      this._adsOffset.set(0.02, -0.03, -0.02);
+      const adsOff = this._offsetTarget.copy(this._hipOffset).lerp(this._adsOffset, this._ads);
       // Sprint offset 
-      const sprOff = new THREE.Vector3().copy(adsOff).lerp(new THREE.Vector3(0.18, -0.16, 0.05), this._sprint);
+      this._sprintOffset.set(0.18, -0.16, 0.05);
+      const sprOff = adsOff.lerp(this._sprintOffset, this._sprint);
   
       // position root
       this.root.position.lerp(sprOff, Math.min(1, dt*10));
@@ -212,220 +340,88 @@ export class WeaponView {
     // ---------- building ----------
     clear(){
       if (!this._current) return;
+      if (this.debugBasicMaterial) this.setDebugBasicMaterial(false);
       try {
         for (const m of this._current.meshes||[]) {
           if (m.parent) m.parent.remove(m);
-          if (m.geometry) m.geometry.dispose();
-          if (m.material && m.material.isMaterial) m.material.dispose();
         }
+        for (const node of this._current.nodes||[]) node.removeFromParent();
+        for (const geometry of this._current.geometries||[]) geometry.dispose();
       } catch (e) { logError(e); }
       this._current = null;
+      this._spinnerVelocity = 0;
+      this._actionState.active = false;
+      this._actionState.t = 0;
     }
   
     setWeapon(name){
       this.clear();
       this.endCharge();
+
       const THREE = this.THREE;
-      const meshes = [];
-      const body = this._matBody, metal = this._matMetal;
+      const requestedKey = String(name || 'rifle').toLowerCase();
+      const weaponKey = WEAPON_VIEW_LENGTHS[requestedKey] ? requestedKey : 'rifle';
+      const targetLength = WEAPON_VIEW_LENGTHS[weaponKey];
+      const geometryPool = createWeaponGeometryPool(THREE);
+      const accent = this._weaponAccents.get(weaponKey) || this._weaponAccents.get('rifle');
+      const built = buildWeaponModel({
+        THREE,
+        id: weaponKey,
+        geometryPool,
+        materials: {
+          body: this._matBody,
+          metal: this._matMetal,
+          dark: this._matDark,
+          grip: this._matGrip,
+          white: this._matWhite,
+          glass: this._matGlass,
+          accent,
+          blade: this._matBlade
+        }
+      });
 
-      // adjust muzzle based on weapon type
-      if ((name||'').toLowerCase() === 'beamsaber') {
-        this._muzzleLocal.set(0, -0.02, -0.75);
+      // Lab models face +X. Rotate that exact assembly into the game's -Z
+      // view direction, then mount its rear face beyond the camera near plane.
+      const sourceLength = built.bounds.max.x - built.bounds.min.x;
+      const scale = targetLength / sourceLength;
+      const muzzleY = weaponKey === 'beamsaber' ? -.02 : -.005;
+      const muzzleAxis = WEAPON_MUZZLE_AXES[weaponKey];
+      const cameraNear = Number.isFinite(this.camera?.near) ? this.camera.near : .1;
+      const rearPlane = -(cameraNear + .06);
+      const muzzleZ = rearPlane - targetLength;
+
+      built.root.scale.setScalar(scale);
+      if (weaponKey === 'beamsaber') {
+        // Sword stance: hilt low-right, blade cutting upward-left with enough
+        // depth to preserve its slash arc without reading as a forward spear.
+        const direction = new THREE.Vector3(-.55, .45, -.70).normalize();
+        built.root.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), direction);
+        const authoredTip = new THREE.Vector3(muzzleAxis.x, muzzleAxis.y, 0)
+          .multiplyScalar(scale)
+          .applyQuaternion(built.root.quaternion);
+        const stanceTip = new THREE.Vector3(-.24, .18, -.90);
+        built.root.position.copy(stanceTip).sub(authoredTip);
+        this._muzzleLocal.copy(stanceTip);
       } else {
-        this._muzzleLocal.set(0, -0.005, -0.25);
+        built.root.rotation.y = Math.PI / 2;
+        built.root.position.set(
+          0,
+          muzzleY - muzzleAxis.y * scale,
+          muzzleZ + built.bounds.max.x * scale
+        );
+        this._muzzleLocal.set(0, muzzleY, muzzleZ);
       }
+      this._model.add(built.root);
+
       this.sockets.muzzle.position.copy(this._muzzleLocal);
-
-      const addBox = (sx, sy, sz, px, py, pz, mat) => {
-        const g = new THREE.BoxGeometry(sx, sy, sz);
-        const m = new THREE.Mesh(g, mat || body);
-        m.position.set(px, py, pz);
-        this._model.add(m); meshes.push(m);
-        return m;
+      this._current = {
+        meshes: built.meshes,
+        nodes: [built.root],
+        geometries: Object.values(geometryPool),
+        actionParts: built.actionParts,
+        spinner: built.spinner,
+        weaponKey
       };
-      // stylized sights
-      const addSight = (z, w=0.01, h=0.02, mat) => {
-        addBox(w, h, 0.01, 0, 0.0, z, mat || metal);
-      };
-      // handguard detail lines
-      const addRail = (z0, z1, step, y=-0.005, mat) => {
-        for (let z=z0; z<=z1; z+=step) addBox(0.004, 0.008, 0.012, 0, y+0.02, z, mat || metal);
-      };
-      const addCyl = (r, l, px, py, pz, mat) => {
-        const g = new THREE.CylinderGeometry(r, r, l, 8);
-        const m = new THREE.Mesh(g, mat || body);
-        m.position.set(px, py, pz);
-        m.rotation.x = Math.PI / 2;
-        this._model.add(m); meshes.push(m);
-        return m;
-      };
-
-      const muzzleZ = this._muzzleLocal.z;
-  
-      const makePistol = ()=>{
-        const L = 0.16, W = 0.045, H = 0.045;
-        addBox(W, H, L, 0, -0.005, muzzleZ + L*0.5, metal);               // barrel
-        addBox(W*1.8, H*1.2, 0.14, -0.02, -0.01, muzzleZ + L + 0.07, body); // slide
-        addSight(muzzleZ + L*0.6, 0.008, 0.016);
-        addSight(muzzleZ + L + 0.10, 0.008, 0.018);
-      };
-  
-      const makeRifle = ()=>{
-        // Create premium Series S materials with vibrant colors and glow
-        const whiteMat = new this.THREE.MeshStandardMaterial({
-          color: 0xffffff,
-          roughness: 0.05,
-          metalness: 0.9,
-          emissive: 0xaaaaaa
-        });
-        const blueMat = new this.THREE.MeshStandardMaterial({
-          color: 0x0088ff, // More vibrant blue
-          roughness: 0.02,
-          metalness: 0.95,
-          emissive: 0x004488 // Strong blue glow
-        });
-        const L = 0.32, D = 0.035;
-
-        // Premium white barrel with glow
-        const barrelMesh = addBox(D, D, L, 0.0, -0.005, muzzleZ + L*0.5, whiteMat);
-
-        // RIFLE-ONLY: Create barrel outline using EdgesGeometry
-        const barrelGeometry = new this.THREE.BoxGeometry(D*1.01, D*1.01, L*1.01);
-        const edgesGeometry = new this.THREE.EdgesGeometry(barrelGeometry);
-        const outlineMaterial = new this.THREE.LineBasicMaterial({
-          color: 0x0066cc, // Blue outline color
-          linewidth: 2
-        });
-
-        const barrelOutline = new this.THREE.LineSegments(edgesGeometry, outlineMaterial);
-        barrelOutline.position.set(0.0, -0.005, muzzleZ + L*0.5);
-        this._model.add(barrelOutline);
-        meshes.push(barrelOutline);
-
-        // White body with glow
-        addBox(D*2.3, D*1.6, 0.22, -0.035, -0.01, muzzleZ + L + 0.11, whiteMat);
-
-        // More blue accent rails - smaller spacing for more visibility
-        addRail(muzzleZ + 0.06, muzzleZ + L - 0.08, 0.025, -0.008, blueMat);
-
-        // Blue accent sights - larger and more visible
-        addSight(muzzleZ + L*0.65, 0.012, 0.024, blueMat);
-        addSight(muzzleZ + L + 0.11, 0.012, 0.024, blueMat);
-
-        // White magazine with glow
-        addBox(D*0.7, D*1.0, 0.10, -0.045, -0.07, muzzleZ + L + 0.03, whiteMat);
-
-        // Enhanced highlight box with stronger visibility
-        const highlightBox = addBox(D*2.5, D*1.8, 0.24, -0.035, -0.01, muzzleZ + L + 0.11, blueMat);
-        highlightBox.material.transparent = true;
-        highlightBox.material.opacity = 0.25; // Much more visible
-        highlightBox.material.emissiveIntensity = 1.2; // Even stronger glow
-      };
-  
-      const makeSMG = ()=>{
-        // Smaller SMG - scaled down proportionally
-        const L = 0.16, D = 0.032;  // 20% smaller barrel and diameter
-        addBox(D, D, L, 0.0, -0.004, muzzleZ + L*0.5, metal);                          // smaller barrel
-        addBox(D*1.8, D*1.4, 0.128, -0.024, -0.008, muzzleZ + L + 0.064, body);       // proportionally smaller body
-        addRail(muzzleZ + 0.032, muzzleZ + L, 0.02);                                   // closer rail spacing
-        addSight(muzzleZ + L*0.6);
-        addBox(D*0.65, D*0.9, 0.072, -0.032, -0.056, muzzleZ + L*0.72, body);         // smaller magazine, closer to body
-      };
-  
-      const makeShotgun = ()=>{
-        // === CONFIGURABLE SIZES ===
-        const barrelLength = 0.24;     // Length of each barrel
-        const barrelDiameter = 0.04;   // Diameter of each barrel
-        const barrelGap = 0.02;        // Gap between the two barrels (absolute units)
-        const bodyWidth = 0.168;       // Total width of the receiver body (D*2.8)
-        const bodyHeight = 0.084;      // Height of the receiver body (D*1.4)
-        const bodyLength = 0.20;       // Length of the receiver body
-        const bodyOffsetX = -0.04;     // X offset of body from center
-        const bodyOffsetY = -0.015;    // Y offset of body from center
-        const bodyOffsetZ = 0.10;      // Z offset of body from barrel end
-        const sightOffset = 0.09;      // Distance of sight from barrel end
-        // === END CONFIGURABLE SIZES ===
-
-        // Calculate barrel positioning
-        const barrelOffset = (barrelDiameter + barrelGap) * 0.5;
-
-        // Left barrel (from original single barrel)
-        addBox(barrelDiameter, barrelDiameter, barrelLength,
-               -barrelOffset, -0.01, muzzleZ + barrelLength*0.5, metal);
-
-        // Right barrel (from original single barrel)
-        addBox(barrelDiameter, barrelDiameter, barrelLength,
-               barrelOffset, -0.01, muzzleZ + barrelLength*0.5, metal);
-
-        // Body wide enough for gap
-        addBox(bodyWidth, bodyHeight, bodyLength,
-               bodyOffsetX, bodyOffsetY, muzzleZ + barrelLength + bodyOffsetZ, body);
-
-        // Single sight centered between both barrels
-        addSight(muzzleZ + barrelLength + sightOffset, 0.012, 0.02);
-      };
-  
-      const makeDMR = ()=>{
-        // Create orange theme materials for DMR
-        const orangeMat = new this.THREE.MeshStandardMaterial({
-          color: 0xff6600, // Vibrant orange
-          roughness: 0.03,
-          metalness: 0.85,
-          emissive: 0x331100 // Subtle orange glow
-        });
-        const darkOrangeMat = new this.THREE.MeshStandardMaterial({
-          color: 0xcc4400, // Darker orange for accents
-          roughness: 0.05,
-          metalness: 0.9,
-          emissive: 0x220800
-        });
-
-        const L = 0.34, D = 0.03;
-
-        // Orange barrel with glow
-        addBox(D, D, L, 0.0, -0.005, muzzleZ + L*0.5, orangeMat);
-
-        // Orange body
-        addBox(D*2.0, D*1.6, 0.22, -0.03, -0.01, muzzleZ + L + 0.11, orangeMat);
-
-        // Dark orange sights for contrast
-        addSight(muzzleZ + L*0.7, 0.01, 0.02, darkOrangeMat);
-        addSight(muzzleZ + L + 0.12, 0.01, 0.02, darkOrangeMat);
-
-        // Add orange rails for tactical look
-        addRail(muzzleZ + 0.08, muzzleZ + L - 0.08, 0.03, -0.006, darkOrangeMat);
-      };
-
-      const makeGrenade = ()=>{
-        const L = 0.20, D = 0.09;
-        addBox(D, D, L, 0.0, -0.01, muzzleZ + L*0.5, metal);
-        addBox(D*2.6, D*1.6, 0.16, -0.05, -0.015, muzzleZ + L + 0.08, body);
-        addSight(muzzleZ + L + 0.06, 0.014, 0.02);
-      };
-
-      const makeBeamSaber = ()=>{
-        const bladeL = 0.5, bladeR = 0.006;
-        const hiltL  = 0.14, hiltR = 0.02;
-        const baseZ = muzzleZ + bladeL;
-
-        addCyl(bladeR, bladeL, 0, -0.02, muzzleZ + bladeL*0.5, this._matBlade); // glowing blade
-        addCyl(hiltR,  hiltL,  0, -0.02, baseZ + hiltL*0.5, body);               // main grip
-        addBox(hiltR*4, hiltR*0.6, 0.02, 0, -0.02, baseZ, metal);                // emitter guard
-        addCyl(hiltR*1.1, 0.03, 0, -0.02, baseZ + hiltL + 0.015, metal);         // pommel
-      };
-
-      switch ((name||'').toLowerCase()){
-        case 'pistol': makePistol(); break;
-        case 'smg': makeSMG(); break;
-        case 'shotgun': makeShotgun(); break;
-        case 'dmr': makeDMR(); break;
-        case 'grenade': makeGrenade(); break;
-        case 'beamsaber': makeBeamSaber(); break;
-        case 'rifle': default: makeRifle(); break;
-      }
-  
-      this._current = { meshes };
     }
   
     // world-position for tracer/muzzle flash

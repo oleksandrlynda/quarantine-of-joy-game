@@ -1,12 +1,14 @@
 const SUPPORTED_LANGS = ['en', 'uk'];
 const DEFAULT_LANG = 'en';
+const RESOURCE_VERSION = new URL(import.meta.url).searchParams.get('v');
 
 let currentLang = DEFAULT_LANG;
 const resources = {};
 
 async function loadResources(lang) {
   if (resources[lang]) return resources[lang];
-  const res = await fetch(`i18n/${lang}.json`);
+  const resourceUrl = `i18n/${lang}.json${RESOURCE_VERSION ? `?v=${encodeURIComponent(RESOURCE_VERSION)}` : ''}`;
+  const res = await fetch(resourceUrl);
   if (!res.ok) throw new Error(`Failed to load i18n resources for ${lang}`);
   resources[lang] = await res.json();
   return resources[lang];

@@ -39,17 +39,21 @@ export class Pistol extends Weapon {
       try { window._HUD && window._HUD.showHitmarker && window._HUD.showHitmarker(); } catch (e) { logError(e); }
       // Damage model: 2 bullets to head, 5 to torso, 10-15 to limbs
       // Compute per-hit damage given current enemy HP targets (assume grunt 100)
+      const isHead = !!(res.isHead || res.bodyPart === 'head');
       let dmg;
-      if (res.isHead || res.bodyPart === 'head') dmg = 50;         // 2 hits to kill 100 HP
+      if (isHead) dmg = 50;         // 2 hits to kill 100 HP
       else if (res.bodyPart === 'arm' || res.bodyPart === 'leg') dmg = 8; // 12–13 hits for 100 HP
       else dmg = 22; // torso ~5 hits
+      dmg *= ctx.mutations?.getPistolDamageMultiplier?.() ?? 1;
       res.enemyRoot.userData.hp -= dmg;
+      const killed = res.enemyRoot.userData.hp <= 0;
+      this.recordCombatHit(ctx, res.enemyRoot, { damage: dmg, killed, isHead, distance: res.distance || origin.distanceTo(end) });
       effects?.spawnBulletImpact?.(end, res.hitFace?.normal);
       if (S && S.impactFlesh) S.impactFlesh();
       if (S && S.enemyPain) S.enemyPain(res.enemyRoot?.userData?.type || 'grunt');
       // Softer decal on enemies
-      effects?.spawnBulletDecal?.(end, res.hitFace?.normal, { size: 0.08, ttl: 8, color: 0x1a1a1a, softness: 0.6, object: res.hitObject, owner: res.enemyRoot, attachTo: res.enemyRoot });
-      if (res.enemyRoot.userData.hp <= 0) {
+      effects?.spawnBulletDecal?.(end, res.hitFace?.normal, { size: 0.08, ttl: 8, color: 0x1a1a1a, softness: 0.6, object: res.hitObject, owner: res.enemyRoot, attachTo: res.hitObject });
+      if (killed) {
         effects?.enemyDeath?.(res.enemyRoot.position.clone());
         if (S && S.enemyDeath) S.enemyDeath(res.enemyRoot?.userData?.type || 'grunt');
         const eType = res.enemyRoot?.userData?.type;
@@ -59,7 +63,7 @@ export class Pistol extends Weapon {
           pickups?.maybeDrop?.(res.enemyRoot.position.clone());
         }
         enemyManager.remove(res.enemyRoot);
-        const base = (res.isHead || res.bodyPart==='head') ? 150 : 100;
+        const base = isHead ? 150 : 100;
         const finalScore = Math.round(base * (ctx.combo?.multiplier || 1));
         addScore?.(finalScore);
         addComboAction?.(1);

@@ -33,7 +33,7 @@ export class GrenadePistol extends Weapon {
     mesh.userData = { life: 0 };
     ctx.objects?.push?.(mesh);
     ctx.obstacleManager?.scene?.add?.(mesh);
-    this.projectiles.push({ mesh, vel });
+    this.projectiles.push({ mesh, vel, attackId: ctx.attackId });
     effects?.spawnMuzzleFlash?.(0.6);
   }
 
@@ -48,7 +48,7 @@ export class GrenadePistol extends Weapon {
       p.mesh.position.addScaledVector(p.vel, dt);
       // ground collide
       if (p.mesh.position.y <= 0.8 || p.mesh.userData.life >= this.ttl) {
-        this._explode(p.mesh.position.clone(), ctx);
+        this._explode(p.mesh.position.clone(), ctx, p.attackId);
         ctx.obstacleManager?.scene?.remove?.(p.mesh);
         continue;
       }
@@ -59,7 +59,7 @@ export class GrenadePistol extends Weapon {
         if (d <= 0.6) { shouldExplode = true; break; }
       }
       if (shouldExplode) {
-        this._explode(p.mesh.position.clone(), ctx);
+        this._explode(p.mesh.position.clone(), ctx, p.attackId);
         ctx.obstacleManager?.scene?.remove?.(p.mesh);
       } else {
         remain.push(p);
@@ -68,7 +68,7 @@ export class GrenadePistol extends Weapon {
     this.projectiles = remain;
   }
 
-  _explode(pos, ctx){
+  _explode(pos, ctx, attackId){
     const { THREE, enemyManager, effects, pickups, addScore, S } = ctx;
     // VFX (ground or enemy): full composite explosion
     effects?.spawnExplosion?.(pos, this.explodeRadius) || effects?.spawnBulletImpact?.(pos, new THREE.Vector3(0,1,0));
@@ -80,7 +80,9 @@ export class GrenadePistol extends Weapon {
         const fall = Math.max(0, 1 - (d / this.explodeRadius));
         const dmg = Math.floor(this.baseDamage * (0.25 + 0.75 * fall));
         root.userData.hp -= dmg;
-        if (root.userData.hp <= 0){
+        const killed = root.userData.hp <= 0;
+        this.recordCombatHit(ctx, root, { damage: dmg, killed, distance: d, attackId });
+        if (killed){
           effects?.enemyDeath?.(root.position.clone());
           const eType = root?.userData?.type;
           if (eType === 'tank') { // tanks shower extra rewards

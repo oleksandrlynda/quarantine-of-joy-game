@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Dynamite</title>
+  <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="4">
+    <rect x="12" y="24" width="34" height="10" rx="5" transform="rotate(-18 29 29)"/>
+    <rect x="17" y="34" width="34" height="10" rx="5" transform="rotate(-18 34 39)"/>
+    <path d="M41 19c5-8 9-4 10-11"/>
+    <path d="m51 8 2-4m-2 4 5 1m-5-1-3-4"/>
+    <path d="m27 22 5 20m5-23 5 20"/>
+  </g>
+</svg>

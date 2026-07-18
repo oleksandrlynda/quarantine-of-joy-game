@@ -139,7 +139,7 @@ export function createSwarmWarden({ THREE, mats, scale = 1.0, palette } = {}) {
     // ---------------------------------------------------------------------------
     const swarmRing = new THREE.Group(); group.add(swarmRing);
     swarmRing.position.set(0, 1.6 * scale, 0);
-    const R = 2.2; const N = 16;
+    const R = 4.2; const N = 16;
     for (let i = 0; i < N; i++) {
       const a = (i / N) * Math.PI * 2;
       const s = new THREE.Object3D();

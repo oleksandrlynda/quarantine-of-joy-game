@@ -3,6 +3,7 @@
 
 import { createGrassMesh } from './graphics/grass.js';
 import { logError } from './util/log.js';
+import { createDprBudget } from './game/render-budget.js';
 
 export const DEFAULT_ARENA_RADIUS = 40;
 export let ARENA_RADIUS = DEFAULT_ARENA_RADIUS;
@@ -14,7 +15,8 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
   const renderer = new THREE.WebGLRenderer({ antialias: params.get('aa') === '1', powerPreference: 'high-performance' });
   renderer.setSize(window.innerWidth, window.innerHeight);
   document.body.appendChild(renderer.domElement);
-  renderer.setPixelRatio(Math.min(2, (window.devicePixelRatio||1)));
+  const autoDpr = params.get('autoDPR') !== '0';
+  renderer.setPixelRatio(createDprBudget(window.devicePixelRatio || 1, autoDpr).initial);
   // Color management & tone mapping
   try { renderer.outputColorSpace = THREE.SRGBColorSpace; } catch (e) { logError(e); }
   try {
@@ -155,7 +157,9 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
         floorGeometry: g,
         bladeCount: 20000,
         colorRange: [0x6dbb3c, 0x4c8a2f],
-        heightRange: [0.8, 1.6],
+        // Preserve the lush 20k-blade field while keeping enemy legs, pickups,
+        // and ground telegraphs readable from the FPS camera height.
+        heightRange: [0.45, 0.95],
         windStrength: 0.3
       });
       scene.add(grass);

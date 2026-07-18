@@ -50,17 +50,22 @@ export class Shotgun extends Weapon {
         anyHit = true;
         const dist = res.distance || origin.distanceTo(end);
         const falloff = dist <= this.fullDamageRange ? 1.0 : Math.max(0, 1 - (dist - this.fullDamageRange) / Math.max(1, (this.range - this.fullDamageRange)));
-        const torso = 12 * falloff;
-        const head = 24 * falloff;
-        const limb = 5 * falloff;
+        const pelletBase = ctx.mutations?.getShotgunPelletDamage?.() ?? 12;
+        const masteryScale = pelletBase / 12;
+        const torso = pelletBase * falloff;
+        const head = 24 * masteryScale * falloff;
+        const limb = 5 * masteryScale * falloff;
         const part = res.bodyPart;
         const dmg = (res.isHead || part === 'head') ? head : ((part === 'arm' || part === 'leg') ? limb : torso);
         res.enemyRoot.userData.hp -= dmg;
+        const isHead = !!(res.isHead || part === 'head');
+        const killed = res.enemyRoot.userData.hp <= 0;
+        this.recordCombatHit(ctx, res.enemyRoot, { damage: dmg, killed, isHead, distance: dist });
         effects?.spawnBulletImpact?.(end, res.hitFace?.normal);
         if (S && S.impactFlesh) S.impactFlesh();
         if (S && S.enemyPain) S.enemyPain(res.enemyRoot?.userData?.type || 'grunt');
-        effects?.spawnBulletDecal?.(end, res.hitFace?.normal, { size: 0.09, ttl: 8, color: 0x1a1a1a, softness: 0.65, object: res.hitObject, owner: res.enemyRoot, attachTo: res.enemyRoot });
-        if (res.enemyRoot.userData.hp <= 0) {
+        effects?.spawnBulletDecal?.(end, res.hitFace?.normal, { size: 0.09, ttl: 8, color: 0x1a1a1a, softness: 0.65, object: res.hitObject, owner: res.enemyRoot, attachTo: res.hitObject });
+        if (killed) {
           effects?.enemyDeath?.(res.enemyRoot.position.clone());
           const eType = res.enemyRoot?.userData?.type;
           if (eType === 'tank') { // tanks shower extra rewards
@@ -69,7 +74,7 @@ export class Shotgun extends Weapon {
             pickups?.maybeDrop?.(res.enemyRoot.position.clone());
           }
           enemyManager.remove(res.enemyRoot);
-          const base = (res.isHead || res.bodyPart==='head') ? 150 : 100;
+          const base = isHead ? 150 : 100;
           const finalScore = Math.round(base * (ctx.combo?.multiplier || 1));
           addScore?.(finalScore);
           addComboAction?.(1);

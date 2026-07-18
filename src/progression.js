@@ -1,309 +1,416 @@
-// Progression: tier-aware early game, no duplicate offers vs. current, safer restricted picks
-
-// Exported helper for testing weapon offer selection
+// Armory and Punchline offer scheduling with one shared, queued modal.
 import { logError } from './util/log.js';
 import { getJSON, setJSON } from './util/storage.js';
+import { describeMutationRank } from './mutations.js';
+
 export function pickTwoDistinct(pool, rng = Math.random){
   if (pool.length <= 1) return pool.slice(0, 1);
-  // pick two uniformly without replacement
-  const i = Math.floor(rng()*pool.length);
-  let j = Math.floor(rng()*pool.length);
-  while (j === i) j = Math.floor(rng()*pool.length);
+  const i = Math.floor(rng() * pool.length);
+  let j = Math.floor(rng() * pool.length);
+  while (j === i) j = Math.floor(rng() * pool.length);
   return [pool[i], pool[j]];
 }
 
 export class Progression {
-  constructor({ weaponSystem, documentRef, onPause, controls, rng = Math.random }){
+  constructor({
+    weaponSystem,
+    documentRef,
+    onPause,
+    controls,
+    rng = Math.random,
+    mutations = null,
+    session = null,
+    player = null,
+    translate = key => key,
+    onMutationApplied = null,
+    onClassifiedReveal = null
+  }){
     this.ws = weaponSystem;
     this.doc = documentRef || document;
     this.onPause = onPause || (()=>{});
     this.controls = controls || null;
     this.rng = rng;
+    this.mutations = mutations;
+    this.session = session;
+    this.player = player;
+    this.translate = translate;
+    this.onMutationApplied = onMutationApplied;
+    this.onClassifiedReveal = onClassifiedReveal;
 
     this.UNLOCKS_KEY = 'bs3d_unlocks';
     this.unlocks = this._loadUnlocks();
-
-    this.offerCooldown = 0;         // prevents back-to-back only when an offer is accepted
+    this.offerCooldown = 0;
     this.offerOpen = false;
+    this.offerMode = 'weapon';
+    this.offerQueue = [];
     this._offerHandlersBound = false;
-    this.bossKills = 0;             // track number of defeated bosses this run
-    this.sidearmOfferShown = false; // show once per run
+    this.bossKills = 0;
+    this.defeatedBossWaves = new Set();
+    this.sidearmOfferShown = false;
     this.selectedPick = null;
     this.declineSelected = false;
-
     this._bindOfferUI();
   }
 
-  // ---------- Persistence ----------
   _loadUnlocks(){
     const base = { bestWave:0, smg:false, shotgun:false, rifle:false, dmr:false, beamsaber:false, minigun:false };
     return { ...base, ...getJSON(this.UNLOCKS_KEY, {}) };
   }
+
   _saveUnlocks(){ setJSON(this.UNLOCKS_KEY, this.unlocks); }
 
-  // ---------- Wave hooks ----------
+  resetRun() {
+    this.offerCooldown = 0;
+    this.bossKills = 0;
+    this.defeatedBossWaves.clear();
+    this.sidearmOfferShown = false;
+    this.offerQueue.length = 0;
+    this.offerOpen = false;
+    this.selectedPick = null;
+    this.declineSelected = false;
+    if (this.offerEl) this.offerEl.style.display = 'none';
+  }
+
+  _isProgressionRun() {
+    const run = this.mutations?.getRunState?.();
+    return run?.tutorial !== true && run?.debug !== true;
+  }
+
   onWave(wave){
-    // Persist unlocks by best wave reached (kept compatible with your main.js boss hooks)
-    if (wave > (this.unlocks.bestWave||0)){
+    this.mutations?.onWaveStarted?.(wave);
+    if (!this._isProgressionRun()) return;
+    if (wave > (this.unlocks.bestWave || 0)){
       this.unlocks.bestWave = wave;
-      if (wave >= 2) this.unlocks.smg = true;        // earlier SMG to improve onboarding
+      if (wave >= 2) this.unlocks.smg = true;
       if (wave >= 3) this.unlocks.shotgun = true;
       if (wave >= 4) this.unlocks.minigun = true;
-      if (wave >= 6) this.unlocks.rifle = true;
-      if (wave >= 11) this.unlocks.dmr = true;
       if (wave >= 3) this.unlocks.beamsaber = true;
       this._saveUnlocks();
     }
 
-    // Early guided milestones (tier-aware)
-    // Use unlockOverrides to allow showing items before their persistent unlocks fire.
-    // const early = { shotgun:true, smg:true, rifle:true, dmr:true, beamsaber:true, minigun:true };
+    if (wave === 6) this._revealClassifiedTrial('rifle');
 
-    if (wave === 1) { return; }
-
+    if (wave === 1) {
+      if (this.mutations?.shouldOfferAtWave?.(wave)) this.requestMutationOffer();
+      return;
+    }
     if (wave === 2) {
-      // Guarantee SMG as first primary (safer for new players than Shotgun)
-      const pool = this.ws.getUnlockedPrimaries(this.unlocks);
-      const smg = pool.find(x => x.name === 'SMG');
+      const smg = this.ws.getUnlockedPrimaries(this._effectiveUnlocks()).find(x => x.name === 'SMG');
       if (smg) this.ws.swapPrimary(smg.make);
       return;
     }
 
-    if (wave === 3) { this._presentOffer(['Shotgun','SMG'], this.unlocks); return; }
-    if (wave === 4) { this._presentOffer(['BeamSaber'], this.unlocks); return; }          // single pick allowed; we’ll fill if filtered
-    if (wave === 6) { this._presentOffer(['Rifle','SMG'], this.unlocks); return; }
-    if (wave === 8) { this._presentOffer(['Minigun'], this.unlocks); return; }
-    if (wave === 11){ this._presentOffer(['Rifle','DMR'], this.unlocks); return; }
-    if (wave === 12){ this._presentOffer(['DMR','BeamSaber'], this.unlocks); return; }
+    let guided = false;
+    const guidedOffers = new Map([
+      [3, ['Shotgun', 'SMG']],
+      [4, ['BeamSaber']],
+      [6, ['Rifle', 'SMG']],
+      [8, ['Minigun']],
+      [11, ['Rifle', 'DMR']],
+      [12, ['DMR', 'BeamSaber']]
+    ]);
+    if (guidedOffers.has(wave)) {
+      guided = true;
+      const names = guidedOffers.get(wave);
+      this._runOrQueue(() => this._presentOffer(names, this.unlocks));
+    }
 
-    // Normal cadence: even waves ≥ 6 (respect cooldown)
-    if (wave >= 6 && (wave % 2) === 0){
+    if (!guided && wave >= 6 && wave % 2 === 0){
       if (this.offerCooldown > 0) this.offerCooldown -= 1;
-      else this._presentOffer();
+      else this._runOrQueue(() => this._presentOffer());
     }
 
-    // Sidearm offer once per run at wave ≥ 15
-    if (!this.sidearmOfferShown && wave >= 15){
-      this._presentSidearmOffer();
-      this.sidearmOfferShown = true;
-    }
+    if (this.mutations?.shouldOfferAtWave?.(wave)) this.requestMutationOffer();
   }
 
-  // ---------- UI plumbing ----------
+  onBossDefeated(wave) {
+    if (!this._isProgressionRun()) return false;
+    const bossWave = Math.floor(Number(wave) || 0);
+    if (bossWave <= 0 || this.defeatedBossWaves.has(bossWave)) return false;
+    this.defeatedBossWaves.add(bossWave);
+    this.bossKills += 1;
+    if (bossWave === 10) this._revealClassifiedTrial('dmr');
+    if (bossWave === 15) {
+      const trialGranted = this._revealClassifiedTrial('grenade');
+      this.mutations?.claimClassifiedDossier?.();
+      if (trialGranted) this.ws?.ensureGrenadeSlot?.();
+    }
+    if (bossWave === 5) return this.requestMutationOffer();
+    return false;
+  }
+
+  _revealClassifiedTrial(weaponId) {
+    if (!this.mutations) return false;
+    const revealed = this.mutations.revealClassifiedWeapon?.(weaponId) === true;
+    if (!revealed) return false;
+    const trialGranted = this.mutations.grantWeaponTrial?.(weaponId) === true;
+    this.onClassifiedReveal?.({ weaponId, trialGranted, definition: this.mutations.getClassifiedWeaponDefinition?.(weaponId) || null });
+    return trialGranted;
+  }
+
+  _effectiveUnlocks(overrides = null) {
+    const effective = { ...this.unlocks, ...(overrides || {}) };
+    if (this.mutations?.hasWeaponAccess) {
+      effective.rifle = this.mutations.hasWeaponAccess('rifle');
+      effective.dmr = this.mutations.hasWeaponAccess('dmr');
+      effective.grenade = this.mutations.hasWeaponAccess('grenade');
+    }
+    return effective;
+  }
+
+  requestMutationOffer() {
+    if (!this.mutations) return false;
+    return this._runOrQueue(() => this._presentMutationOffer());
+  }
+
+  _runOrQueue(action) {
+    if (this.offerOpen) {
+      this.offerQueue.push(action);
+      return true;
+    }
+    const shown = action();
+    if (shown === false && !this.offerOpen) this._showNextQueued();
+    return shown;
+  }
+
+  _showNextQueued() {
+    if (this.offerOpen) return;
+    const next = this.offerQueue.shift();
+    if (!next) return;
+    const shown = next();
+    if (shown === false && !this.offerOpen) this._showNextQueued();
+  }
+
   _bindOfferUI(){
     this.offerEl = this.doc.getElementById('offer');
+    this.titleEl = this.doc.getElementById('offerTitle');
+    this.copyEl = this.doc.getElementById('offerCopy');
     this.choicesEl = this.doc.getElementById('offerChoices');
     this.declineBtn = this.doc.getElementById('offerDecline');
     this.acceptBtn = this.doc.getElementById('offerAccept');
     if (this.declineBtn) this.declineBtn.onclick = () => this._selectDecline();
     if (this.acceptBtn) this.acceptBtn.onclick = () => {
       if (this.selectedPick) this._accept(this.selectedPick);
-      else if (this.declineSelected) this._decline();
+      else if (this.declineSelected && this.offerMode !== 'mutation') this._decline();
     };
   }
 
-  // ---------- Offer helpers ----------
-  _currentPrimaryName(){
-    return (this.ws?.current?.name) || null;
-  }
+  _currentPrimaryName(){ return this.ws?.inventory?.[0]?.name || null; }
 
   _currentSidearmName(){
     const inv = this.ws?.inventory || [];
-    // assuming slot 0 = primary, slot 1 = sidearm if present
-    if (inv.length >= 2 && inv[1] && inv[1].name) return inv[1].name;
-    return null;
+    return inv.length >= 2 ? inv[1]?.name || null : null;
   }
 
   _filterOutCurrent(pool){
-    const cur = this._currentPrimaryName();
-    return pool.filter(p => p && p.name !== cur);
+    const current = this._currentPrimaryName();
+    return pool.filter(p => p && p.name !== current);
   }
 
   _expandIfTooShort(picks, fallbackPool){
-    // If after restrictions we have <2, top up from fallback (excluding duplicates)
     if (picks.length >= 2) return picks;
     const names = new Set(picks.map(p => p.name));
-    for (const c of fallbackPool){
-      if (!names.has(c.name)){
-        picks.push(c);
-        if (picks.length === 2) break;
-      }
+    for (const candidate of fallbackPool){
+      if (!names.has(candidate.name)) picks.push(candidate);
+      if (picks.length === 2) break;
     }
     return picks;
   }
 
-  _selectPick(p, el){
-    this.selectedPick = p;
-    this.declineSelected = false;
-    Array.from(this.choicesEl.children).forEach(c => c.classList.remove('selected'));
-    this.declineBtn?.classList.remove('selected');
-    el.classList.add('selected');
-    if (this.acceptBtn) this.acceptBtn.disabled = false;
-  }
-
-  _selectDecline(){
-    this.selectedPick = null;
-    this.declineSelected = true;
-    Array.from(this.choicesEl.children).forEach(c => c.classList.remove('selected'));
-    this.declineBtn?.classList.add('selected');
-    if (this.acceptBtn) this.acceptBtn.disabled = false;
-  }
-
-  // ---------- Primary offers ----------
-  _presentOffer(restrictNames, unlockOverrides){
-    if (!this.offerEl || !this.choicesEl) return;
-
-    // Base unlocked pool (optionally overridden for early guidance)
-    const unlocked = this.ws.getUnlockedPrimaries(
-      unlockOverrides ? { ...this.unlocks, ...unlockOverrides } : this.unlocks
-    );
-
-    // Always remove CURRENT weapon from consideration
-    let basePool = this._filterOutCurrent(unlocked);
-
-    // Apply restrictions (and still exclude current)
-    let pool = basePool;
-    if (Array.isArray(restrictNames) && restrictNames.length > 0){
-      const wanted = new Set(restrictNames);
-      pool = basePool.filter(p => wanted.has(p.name));
-    }
-
-    // If pool is empty (e.g., restriction excluded the current and left nothing), fall back to basePool
-    if (pool.length === 0) pool = basePool.slice();
-
-    // If still empty (e.g., only weapon unlocked is the one we hold), abort
-    if (pool.length === 0) return;
-
-    // Choose up to two distinct picks, and if restricted left us short, fill from basePool
-    let picks = pickTwoDistinct(pool, this.rng);
-    picks = this._expandIfTooShort(picks, basePool);
-
-    // Build UI
-    this.choicesEl.innerHTML = '';
+  _prepareOffer(mode, titleKey, copyKey) {
+    this.offerMode = mode;
+    this.offerEl?.classList?.toggle?.('mutation-offer', mode === 'mutation');
+    if (this.titleEl) this.titleEl.textContent = this.translate(titleKey);
+    if (this.copyEl) this.copyEl.textContent = this.translate(copyKey);
+    if (this.choicesEl) this.choicesEl.innerHTML = '';
     if (this.acceptBtn) this.acceptBtn.disabled = true;
+    if (this.declineBtn) this.declineBtn.style.display = mode === 'mutation' ? 'none' : '';
     this.selectedPick = null;
     this.declineSelected = false;
-    this.declineBtn?.classList.remove('selected');
-    for (const p of picks){
-      const d = this.doc.createElement('div'); d.className = 'choice';
-      const img = this.doc.createElement('img'); img.alt = p.name; img.src = this._iconFor(p.name);
-      const label = this.doc.createElement('div'); label.textContent = p.name;
-      d.appendChild(img); d.appendChild(label);
-      d.onclick = () => this._selectPick(p, d);
-      this.choicesEl.appendChild(d);
-    }
-    // Ensure the primary slot is active when presenting the offer
-    this.ws.switchSlot(1);
-    this.ws.updateHUD?.();
+    this.declineBtn?.classList?.remove?.('selected');
+  }
+
+  _appendWeaponChoice(p, index, { sidearm = false } = {}) {
+    const card = this.doc.createElement('div');
+    card.className = 'choice';
+    if (card.dataset) card.dataset.slot = String(index + 1);
+    const img = this.doc.createElement('img');
+    img.className = 'choice-icon';
+    img.alt = '';
+    img.src = this._iconFor(p.name);
+    const label = this.doc.createElement('div');
+    label.className = 'choice-name';
+    label.textContent = p.name;
+    card.appendChild(img);
+    card.appendChild(label);
+    const pick = sidearm ? { ...p, sidearm: true } : p;
+    card.onclick = () => this._selectPick(pick, card);
+    this.choicesEl.appendChild(card);
+  }
+
+  _showOffer() {
     this.offerEl.style.display = '';
     this.offerOpen = true;
     this.onPause(true);
-
-    // Release pointer lock so the player can use the mouse
     try { this.controls?.unlock?.(); } catch (e) { logError(e); }
-
-    // Hide reset UI while offer is up
     try {
       const center = this.doc.getElementById('center');
       if (center) center.style.display = 'none';
     } catch (e) { logError(e); }
-
-    // Key bindings: 1/2 select options, Enter/Space confirm, Esc/F select decline
-    if (!this._offerHandlersBound){
-      this._offerKeyHandler = (e)=>{
-        if (!this.offerOpen) return;
-        if (e.code === 'Digit1') { const n = this.choicesEl.children[0]; if (n) n.click(); }
-        else if (e.code === 'Digit2') { const n = this.choicesEl.children[1]; if (n) n.click(); }
-        else if (e.code === 'Escape' || e.code === 'KeyF') { this.declineBtn?.click(); }
-        else if (e.code === 'Enter' || e.code === 'Space') { if (this.acceptBtn && !this.acceptBtn.disabled) this.acceptBtn.click(); }
-      };
-      window.addEventListener('keydown', this._offerKeyHandler);
-      this._offerHandlersBound = true;
-    }
+    this._bindOfferKeys();
+    return true;
   }
 
-  // ---------- Sidearm offers ----------
+  _presentOffer(restrictNames, unlockOverrides){
+    if (!this.offerEl || !this.choicesEl) return false;
+    const unlocked = this.ws.getUnlockedPrimaries(this._effectiveUnlocks(unlockOverrides));
+    const basePool = this._filterOutCurrent(unlocked);
+    let pool = basePool;
+    if (Array.isArray(restrictNames) && restrictNames.length) {
+      const wanted = new Set(restrictNames);
+      pool = basePool.filter(p => wanted.has(p.name));
+    }
+    if (!pool.length) pool = basePool.slice();
+    if (!pool.length) return false;
+    let picks = pickTwoDistinct(pool, this.rng);
+    picks = this._expandIfTooShort(picks, basePool);
+    this._prepareOffer('weapon', 'offer.title', 'offer.select');
+    picks.forEach((p, index) => this._appendWeaponChoice(p, index));
+    this.ws.switchSlot(1);
+    this.ws.updateHUD?.();
+    return this._showOffer();
+  }
+
   _presentSidearmOffer(){
-    if (!this.offerEl || !this.choicesEl) return;
-
-    // Prefer system-provided sidearms; otherwise default set
-    const raw = this.ws.getSidearms ? this.ws.getSidearms() : [
-      { name:'Pistol', make:()=>new (this.ws.sidearmClasses?.Pistol ?? function(){})() },
-      { name:'Grenade', make:()=>new (this.ws.sidearmClasses?.Grenade ?? function(){})() },
-      { name:'BeamSaber', make:()=>new (this.ws.sidearmClasses?.BeamSaber ?? function(){})() },
-    ];
-
-    // Filter out current sidearm so we never offer the same
-    const curSidearm = this._currentSidearmName();
-    const sidearms = raw.filter(p => p && p.name !== curSidearm);
-
-    if (!sidearms.length) return;
-
-    this.choicesEl.innerHTML = '';
-    if (this.acceptBtn) this.acceptBtn.disabled = true;
-    this.selectedPick = null;
-    this.declineSelected = false;
-    this.declineBtn?.classList.remove('selected');
-    for (const p of sidearms){
-      const d = this.doc.createElement('div'); d.className = 'choice';
-      const img = this.doc.createElement('img'); img.alt = p.name;
-      // Reuse pistol icon for grenade if you have no grenade icon, keep your previous behavior
-      img.src = this._iconFor(p.name === 'Grenade' ? 'Pistol' : p.name);
-      const label = this.doc.createElement('div'); label.textContent = p.name;
-      d.appendChild(img); d.appendChild(label);
-      d.onclick = () => this._selectPick({ ...p, sidearm:true }, d);
-      this.choicesEl.appendChild(d);
-    }
-
-    this.offerEl.style.display = '';
-    this.offerOpen = true;
-    this.onPause(true);
-    try { this.controls?.unlock?.(); } catch (e) { logError(e); }
+    if (!this.offerEl || !this.choicesEl) return false;
+    const raw = this.ws.getSidearms ? this.ws.getSidearms() : [];
+    const sidearms = raw.filter(p => p && p.name !== this._currentSidearmName());
+    if (!sidearms.length) return false;
+    this._prepareOffer('sidearm', 'offer.sidearmTitle', 'offer.sidearmSelect');
+    sidearms.forEach((p, index) => this._appendWeaponChoice(p, index, { sidearm: true }));
+    return this._showOffer();
   }
 
-  // ---------- Accept / Decline ----------
+  _presentMutationOffer() {
+    if (!this.offerEl || !this.choicesEl) return false;
+    const picks = this.mutations?.getOffer?.(3) || [];
+    if (!picks.length) return false;
+    this._prepareOffer('mutation', 'mutation.offer.title', 'mutation.offer.select');
+    picks.forEach((def, index) => {
+      const rank = this.mutations.getRank(def.id);
+      const rankCap = this.mutations.getMutationRankCap?.(def.id) ?? def.maxRank;
+      const values = describeMutationRank(def.id, rank);
+      const card = this.doc.createElement('div');
+      card.className = 'choice mutation-choice';
+      if (card.dataset) card.dataset.slot = String(index + 1);
+      const glyph = this.doc.createElement('div');
+      glyph.className = `mutation-glyph mutation-${def.id}`;
+      glyph.textContent = def.id === 'irony_armor' ? 'A' : def.id === 'extended_bit' ? 'S' : def.id === 'main_character_energy' ? '+' : def.id === 'callback' ? '8×' : '5×';
+      const name = this.doc.createElement('div');
+      name.className = 'choice-name';
+      name.textContent = this.translate(def.nameKey);
+      const rankEl = this.doc.createElement('div');
+      rankEl.className = 'mutation-rank';
+      rankEl.textContent = `${this.translate('mutation.rank')} ${rank + 1}/${rankCap}`;
+      const description = this.doc.createElement('p');
+      description.className = 'mutation-description';
+      description.textContent = this.translate(def.descriptionKey);
+      const delta = this.doc.createElement('div');
+      delta.className = 'mutation-delta';
+      delta.textContent = `${values.current} → ${values.next} ${this.translate(values.unit)}`.trim();
+      card.append(glyph, name, rankEl, description, delta);
+      card.onclick = () => this._selectPick({ mutationId: def.id }, card);
+      this.choicesEl.appendChild(card);
+    });
+    return this._showOffer();
+  }
+
+  _bindOfferKeys() {
+    if (this._offerHandlersBound || typeof window === 'undefined') return;
+    this._offerKeyHandler = event => {
+      if (!this.offerOpen) return;
+      if (event.code === 'Digit1') this.choicesEl.children[0]?.click?.();
+      else if (event.code === 'Digit2') this.choicesEl.children[1]?.click?.();
+      else if (event.code === 'Digit3') this.choicesEl.children[2]?.click?.();
+      else if ((event.code === 'Escape' || event.code === 'KeyF') && this.offerMode !== 'mutation') this.declineBtn?.click?.();
+      else if ((event.code === 'Enter' || event.code === 'Space') && !this.acceptBtn?.disabled) this.acceptBtn?.click?.();
+    };
+    window.addEventListener('keydown', this._offerKeyHandler);
+    this._offerHandlersBound = true;
+  }
+
+  _selectPick(pick, element){
+    this.selectedPick = pick;
+    this.declineSelected = false;
+    Array.from(this.choicesEl?.children || []).forEach(child => child.classList?.remove?.('selected'));
+    this.declineBtn?.classList?.remove?.('selected');
+    element.classList?.add?.('selected');
+    if (this.acceptBtn) this.acceptBtn.disabled = false;
+  }
+
+  _selectDecline(){
+    if (this.offerMode === 'mutation') return;
+    this.selectedPick = null;
+    this.declineSelected = true;
+    Array.from(this.choicesEl?.children || []).forEach(child => child.classList?.remove?.('selected'));
+    this.declineBtn?.classList?.add?.('selected');
+    if (this.acceptBtn) this.acceptBtn.disabled = false;
+  }
+
   _decline(){
-    // adjust reserve ammo on decline
-    const cur = this.ws.current;
-    if (cur){
-      const def = cur.cfg?.reserve || 0;
-      const current = cur.getReserve ? (cur.getReserve() || 0) : 0;
-      if (current < def * 0.5) cur.addReserve(def - current);
-      else cur.addReserve(Math.floor(def * 0.5));
+    const current = this.ws.current;
+    if (current){
+      const reserveDefault = current.cfg?.reserve || 0;
+      const reserveCurrent = current.getReserve?.() || 0;
+      if (reserveCurrent < reserveDefault * 0.5) current.addReserve(reserveDefault - reserveCurrent);
+      else current.addReserve(Math.floor(reserveDefault * 0.5));
       this.ws.updateHUD?.();
     }
     this._closeOffer(false);
   }
 
   _accept(pick){
+    if (pick?.mutationId) {
+      const result = this.mutations.applyRank(pick.mutationId, { session: this.session, player: this.player });
+      if (result.ok) {
+        this.ws.updateHUD?.();
+        this.onMutationApplied?.(result);
+      }
+      this._closeOffer(result.ok);
+      return;
+    }
     if (pick?.sidearm){
-      const cur = this.ws.inventory;
-      const inst = pick.make();
-      if (cur.length === 1) cur.push(inst); else cur[1] = inst;
+      const inventory = this.ws.inventory;
+      const instance = pick.make();
+      if (inventory.length === 1) inventory.push(instance);
+      else inventory[1] = instance;
       this.ws.currentIndex = Math.min(this.ws.currentIndex, this.ws.inventory.length - 1);
-      this.ws.updateHUD?.();
+      if (typeof this.ws.notifyInventoryChange === 'function') this.ws.notifyInventoryChange();
+      else this.ws.updateHUD?.();
       this._closeOffer(true);
       return;
     }
     this.ws.swapPrimary(pick.make);
-    this.offerCooldown = 1; // skip next even-wave offer
+    this.offerCooldown = 1;
     this._closeOffer(true);
   }
 
-  _closeOffer(accepted){
+  _closeOffer(){
     if (this.offerEl) this.offerEl.style.display = 'none';
     this.offerOpen = false;
-    this.onPause(false);
     this.selectedPick = null;
     this.declineSelected = false;
-    this.declineBtn?.classList.remove('selected');
+    this.declineBtn?.classList?.remove?.('selected');
     if (this.acceptBtn) this.acceptBtn.disabled = true;
-    Array.from(this.choicesEl?.children || []).forEach(c => c.classList.remove('selected'));
-    // Try to re-lock pointer immediately after interaction (valid user gesture)
+    Array.from(this.choicesEl?.children || []).forEach(child => child.classList?.remove?.('selected'));
+    if (this.offerQueue.length) {
+      this._showNextQueued();
+      return;
+    }
+    this.onPause(false);
     try { this.controls?.lock?.(); } catch (e) { logError(e); }
   }
 
-  // ---------- Icons ----------
   _iconFor(name){
     const map = {
       Rifle:'assets/icons/weapon-rifle.svg',
@@ -312,7 +419,9 @@ export class Progression {
       DMR:'assets/icons/weapon-dmr.svg',
       Minigun:'assets/icons/weapon-minigun.svg',
       Pistol:'assets/icons/weapon-pistol.svg',
-      BeamSaber:'assets/icons/weapon-beamsaber.svg'
+      BeamSaber:'assets/icons/weapon-beamsaber.svg',
+      Grenade:'assets/icons/weapon-pistol.svg',
+      Dynamite:'assets/icons/weapon-dynamite.svg'
     };
     return map[name] || map.Rifle;
   }

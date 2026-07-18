@@ -27,10 +27,10 @@ function _ensureWorker() {
     const pending = _pending.get(id);
     if (!pending) return;
     _pending.delete(id);
-    const { enemy, cacheFor, resolve } = pending;
+    const { enemy, cacheFor, goalX, goalZ, resolve } = pending;
     const entry = _cache.get(enemy);
     if (entry && entry.requestId === id) {
-      _cache.set(enemy, { path, expires: Date.now() + cacheFor, index: 0 });
+      _cache.set(enemy, { path, expires: Date.now() + cacheFor, index: 0, goalX, goalZ });
     }
     resolve(path);
   };
@@ -38,7 +38,7 @@ function _ensureWorker() {
 
 function _hash(ix, iz) { return ix + ',' + iz; }
 
-function _buildGrid(start, goal, obstacles, gridSize, radius) {
+function _buildGrid(start, goal, obstacles, gridSize, radius, agentRadius = 0.5) {
   const minX = Math.floor(Math.min(start.x, goal.x) - radius);
   const maxX = Math.ceil(Math.max(start.x, goal.x) + radius);
   const minZ = Math.floor(Math.min(start.z, goal.z) - radius);
@@ -47,7 +47,7 @@ function _buildGrid(start, goal, obstacles, gridSize, radius) {
   const height = Math.ceil((maxZ - minZ) / gridSize) + 1;
 
   const blocked = new Array(width * height).fill(false);
-  const margin = 0.5; // expand obstacles slightly for enemy radius
+  const margin = Math.max(0.15, agentRadius); // expand obstacles for requesting body
   for (const ob of obstacles || []) {
     const minix = Math.floor((ob.min.x - margin - minX) / gridSize);
     const maxix = Math.floor((ob.max.x + margin - minX) / gridSize);
@@ -73,7 +73,7 @@ function _heuristic(ax, az, bx, bz) {
 export function findPath(start, goal, obstacles, opts = {}) {
   const gridSize = opts.gridSize || 1;
   const radius = opts.radius || 20;
-  const grid = _buildGrid(start, goal, obstacles, gridSize, radius);
+  const grid = _buildGrid(start, goal, obstacles, gridSize, radius, opts.agentRadius ?? 0.5);
   const sx = Math.round((start.x - grid.minX) / gridSize);
   const sz = Math.round((start.z - grid.minZ) / gridSize);
   const gx = Math.round((goal.x - grid.minX) / gridSize);
@@ -123,19 +123,23 @@ export function findPath(start, goal, obstacles, opts = {}) {
 
 function _requestPath(enemy, start, goal, obstacles, opts = {}) {
   const cacheFor = (opts.cacheFor || 5) * 1000;
+  const goalX = Number(goal?.x) || 0;
+  const goalZ = Number(goal?.z) || 0;
   _ensureWorker();
   if (!_worker) {
     const path = findPath(start, goal, obstacles, opts);
-    _cache.set(enemy, { path, expires: Date.now() + cacheFor, index: 0 });
+    _cache.set(enemy, { path, expires: Date.now() + cacheFor, index: 0, goalX, goalZ });
     return Promise.resolve(path);
   }
   const id = ++_seq;
   const p = new Promise((resolve, reject) => {
-    _pending.set(id, { resolve, reject, enemy, cacheFor });
+    _pending.set(id, { resolve, reject, enemy, cacheFor, goalX, goalZ });
   });
   const entry = _cache.get(enemy) || {};
   entry.requestId = id;
   entry.pending = p;
+  entry.goalX = goalX;
+  entry.goalZ = goalZ;
   _cache.set(enemy, entry);
   _worker.postMessage({ id, start, goal, obstacles, opts });
   return p;
@@ -144,21 +148,34 @@ function _requestPath(enemy, start, goal, obstacles, opts = {}) {
 export function recomputeIfStale(enemy, playerPos, obstacles, opts = {}) {
   const now = Date.now();
   const entry = _cache.get(enemy);
-  const cacheFor = (opts.cacheFor || 5) * 1000;
+  const goalX = Number(playerPos?.x) || 0;
+  const goalZ = Number(playerPos?.z) || 0;
+  // A browser worker can take several AI ticks to answer. Reuse that promise
+  // instead of superseding it every frame; once it resolves, the normal goal
+  // drift check can request a fresher route if one is actually needed.
+  if (entry?.pending) {
+    const pending = entry.pending.then(path => path);
+    pending.pathRecomputed = false;
+    return pending;
+  }
   let need = false;
   if (!entry || !entry.path) need = true;
   else if (now > entry.expires) need = true;
   else if (entry.path.length === 0) need = true;
   else {
     const last = entry.path[entry.path.length - 1];
-    const dx = last.x - playerPos.x; const dz = last.z - playerPos.z;
+    const dx = last.x - goalX; const dz = last.z - goalZ;
     if (dx * dx + dz * dz > 1) need = true;
   }
   if (need) {
     const startPos = enemy.root?.position || enemy.position || { x: 0, y: 0, z: 0 };
-    return _requestPath(enemy, startPos, playerPos, obstacles, opts);
+    const request = _requestPath(enemy, startPos, playerPos, obstacles, opts);
+    request.pathRecomputed = true;
+    return request;
   }
-  return Promise.resolve(entry.path);
+  const cached = Promise.resolve(entry.path);
+  cached.pathRecomputed = false;
+  return cached;
 }
 
 export function nextWaypoint(enemy) {
@@ -167,6 +184,7 @@ export function nextWaypoint(enemy) {
   const pos = enemy.root?.position || enemy.position;
   if (!pos) return null;
   let idx = entry.index || 0;
+  if (idx >= entry.path.length) return null;
   const wp = entry.path[idx];
   const dx = wp.x - pos.x; const dz = wp.z - pos.z;
   if (dx * dx + dz * dz < 0.25) {

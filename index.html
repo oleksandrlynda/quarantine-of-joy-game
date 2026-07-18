@@ -18,7 +18,7 @@
   <div class="hud-tl">
     <div id="wavePill">
       <div class="wave-num"><span data-i18n="hud.wave">Wave</span> <span id="wave">1</span></div>
-      <div id="remainingWrap" class="wave-sub"><span id="remaining">0</span> <span data-i18n="hud.left">left</span></div>
+      <div id="remainingWrap" class="wave-sub"><span id="remaining">0</span> <span id="remainingUnit" data-i18n="hud.left">left</span></div>
       <div id="hydraWrap" class="wave-sub" style="display:none"><span data-i18n="hud.hydra">Hydra</span> <span id="hydraCount">0/0</span></div>
     </div>
   </div>
@@ -32,18 +32,34 @@
   </div>
 
   <div class="hud-bl">
+    <div id="armorPill" class="meter-blocks armor-meter" title="Armor" style="display:none">
+      <div id="armorBlocks" class="blocks armor-blocks" aria-hidden="true"></div>
+      <span class="armor-label"><span data-i18n="hud.armor">Armor</span> <span id="armorValue">0</span>/<span id="armorMaxValue">0</span></span>
+    </div>
     <div id="hpPill" class="meter-blocks" title="HP">
       <div id="hpBlocks" class="blocks hp-blocks" aria-hidden="true"></div>
-      <span class="sr-only"><span data-i18n="hud.hp">HP</span>: <span id="hp">100</span></span>
+      <span class="stat-label hp-label"><span data-i18n="hud.hp">HP</span> <span id="hp">100</span>/<span id="hpMax">100</span></span>
     </div>
     <div id="stamina" class="meter-blocks" title="Stamina">
       <div id="stamBlocks" class="blocks stam-blocks" aria-hidden="true"></div>
-      <span class="stam-label" data-i18n="hud.stamina">Stamina</span>
+      <span class="stat-label stam-label"><span data-i18n="hud.stamina">Stamina</span> <span id="staminaValue">100</span>/<span id="staminaMaxValue">100</span></span>
       <div id="staminaBar" class="sr-meter" aria-hidden="true"></div>
     </div>
   </div>
 
   <div class="hud-br">
+    <div id="abilityPill" class="ability-panel" style="display:none">
+      <div class="ability-head">
+        <kbd>Q</kbd>
+        <img id="abilityIcon" class="ability-icon" alt="" />
+        <span id="abilityName"></span>
+      </div>
+      <div class="ability-status">
+        <strong id="abilityCharges">0/0</strong>
+        <span id="abilityCooldown"></span>
+      </div>
+      <i class="ability-recharge" aria-hidden="true"></i>
+    </div>
     <div id="ammoPill" class="ammo-panel">
       <div class="ammo-wpn">
         <img id="weaponIcon" class="wicon" alt="" />
@@ -52,6 +68,15 @@
       <div class="ammo-count"><span id="ammo">30</span><small>/<span id="mag">60</span></small></div>
     </div>
   </div>
+
+  <section id="objectiveTracker" class="objective-tracker" hidden aria-live="polite">
+    <span class="objective-kicker" data-i18n="level.relay.name">Relay District</span>
+    <strong id="objectiveTitle"></strong>
+    <span id="objectiveDetail"></span>
+    <div id="objectiveProgress" class="objective-progress"><i id="objectiveBar"></i></div>
+  </section>
+
+  <div id="weaponPicker" class="hud-weapon-picker" aria-live="polite" aria-label="Weapon slots"></div>
 
   <div class="hud-util">
     <div class="pill tiny" id="seedPill"><span data-i18n="hud.seed">Seed</span>: <span id="seed"></span>
@@ -65,6 +90,7 @@
   <div id="desktopHelp" class="hud-help" data-i18n="hud.desktopHelp">WASD move • Mouse aim • Click shoot • R reload • Shift sprint • C crouch • Space jump • P pause</div>
 </div>
 
+<div id="zoomOverlay" aria-hidden="true"><div class="zoom-blur"></div></div>
 <div id="crosshair">
   <div class="seg top"></div>
   <div class="seg bottom"></div>
@@ -86,35 +112,36 @@
 
 <div id="story" style="display:none">
   <div class="card">
-    <div id="storyText" class="storyText"></div>
-    <div class="actions"><button class="primary" id="storyNext" data-i18n="story.continue">Continue</button></div>
+    <div class="story-rail" aria-hidden="true">
+      <span class="story-rail-label" data-i18n="story.signal">Transmission</span>
+      <span class="story-rail-index">01</span>
+    </div>
+    <div class="story-content">
+      <div class="story-kicker" data-i18n="story.interrupt">Feed interrupt</div>
+      <div id="storyText" class="storyText"></div>
+      <div class="actions">
+        <span class="story-paused" data-i18n="story.paused">Gameplay paused</span>
+        <button class="primary" id="storyNext" data-i18n="story.continue">Continue</button>
+      </div>
+    </div>
   </div>
-  <style>
-    #story{ position:fixed; inset:0; display:grid; place-items:center; background:rgba(0,0,0,0.35); pointer-events:auto; z-index:5; }
-    #story .card{ background:#ffffffee; border-radius:18px; padding:16px; width:min(92%,520px); box-shadow:0 20px 70px #00000055; }
-    #story .storyText{ font-weight:700; line-height:1.4; margin-bottom:12px; }
-    #story .actions{ display:flex; justify-content:flex-end; }
-  </style>
 </div>
 
 <div id="promoPulse"></div>
 
+<canvas id="menuBackground" aria-hidden="true"></canvas>
+<div id="menuBackgroundEffects" aria-hidden="true">
+  <span class="menu-bg-scanline"></span>
+  <span class="menu-bg-label">ефір</span>
+</div>
+
 <div id="offer" style="display:none">
   <div class="card">
-    <h3 data-i18n="offer.title">Armory Offer</h3>
+    <h3 id="offerTitle" data-i18n="offer.title">Armory Offer</h3>
+    <p id="offerCopy" class="offer-copy" data-i18n="offer.select">Select a broadcast loadout.</p>
     <div id="offerChoices" class="choices"></div>
     <div class="actions"><button id="offerAccept" class="primary" disabled data-i18n="offer.accept">Accept</button><button class="secondary" id="offerDecline" data-i18n="offer.keepCurrent">Keep current (+reserve)</button></div>
   </div>
-  <style>
-    #offer{ position:fixed; inset:0; display:grid; place-items:center; background:rgba(0,0,0,0.35); pointer-events:auto; }
-    #offer .card{ background:#ffffffee; border-radius:18px; padding:16px; width:min(92%,520px); box-shadow:0 20px 70px #00000055; text-align:center }
-    #offer .choices{ display:flex; gap:12px; justify-content:center; flex-wrap:wrap; margin:10px 0 }
-    #offer .actions{ display:flex; gap:12px; justify-content:center; flex-wrap:wrap; margin-top:8px }
-    .choice{ display:flex; align-items:center; gap:8px; padding:10px 12px; border-radius:12px; border:2px solid #00000018; background:#fff; cursor:pointer; box-shadow:0 8px 24px #00000022; }
-    .choice img{ width:28px; height:28px }
-    #offer .selected{ outline:4px solid #3b82f6; }
-    .wicon{ width:16px; height:16px; vertical-align:middle; margin-right:4px }
-  </style>
 </div>
 
 <div id="center" class="menu-bleed">
@@ -144,8 +171,11 @@
         <button class="primary" id="play" type="button"><span data-i18n="start.play">Play</span></button>
         <div class="menu-sec-row">
           <button class="secondary" id="tutorialBtn" type="button"><span data-i18n="start.tutorial">Tutorial</span></button>
-          <button class="secondary" id="openSettings" type="button"><span data-i18n="settings.title">Settings</span></button>
+          <button class="secondary" id="openAchievements" type="button"><span data-i18n="achievements.title">Achievements</span></button>
         </div>
+        <button class="secondary menu-settings" id="openArchive" type="button" style="display:none"><span data-i18n="archive.title">Punchline Archive</span> <small id="archiveMenuBalance">0</small></button>
+        <button class="secondary menu-settings" id="openSettings" type="button"><span data-i18n="settings.title">Settings</span></button>
+        <button class="secondary menu-settings debug-only-control" id="openDebugLog" type="button"><span data-i18n="debugLog.open">Performance log</span></button>
         <div class="menu-tip tiny" id="startTip" data-i18n="start.tipDesktop">Click Play, then click to lock the mouse.</div>
       </div>
       <div class="menu-foot">
@@ -165,14 +195,95 @@
     </div>
   </div>
 
-  <div id="pauseMenu" class="menu-modal" style="display:none">
-    <div class="pause-stats tiny">
-      <span data-i18n="hud.best">Best</span>: <span id="best">0</span>
+  <div id="defeatMenu" class="menu-modal defeat-menu" style="display:none" role="dialog" aria-modal="true" aria-labelledby="defeatTitle">
+    <div class="menu-eyebrow" data-i18n="defeat.eyebrow">Broadcast interrupted</div>
+    <h2 id="defeatTitle" data-i18n="defeat.title">The feed went dark.</h2>
+    <div class="defeat-stats">
+      <div><span data-i18n="hud.wave">Wave</span><strong id="defeatWave">1</strong></div>
+      <div><span data-i18n="defeat.score">Score</span><strong id="defeatScore">0</strong></div>
+      <div><span data-i18n="defeat.fragmentsEarned">Fragments recovered</span><strong id="defeatFragmentsEarned">+0</strong></div>
+      <div><span data-i18n="defeat.fragmentsTotal">Archive balance</span><strong id="defeatFragmentsTotal">0</strong></div>
     </div>
     <div class="menu-modal-actions">
-      <button class="primary" id="resumeBtn" type="button"><span data-i18n="pause.resume">Resume</span></button>
-      <button class="secondary" id="pauseRestart" type="button"><span data-i18n="start.retry">Retry</span></button>
-      <button class="secondary" id="pauseSettings" type="button"><span data-i18n="settings.title">Settings</span></button>
+      <button class="primary" id="defeatRetry" type="button"><span data-i18n="start.retry">Retry</span></button>
+      <button class="secondary" id="defeatArchive" type="button"><span data-i18n="archive.open">Open Archive</span></button>
+      <button class="secondary" id="defeatMain" type="button"><span data-i18n="defeat.mainMenu">Main menu</span></button>
+    </div>
+  </div>
+
+  <div id="archiveMenu" class="menu-modal archive-menu" style="display:none" role="dialog" aria-modal="true" aria-labelledby="archiveTitle">
+    <div class="archive-head">
+      <div>
+        <div class="menu-eyebrow" data-i18n="archive.eyebrow">Recovered possibilities</div>
+        <h2 id="archiveTitle" data-i18n="archive.title">Punchline Archive</h2>
+      </div>
+      <div class="fragment-balance"><span aria-hidden="true">◆</span><strong id="archiveBalance">0</strong></div>
+    </div>
+    <p class="archive-copy" data-i18n="archive.copy">Unlock survival mutations for the run progression pool, build weapon mastery, and decrypt classified gear. Mutation ranks reset every run.</p>
+    <div id="archiveGrid" class="archive-grid"></div>
+    <div class="menu-modal-actions">
+      <button class="secondary" id="archiveBack" type="button"><span data-i18n="settings.back">Back</span></button>
+    </div>
+  </div>
+
+  <div id="pauseMenu" class="menu-modal pause-menu" style="display:none" role="dialog" aria-modal="true" aria-labelledby="pauseTitle">
+    <div class="pause-head">
+      <div>
+        <div class="pause-eyebrow"><i aria-hidden="true"></i><span data-i18n="pause.status">Run on hold</span></div>
+        <h2 id="pauseTitle" data-i18n="pause.title">Paused</h2>
+        <p data-i18n="pause.copy">Take a breath. The arena will wait.</p>
+      </div>
+      <div class="pause-mark" aria-hidden="true"><span></span><span></span></div>
+    </div>
+    <div class="pause-stats" aria-label="Current run summary">
+      <div><span data-i18n="hud.wave">Wave</span><strong id="pauseWave">1</strong></div>
+      <div><span data-i18n="hud.score">Score</span><strong id="pauseScore">0</strong></div>
+      <div><span data-i18n="hud.best">Best</span><strong id="best">0</strong></div>
+    </div>
+    <div class="menu-modal-actions pause-actions">
+      <button class="primary pause-resume" id="resumeBtn" type="button">
+        <span data-i18n="pause.resume">Resume</span><small data-i18n="pause.resumeHint">Return to arena</small><b aria-hidden="true">→</b>
+      </button>
+      <div class="pause-action-grid">
+        <button class="secondary" id="pauseRestart" type="button"><span data-i18n="start.retry">Retry</span></button>
+        <button class="secondary" id="pauseAchievements" type="button"><span data-i18n="achievements.title">Achievements</span></button>
+        <button class="secondary" id="pauseSettings" type="button"><span data-i18n="settings.title">Settings</span></button>
+        <button class="secondary debug-only-control" id="pauseDebugLog" type="button"><span data-i18n="debugLog.open">Performance log</span></button>
+      </div>
+      <button class="pause-main-menu" id="pauseMain" type="button"><span data-i18n="defeat.mainMenu">Main menu</span><small data-i18n="pause.mainHint">Leave current run</small></button>
+    </div>
+  </div>
+
+  <div id="achievementsMenu" class="menu-modal achievements-board" style="display:none" role="dialog" aria-modal="true" aria-labelledby="achievementsTitle">
+    <div class="achievements-board-head">
+      <div>
+        <div class="achievements-eyebrow" data-i18n="achievements.collection">Collection</div>
+        <h2 id="achievementsTitle" data-i18n="achievements.title">Achievements</h2>
+      </div>
+      <div class="achievements-head-actions">
+        <div class="achievements-total" id="achievementsTotal">0 / 42</div>
+        <button class="achievements-close" id="achievementsClose" type="button" aria-label="Close achievements" data-i18n-title="achievements.close">×</button>
+      </div>
+    </div>
+    <div class="achievements-progress" aria-hidden="true"><span id="achievementsProgress"></span></div>
+    <div class="achievements-summary" id="achievementsSummary">0 of 42 unlocked</div>
+    <div class="achievements-grid" id="achievementsGrid"></div>
+    <div class="menu-modal-actions">
+      <button class="secondary" id="achievementsBack" type="button"><span data-i18n="settings.back">Back</span></button>
+    </div>
+  </div>
+
+  <div id="debugLogMenu" class="menu-modal debug-log-menu" style="display:none" role="dialog" aria-modal="true" aria-labelledby="debugLogTitle">
+    <div class="debug-log-head">
+      <h2 id="debugLogTitle" data-i18n="debugLog.title">Performance events</h2>
+      <span class="tiny" id="debugLogCount">0 events</span>
+    </div>
+    <pre id="debugLogStream" class="debug-log-stream" tabindex="0"></pre>
+    <div id="debugLogStatus" class="debug-log-status tiny" aria-live="polite"></div>
+    <div class="menu-modal-actions debug-log-actions">
+      <button class="primary" id="debugLogCopy" type="button"><span data-i18n="debugLog.copy">Copy all</span></button>
+      <button class="secondary" id="debugLogClear" type="button"><span data-i18n="debugLog.clear">Clear</span></button>
+      <button class="secondary" id="debugLogBack" type="button"><span data-i18n="settings.back">Back</span></button>
     </div>
   </div>
 
@@ -212,25 +323,42 @@
         <input type="checkbox" id="invertLook" />
       </div>
     </div>
+    <div class="settingsGroup settings-danger-zone">
+      <h3 data-i18n="settings.dangerZone">Danger zone</h3>
+      <p data-i18n="settings.resetHint">Erase all saved settings, progress, achievements, and local game data.</p>
+      <button class="danger" id="resetStoredData" type="button"><span data-i18n="settings.resetData">Reset all saved data</span></button>
+    </div>
     <div class="menu-modal-actions">
       <button class="secondary" id="settingsBack" type="button"><span data-i18n="settings.back">Back</span></button>
     </div>
     <div class="tiny appVersion"><span data-i18n="settings.version">Version</span> <span class="appVersionValue"></span></div>
   </div>
+
+  <dialog id="resetDataDialog" class="reset-data-dialog" aria-labelledby="resetDataTitle" aria-describedby="resetDataDescription">
+    <form method="dialog">
+      <h2 id="resetDataTitle" data-i18n="settings.resetConfirmTitle">Reset all saved data?</h2>
+      <p id="resetDataDescription" data-i18n="settings.resetConfirmText">This permanently erases your settings, progress, achievements, and local game data. This cannot be undone.</p>
+      <div class="reset-data-dialog-actions">
+        <button class="secondary" value="cancel" type="submit"><span data-i18n="settings.cancel">Cancel</span></button>
+        <button class="danger" id="confirmResetStoredData" type="button"><span data-i18n="settings.resetConfirmAction">Yes, erase everything</span></button>
+      </div>
+    </form>
+  </dialog>
 </div>
-<!-- Loading overlay from performance branch -->
-<div id="loading" style="position:fixed; inset:0; display:grid; place-items:center; background:#0b1220; color:#fff; z-index:9999">
-  <div style="width:min(92%,520px); text-align:center">
-    <div style="font-weight:700; margin-bottom:10px" data-i18n="loading.message">Loading shaders &amp; assets…</div>
-    <div id="loadingBarWrap" style="height:10px; background:#222; border-radius:8px; overflow:hidden">
-      <div id="loadingBar" style="height:100%; width:0%; background:#22c55e; transition:width 0.15s ease"></div>
+<!-- Lightweight bootstrap overlay: the menu scene paints before the game graph loads. -->
+<div id="loading" role="progressbar" aria-live="polite" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+  <div class="loading-card">
+    <div class="loading-kicker">LIVE FEED / STARTUP</div>
+    <div id="loadingLabel" class="loading-label" data-i18n="loading.message">Loading shaders &amp; assets…</div>
+    <div id="loadingBarWrap" class="loading-track">
+      <div id="loadingBar" class="loading-progress"></div>
     </div>
-    <div id="loadingText" class="tiny" style="margin-top:8px; opacity:0.85">0%</div>
+    <div id="loadingText" class="loading-value tiny">0%</div>
   </div>
 </div>
 
 <script type="module">
-  import { initI18n, setLanguage, applyTranslations, getLanguage } from './src/i18n/index.js';
+  import { initI18n, setLanguage, applyTranslations, getLanguage } from './src/i18n/index.js?v=1.0.6';
   await initI18n();
   applyTranslations();
   const langSelect = document.getElementById('langSelect');
@@ -253,6 +381,8 @@
     m.innerHTML = `
       <div id="joystick" class="joy"><div class="base"></div><div class="knob"></div></div>
       <div id="actionButtons">
+        <button id="btnRush" style="display:none">Q</button>
+        <button id="btnAlt" style="display:none">ALT</button>
         <button id="btnFire">🔥</button>
         <button id="btnJump">⤴️</button>
         <button id="btnReload">🔄</button>
@@ -276,14 +406,14 @@
         setTimeout(() => tip.remove(), 600);
       };
       setTimeout(hideHelp, 5000);
-      ['joystick','btnFire','btnJump','btnReload'].forEach(id=>{
+      ['joystick','btnFire','btnRush','btnAlt','btnJump','btnReload'].forEach(id=>{
         document.getElementById(id)?.addEventListener('touchstart', hideHelp, {once:true});
       });
     }
   }
 </script>
 
-<!-- Use the versioned entry from performance branch -->
-<script type="module" src="src/main.js?v=1.0.1"></script>
+<!-- Paint the lightweight menu first, then request the full game. -->
+<script type="module" src="src/bootstrap.js?v=1.0.6"></script>
 </body>
 </html>

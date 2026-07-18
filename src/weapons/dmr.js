@@ -3,16 +3,22 @@ import { performHitscan } from './hitscan.js';
 import { logError } from '../util/log.js';
 
 export class DMR extends Weapon {
-  constructor() {
+  constructor({ mastery = null } = {}) {
     super({
       name: 'DMR',
       mode: 'semi',
       fireDelayMs: 340, // slightly slower for control
       magSize: 12,
+      getMagSize: () => mastery?.getMagazineSize?.('DMR', 12) ?? 12,
       reserve: 36
     });
     this._baseSpread = 0.0008; // near-pinpoint
     this._minViewkick = 0.1;
+    this.zoomMultiplier = 3;
+  }
+
+  hasAltFire(ctx) {
+    return ctx?.mutations?.isUnlocked?.('dmr_scope') === true;
   }
 
   onFire(ctx) {
@@ -36,14 +42,16 @@ export class DMR extends Weapon {
       const base = isHead ? 175 : ((part==='arm'||part==='leg') ? 35 : 85);
       const dmg = base;
       res.enemyRoot.userData.hp -= dmg;
+      const killed = res.enemyRoot.userData.hp <= 0;
+      this.recordCombatHit(ctx, res.enemyRoot, { damage: dmg, killed, isHead, distance: res.distance || camPos.distanceTo(end) });
+      effects?.spawnBulletDecal?.(end, res.hitFace?.normal, { size: 0.11, ttl: 16, color: 0x101010, softness: 0.35, object: res.hitObject, owner: res.enemyRoot, attachTo: res.hitObject });
       // stronger knockback and brief slow on hit (non-boss)
       const push = camDir.clone().multiplyScalar(0.35);
       applyKnockback?.(res.enemyRoot, push);
       effects?.spawnBulletImpact?.(end, res.hitFace?.normal);
       if (S && S.impactFlesh) S.impactFlesh();
       if (S && S.enemyPain) S.enemyPain(res.enemyRoot?.userData?.type || 'grunt');
-      effects?.spawnBulletDecal?.(end, res.hitFace?.normal, { size: 0.11, ttl: 16, color: 0x101010, softness: 0.35, object: res.hitObject, owner: res.enemyRoot, attachTo: res.enemyRoot });
-      if (res.enemyRoot.userData.hp <= 0) {
+      if (killed) {
         effects?.enemyDeath?.(res.enemyRoot.position.clone());
         if (S && S.enemyDeath) S.enemyDeath(res.enemyRoot?.userData?.type || 'grunt');
         const eType = res.enemyRoot?.userData?.type;
@@ -72,10 +80,12 @@ export class DMR extends Weapon {
         const base2d = isHead2 ? 150 : ((part2==='arm'||part2==='leg') ? 32 : 75);
         const dmg2 = 0.65 * base2d;
         res2.enemyRoot.userData.hp -= dmg2;
+        const killed2 = res2.enemyRoot.userData.hp <= 0;
+        this.recordCombatHit(ctx, res2.enemyRoot, { damage: dmg2, killed: killed2, isHead: isHead2, distance: (res.distance || 0) + (res2.distance || 0) });
         effects?.spawnBulletImpact?.(res2.endPoint, res2.hitFace?.normal);
         if (S && S.impactFlesh) S.impactFlesh();
         if (S && S.enemyPain) S.enemyPain(res2.enemyRoot?.userData?.type || 'grunt');
-        if (res2.enemyRoot.userData.hp <= 0) {
+        if (killed2) {
           effects?.enemyDeath?.(res2.enemyRoot.position.clone());
           const eType2 = res2.enemyRoot?.userData?.type;
           if (eType2 === 'tank') { // tanks shower extra rewards

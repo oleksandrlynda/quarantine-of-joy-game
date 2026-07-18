@@ -40,6 +40,9 @@ export class ShardAvatar {
     this.projectiles = []; // { mesh, pos, vel, speed, life, radius }
     this._projGeo = new THREE.SphereGeometry(0.15, 10, 10);
     this._projMat = new THREE.MeshBasicMaterial({ color: 0x60a5fa });
+    this._projectileRaycaster = new THREE.Raycaster();
+    this._projectileDirection = new THREE.Vector3();
+    try { this._projectileRaycaster.firstHitOnly = true; } catch {}
 
     // Mirages (visual fakes anchored at refs.mirageAnchors)
     this.mirages = []; // { root, head, anchor, timer, life }
@@ -86,9 +89,10 @@ export class ShardAvatar {
     toPlayer.y = 0; if (toPlayer.lengthSq() === 0) return; toPlayer.normalize();
 
     const desired = new THREE.Vector3();
-    if (dist > 11) desired.add(toPlayer);
+    const side = new THREE.Vector3(-toPlayer.z, 0, toPlayer.x).multiplyScalar(this._strafeDir);
+    if (dist < 13) desired.addScaledVector(toPlayer, -1.25).addScaledVector(side, 0.3);
+    else if (dist > 22) desired.add(toPlayer);
     else {
-      const side = new THREE.Vector3(-toPlayer.z, 0, toPlayer.x).multiplyScalar(this._strafeDir);
       desired.add(side);
       if (this._switchT > 0) this._switchT -= dt; else if (this.rng() < 0.01) { this._strafeDir *= -1; this._switchT = 1.0; }
     }
@@ -106,6 +110,10 @@ export class ShardAvatar {
   // --- Barrages ---
   _beginTelegraph(ctx) {
     this._telegraphTime = 0.0001;
+    ctx.emitAIEvent?.(this.root, 'ability_started', {
+      ability: 'shard_barrage',
+      ownerRoot: this.root
+    });
     // Head emissive pulse
     this._setHeadGlow(true);
     // Ground telegraph ring under boss
@@ -124,7 +132,7 @@ export class ShardAvatar {
   _spawnBarrage(ctx) {
     const THREE = this.THREE;
     const anchors = this._assetRefs?.beamAnchors || [];
-    if (!anchors.length) return;
+    if (!anchors.length) return 0;
     // Create one or two safe lanes by skipping anchors whose angle falls near gapCenter
     const gapCenter = this._laneOffset; // radians
     const gapWidth = (Math.PI / anchors.length) * 2.6;
@@ -135,6 +143,7 @@ export class ShardAvatar {
     const perAnchorBeams = isStorm ? 4 : 2;
     const angularSpread = isStorm ? (Math.PI / 16) : (Math.PI / 36); // storm ±11.25°, normal ±5°
     const speedMul = isStorm ? 1.35 : 1.1;
+    let spawned = 0;
     for (let i = 0; i < anchors.length; i++) {
       const hp = anchors[i];
       const hpPos = hp.getWorldPosition(new THREE.Vector3());
@@ -156,7 +165,11 @@ export class ShardAvatar {
         mesh.position.set(hpPos.x, 1.2, hpPos.z);
         mesh.userData = { type: 'boss_shard_proj' };
         ctx.scene.add(mesh);
-        this.projectiles.push({ mesh, pos: mesh.position, vel: dir, speed: speed * speedMul, life: 0, radius: 0.35 });
+        this.projectiles.push({
+          mesh, pos: mesh.position, vel: dir, speed: speed * speedMul,
+          life: 0, radius: 0.35, ownerRoot: this.root, kind: 'shard_barrage'
+        });
+        spawned++;
       }
     }
     // Advance rotation for next volley
@@ -164,10 +177,12 @@ export class ShardAvatar {
     this._sweepBase += delta * this._sweepDir;
     this._laneOffset += (Math.PI / 9);
     this._barrageIndex++;
+    return spawned;
   }
 
   _maybeCrossBurst(ctx) {
-    if (this.phase !== 2) return;
+    if (this.phase !== 2) return 0;
+    let spawned = 0;
     if (this.rng() < 0.65) {
       const THREE = this.THREE;
       const baseAngles = [0, Math.PI/2, Math.PI, 3*Math.PI/2];
@@ -182,10 +197,15 @@ export class ShardAvatar {
           mesh.position.set(this.root.position.x, 1.0, this.root.position.z);
           mesh.userData = { type: 'boss_shard_proj' };
           ctx.scene.add(mesh);
-          this.projectiles.push({ mesh, pos: mesh.position, vel: dir, speed: 15.0, life: 0, radius: 0.35 });
+          this.projectiles.push({
+            mesh, pos: mesh.position, vel: dir, speed: 15.0,
+            life: 0, radius: 0.35, ownerRoot: this.root, kind: 'shard_cross_burst'
+          });
+          spawned++;
         }
       }
     }
+    return spawned;
   }
 
   _tickBarrage(dt, ctx) {
@@ -204,8 +224,12 @@ export class ShardAvatar {
         // Fire volley now
         if (this._telegraphRing) { ctx.scene.remove(this._telegraphRing); this._telegraphRing = null; }
         this._setHeadGlow(false);
-        this._spawnBarrage(ctx);
-        this._maybeCrossBurst(ctx);
+        const projectileCount = this._spawnBarrage(ctx) + this._maybeCrossBurst(ctx);
+        ctx.emitAIEvent?.(this.root, 'ability_released', {
+          ability: 'shard_barrage',
+          projectileCount,
+          ownerRoot: this.root
+        });
         this._telegraphTime = 0;
         // Next cadence
         this._barrageTimer = 2.4 + this.rng() * 0.6;
@@ -244,6 +268,24 @@ export class ShardAvatar {
       }
       p.life += dt;
       const step = p.vel.clone().multiplyScalar(p.speed * dt * speedScale);
+      const travelDistance = step.length();
+      if (travelDistance > 0 && ctx.objects?.length) {
+        this._projectileDirection.copy(step).multiplyScalar(1 / travelDistance);
+        this._projectileRaycaster.set(p.pos, this._projectileDirection);
+        this._projectileRaycaster.near = 0;
+        this._projectileRaycaster.far = travelDistance + p.radius;
+        const worldHits = this._projectileRaycaster.intersectObjects(ctx.objects, false);
+        if (worldHits.length > 0) {
+          ctx.emitAIEvent?.(this.root, 'projectile_blocked_by_world', {
+            kind: p.kind || 'shard_barrage',
+            ownerRoot: p.ownerRoot || this.root,
+            blockerRoot: worldHits[0].object || null
+          });
+          ctx.scene.remove(p.mesh);
+          this.projectiles.splice(i, 1);
+          continue;
+        }
+      }
       p.pos.add(step);
       // Cull if too old or out of bounds
       if (p.life > 6.0 || Math.abs(p.pos.x) > 45 || Math.abs(p.pos.z) > 45) {
@@ -257,7 +299,18 @@ export class ShardAvatar {
       if (dx*dx + dz*dz <= (p.radius + 0.45) * (p.radius + 0.45)) {
         // Apply damage (12–14)
         const dmg = 12 + (this.rng() * 3 | 0);
-        ctx.onPlayerDamage?.(dmg);
+        if (ctx.damagePlayer) {
+          ctx.damagePlayer(dmg, {
+            sourceKind: p.kind || 'shard_barrage',
+            sourceRoot: this.root,
+            ownerRoot: p.ownerRoot || this.root
+          });
+        } else {
+          ctx.onPlayerDamage?.(dmg, p.kind || 'shard_barrage', {
+            sourceRoot: this.root,
+            ownerRoot: p.ownerRoot || this.root
+          });
+        }
         ctx.scene.remove(p.mesh);
         this.projectiles.splice(i, 1);
       }

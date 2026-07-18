@@ -1,6 +1,15 @@
 // Goo puddle hazard with telegraph, slow, and shoot-to-clear
 // Usage: const g = new GooPuddle({ THREE, mats, position, enemyManager }); scene.add(g.root); then call g.update(dt, ctx, lastPlayerPos)
 
+const geometryCaches = new WeakMap();
+
+function sharedGeometry(THREE, key, factory) {
+  let cache = geometryCaches.get(THREE);
+  if (!cache) { cache = new Map(); geometryCaches.set(THREE, cache); }
+  if (!cache.has(key)) cache.set(key, factory());
+  return cache.get(key);
+}
+
 export class GooPuddle {
   constructor({ THREE, mats, position, enemyManager = null, radius = 2.2, telegraphTime = 0.4, lifeMin = 18, lifeMax = 24 }) {
     this.THREE = THREE;
@@ -26,7 +35,10 @@ export class GooPuddle {
 
     // Telegraph ring (faint)
     const ringMat = new THREE.MeshBasicMaterial({ color: 0x77ffcc, transparent: true, opacity: 0.3, side: THREE.DoubleSide });
-    const ring = new THREE.Mesh(new THREE.RingGeometry(this.radius * 0.82, this.radius * 1.05, 32), ringMat);
+    const ring = new THREE.Mesh(
+      sharedGeometry(THREE, `ring:${this.radius}`, () => new THREE.RingGeometry(this.radius * 0.82, this.radius * 1.05, 32)),
+      ringMat
+    );
     ring.rotation.x = -Math.PI / 2; ring.position.y = 0.01;
     ring.userData.kind = 'telegraph';
     this.root.add(ring);
@@ -34,7 +46,10 @@ export class GooPuddle {
 
     // Puddle disc (hidden until active)
     const discMat = new THREE.MeshBasicMaterial({ color: 0x44ccaa, transparent: true, opacity: 0.0 });
-    const disc = new THREE.Mesh(new THREE.CircleGeometry(this.radius, 28), discMat);
+    const disc = new THREE.Mesh(
+      sharedGeometry(THREE, `disc:${this.radius}`, () => new THREE.CircleGeometry(this.radius, 28)),
+      discMat
+    );
     disc.rotation.x = -Math.PI / 2; disc.position.y = 0.01;
     disc.userData.kind = 'puddle_disc';
     this.root.add(disc);
@@ -175,6 +190,14 @@ export class GooPuddle {
     if (this._expired) return;
     this._expired = true;
     if (this.root && scene && this.root.parent === scene) scene.remove(this.root);
+    this._disposeMaterials();
+  }
+
+  _disposeMaterials() {
+    if (this._disposed) return;
+    this._disposed = true;
+    this.telegraph?.material?.dispose?.();
+    this.disc?.material?.dispose?.();
   }
 
   dispose(scene) {

@@ -1,8 +1,22 @@
 # Weapon Tier List
 
-_Last update: 2025-08-22_
+_Last update: 2026-07-18_
 
 This list ranks primaries and sidearms by overall effectiveness across waves (DPS, effective range, control, ammo economy, utility). It assumes default enemy HP and current weapon configs.
+
+## Discovery Clearance
+
+Combat tier and access tier are deliberately separate. Strong weapons are not sold as direct power: their Archive license adds them to future run possibilities, while their numerical mastery remains a separate investment.
+
+| Weapon | Access | Archive price | Role after ownership |
+|---|---|---:|---|
+| Pistol, SMG, Shotgun, Beam Saber, Minigun | Free run progression | 0 | Baseline variety and experimentation |
+| Rifle | Classified until Wave 6 trial | 10 | Enters future primary offers |
+| DMR | Classified until Wave 10 boss trial | 18 | Enters future primary offers |
+| Grenade Launcher | Classified until Wave 15 boss trial | 50 | Permanent dedicated Slot 3 package |
+| Dynamite | Classified until Wave 20 boss trial | 35 | Timed-demolition choice for dedicated Slot 3 |
+
+The high Grenade Launcher price reflects loadout expansion, not only weapon strength: it adds a third combat option without replacing the primary or Pistol.
 
 ---
 
@@ -38,13 +52,17 @@ This list ranks primaries and sidearms by overall effectiveness across waves (DP
 
 ## B Tier — Strong in narrow roles
 
-### Grenade Pistol
+### Grenade Launcher
 - AoE burst for packs and heavies; scales with placement.
 - Downsides: low ammo; ballistic arc (skill/space dependent).
 
 ### Minigun
 - Horde shredder; constant stagger on trash mobs.
 - Downsides: low per-bullet damage, heavy ammo consumption; weak on singles at range.
+
+### Dynamite
+- Sticky timed charges reward prediction, chokepoints, and destructible-route planning.
+- Downsides: delayed payoff, short throw range, only three charges can be armed at once.
 
 ---
 

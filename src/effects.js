@@ -1,4 +1,5 @@
 import { logError } from './util/log.js';
+import { createFinalCutMotion } from './game/final-cut-animations.js';
 
 // Ensure global effects namespace with safe no-op fallbacks
 window._EFFECTS = window._EFFECTS || {};
@@ -46,6 +47,8 @@ export class Effects {
     this._muzzleLight = null;
     this._muzzleFlashA = null;
     this._muzzleFlashB = null;
+    this._muzzleAnchor = null;
+    this._muzzleFallback = new THREE.Vector3(0.12, -0.07, -0.25);
     this._muzzleTTL = 0;
     this._muzzleMax = 0.06;
 
@@ -116,6 +119,7 @@ export class Effects {
     this._ringPool = { free: [], active: [], cap: 24 };
     this._impactPool = { free: [], cap: 16 };
     this._deathPool = { free: [], cap: 6 };
+    this._confettiPool = { free: [], cap: 2 };
 
     // Shared geometries for pools
     this._geoPlane1x1 = new THREE.PlaneGeometry(1,1);
@@ -274,6 +278,22 @@ export class Effects {
     return m || null;
   }
   _freeRing(m){ if (!m) return; m.visible = false; this._ringPool.free.push(m); }
+  _configureRingMaterial(ring, radius, color){
+    let uniforms = ring.material?.uniforms;
+    const isRingMaterial = uniforms?.uElapsed && uniforms?.uLife &&
+      uniforms?.uStart && uniforms?.uEnd && uniforms?.uColor;
+    if (!isRingMaterial) {
+      ring.material?.dispose?.();
+      ring.material = this._ringSharedMatProto.clone();
+      uniforms = ring.material.uniforms;
+    }
+    uniforms.uElapsed.value = 0;
+    uniforms.uLife.value = 0.6;
+    uniforms.uStart.value = radius * 0.1;
+    uniforms.uEnd.value = radius;
+    if (uniforms.uColor.value?.set) uniforms.uColor.value.set(color);
+    else uniforms.uColor.value = new this.THREE.Color(color);
+  }
   _updateRingPool(dt){
     const list = this._ringPool.active;
     for (let i=list.length-1;i>=0;i--){
@@ -311,8 +331,8 @@ export class Effects {
         // Cleanup
         if (typeof fx.cleanup === 'function') fx.cleanup();
         if (fx.points && this.scene) this.scene.remove(fx.points);
-        if (fx.points && fx.points.geometry) fx.points.geometry.dispose();
-        if (fx.points && fx.points.material) fx.points.material.dispose();
+        if (!fx.retainResources && fx.points && fx.points.geometry) fx.points.geometry.dispose();
+        if (!fx.retainResources && fx.points && fx.points.material) fx.points.material.dispose();
         if (fx.mesh && this.scene) this.scene.remove(fx.mesh);
         if (fx.light && this.scene) this.scene.remove(fx.light);
         this._alive.splice(i,1);
@@ -327,7 +347,7 @@ export class Effects {
       const d = this._decals[i];
       // If bound to an owner that has been removed from scene, drop immediately
       if (d.owner && !d.owner.parent) {
-        this.scene.remove(d.mesh);
+        d.mesh.removeFromParent();
         if (d.cleanup) d.cleanup(); // return material to pool, don't dispose
         this._decals.splice(i,1);
         continue;
@@ -340,7 +360,7 @@ export class Effects {
         d.material.opacity = d.baseAlpha * k;
       }
       if (d.age >= d.ttl) {
-        this.scene.remove(d.mesh);
+        d.mesh.removeFromParent();
         if (d.cleanup) d.cleanup(); // return material to pool, don't dispose
         this._decals.splice(i,1);
       }
@@ -399,7 +419,7 @@ export class Effects {
     // decals
     for (let i=this._decals.length-1;i>=0;i--){
       const d = this._decals[i];
-      try { if (this.scene) this.scene.remove(d.mesh); } catch (e) { logError(e); }
+      try { d.mesh.removeFromParent(); } catch (e) { logError(e); }
       try { if (d.cleanup) d.cleanup(); } catch (e) { logError(e); }
     }
     this._decals.length = 0;
@@ -441,7 +461,7 @@ export class Effects {
     if (this._decals.length >= (this._decalMax|0 || 64)) {
       const old = this._decals.shift();
       if (old) {
-        this.scene.remove(old.mesh);
+        old.mesh.removeFromParent();
         if (old.cleanup) old.cleanup(); // return material to pool, don't dispose
       }
     }
@@ -485,10 +505,23 @@ export class Effects {
     // Render order just above default geometry but below HUD overlays
     mesh.renderOrder = 1;
 
-    this.scene.add(mesh);
-    // If attaching to a moving object (e.g., enemy), reparent while preserving world transform
-    if (options.attachTo && typeof options.attachTo.attach === 'function') {
-      options.attachTo.attach(mesh);
+    // World weapon calls pass the struck mesh as `object`. Attaching to that
+    // surface prevents decals floating after destructibles move or disappear.
+    const attachTarget = options.attachTo || options.object;
+    if (attachTarget && typeof attachTarget.add === 'function' && attachTarget.matrixWorld) {
+      // Convert explicitly instead of Object3D.attach(). Matrix decomposition
+      // cannot preserve orientation when the parent combines rotation with a
+      // non-uniform scale, which made decals peel away from scaled props.
+      attachTarget.updateWorldMatrix?.(true, false);
+      mesh.position.copy(attachTarget.worldToLocal(pos.clone()));
+      const inverseParentNormal = new THREE.Matrix3()
+        .getNormalMatrix(attachTarget.matrixWorld)
+        .invert();
+      const localNormal = n.clone().applyMatrix3(inverseParentNormal).normalize();
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), localNormal);
+      attachTarget.add(mesh);
+    } else {
+      this.scene.add(mesh);
     }
 
     const entry = { mesh, material: mesh.material, ttl, age: 0, baseAlpha: mesh.material.uniforms.uAlpha.value, owner: options.owner || null };
@@ -503,11 +536,22 @@ export class Effects {
     for (let i=this._decals.length-1; i>=0; i--) {
       const d = this._decals[i];
       if (d.owner === owner) {
-        this.scene.remove(d.mesh);
+        d.mesh.removeFromParent();
         if (d.cleanup) d.cleanup(); // return material to pool, don't dispose
         this._decals.splice(i,1);
       }
     }
+  }
+
+  setMuzzleAnchor(anchor){
+    this._muzzleAnchor = anchor || null;
+    if (!this._muzzleGroup) return;
+
+    this._muzzleGroup.removeFromParent();
+    const parent = this._muzzleAnchor || this.camera;
+    parent.add(this._muzzleGroup);
+    if (this._muzzleAnchor) this._muzzleGroup.position.set(0, 0, 0);
+    else this._muzzleGroup.position.copy(this._muzzleFallback);
   }
 
   _ensureMuzzle(){
@@ -517,9 +561,10 @@ export class Effects {
     const group = new THREE.Group();
     group.renderOrder = 9999;
   
-    // offset from camera center (feeling that the barrel is right and slightly lower)
-    group.position.set(0.12, -0.07, -0.25);
-    this.camera.add(group);
+    const parent = this._muzzleAnchor || this.camera;
+    parent.add(group);
+    if (this._muzzleAnchor) group.position.set(0, 0, 0);
+    else group.position.copy(this._muzzleFallback);
   
     const makeQuad = () => {
       const g = new THREE.PlaneGeometry(1,1);
@@ -597,20 +642,6 @@ export class Effects {
     this._muzzleGroup = group;
   }
   
-  getMuzzleWorldPos(out){
-    const THREE = this.THREE;
-    const v = out || new THREE.Vector3();
-    if (this._muzzleGroup && this._muzzleGroup.parent) {
-      return this._muzzleGroup.getWorldPosition(v);
-    }
-    // fallback: slightly in front of the camera
-    const f = new THREE.Vector3();
-    this.camera.getWorldDirection(f);
-    this.camera.getWorldPosition(v).add(f.multiplyScalar(0.1));
-    return v;
-  }
-  
-
   spawnMuzzleFlash(strength = 1){
     if (!this.muzzleEnabled) return;
     this._ensureMuzzle();
@@ -638,11 +669,9 @@ export class Effects {
   getMuzzleWorldPos(out){
     const THREE = this.THREE;
     const v = out || new THREE.Vector3();
-    if (!this._muzzleGroup){
-      // approximate relative to camera if muzzle not created yet
-      return v.copy(new THREE.Vector3(0.12, -0.07, -0.25)).applyMatrix4(this.camera.matrixWorld);
-    }
-    return v.copy(this._muzzleGroup.getWorldPosition(new THREE.Vector3()));
+    if (this._muzzleGroup?.parent) return this._muzzleGroup.getWorldPosition(v);
+    if (this._muzzleAnchor?.parent) return this._muzzleAnchor.getWorldPosition(v);
+    return v.copy(this._muzzleFallback).applyMatrix4(this.camera.matrixWorld);
   }
 
   // Subtle screen-edge chroma pulse when combo tier increases
@@ -818,8 +847,13 @@ spawnBulletTracer(start, end, options = {}) {
 spawnBulletImpact(position, normal){
     const THREE = this.THREE;
     // Reuse a single small instanced points system per impact via pool
-    let sys = this._impactPool.free.pop();
+    const pool = this._impactPool;
+    let sys = pool.free.pop();
     if (!sys) {
+      if (!Number.isFinite(pool.created)) {
+        pool.created = pool.free.length + this._alive.filter(effect => effect.pool === pool).length;
+      }
+      if (pool.created >= pool.cap) return null;
       // Build a reusable points system with attributes sized for 80
       const count = 80;
       const positions = new Float32Array(count * 3);
@@ -836,8 +870,9 @@ spawnBulletImpact(position, normal){
         vertexShader:`uniform float uElapsed; uniform vec3 uOrigin; uniform vec3 uGravity; uniform float uSize; attribute vec3 aDir; attribute float aSpeed; attribute float aLife; varying float vAlpha; void main(){ float t=min(uElapsed,aLife); vec3 pos = uOrigin + aDir * (aSpeed*t) + 0.5*uGravity*(t*t); vec4 mv = modelViewMatrix*vec4(pos,1.0); gl_Position=projectionMatrix*mv; float dist = -mv.z; gl_PointSize = uSize * clamp(180.0/dist, 1.0, 10.0); vAlpha = 1.0 - (t/aLife); }`,
         fragmentShader:`precision mediump float; varying float vAlpha; void main(){ vec2 pc = gl_PointCoord-0.5; float d=length(pc); float a = smoothstep(0.5,0.0,d) * vAlpha; if(a<0.02) discard; vec3 col = mix(vec3(1.0,0.85,0.4), vec3(1.0), 0.5); gl_FragColor = vec4(col, a); }`});
       sys = { points: new THREE.Points(g, mat), geom: g, uniforms, cap: 80 };
-      this.scene.add(sys.points);
+      pool.created++;
     }
+    if (!sys.points.parent) this.scene.add(sys.points);
     // Fill attributes quickly for a new burst
     const g = sys.geom; const pos = g.attributes.position.array; const dir = g.attributes.aDir.array; const spd = g.attributes.aSpeed.array; const life = g.attributes.aLife.array;
     const n = (normal && normal.lengthSq()>0) ? normal.clone().normalize() : new THREE.Vector3(0,1,0);
@@ -862,13 +897,19 @@ spawnBulletImpact(position, normal){
     sys.uniforms.uOrigin.value.copy(position);
     sys.uniforms.uElapsed.value = 0;
     // Track lifetime on _alive to return to pool
-    this._alive.push({ points: sys.points, uniforms: sys.uniforms, maxLife: 0.6, cleanup: ()=>{ this._impactPool.free.push(sys); } });
+    this._alive.push({ points: sys.points, uniforms: sys.uniforms, maxLife: 0.6, pool, retainResources:true, cleanup: ()=>{ pool.free.push(sys); } });
+    return sys.points;
   }
 
   enemyDeath(center){
     const THREE = this.THREE;
-    let sys = this._deathPool.free.pop();
+    const pool = this._deathPool;
+    let sys = pool.free.pop();
     if (!sys) {
+      if (!Number.isFinite(pool.created)) {
+        pool.created = pool.free.length + this._alive.filter(effect => effect.pool === pool).length;
+      }
+      if (pool.created >= pool.cap) return null;
       const count = 140;
       const positions = new Float32Array(count * 3);
       const dirs = new Float32Array(count * 3);
@@ -884,8 +925,9 @@ spawnBulletImpact(position, normal){
         vertexShader:`uniform float uElapsed; uniform vec3 uOrigin; uniform vec3 uGravity; uniform float uSize; attribute vec3 aDir; attribute float aSpeed; attribute float aLife; varying float vAlpha; void main(){ float t=min(uElapsed,aLife); float k = smoothstep(0.0, 0.2, t); vec3 pos = uOrigin + aDir * (aSpeed*t*k) + 0.5*uGravity*(t*t); pos.x += sin(t*8.0 + aSpeed)*0.06; pos.z += cos(t*7.0 + aSpeed)*0.06; vec4 mv = modelViewMatrix*vec4(pos,1.0); gl_Position=projectionMatrix*mv; float dist=-mv.z; gl_PointSize = uSize * clamp(180.0/dist, 1.2, 9.0); vAlpha = 1.0 - (t/aLife); }`,
         fragmentShader:`precision mediump float; varying float vAlpha; void main(){ vec2 pc=gl_PointCoord-0.5; float d=length(pc); float a = smoothstep(0.45,0.0,d) * vAlpha; if(a<0.02) discard; vec3 col = mix(vec3(1.0,0.45,0.25), vec3(1.0,0.8,0.2), 0.15); gl_FragColor = vec4(col, a*0.85); }`});
       sys = { points: new THREE.Points(g, material), geom: g, uniforms, cap: 140 };
-      this.scene.add(sys.points);
+      pool.created++;
     }
+    if (!sys.points.parent) this.scene.add(sys.points);
     // Refill burst
     const g = sys.geom; const pos = g.attributes.position.array; const dir = g.attributes.aDir.array; const spd = g.attributes.aSpeed.array; const life = g.attributes.aLife.array;
     for (let i=0;i<sys.cap;i++){
@@ -900,7 +942,133 @@ spawnBulletImpact(position, normal){
     g.attributes.aLife.needsUpdate = true;
     sys.uniforms.uOrigin.value.copy(center);
     sys.uniforms.uElapsed.value = 0;
-    this._alive.push({ points: sys.points, uniforms: sys.uniforms, maxLife: 1.0, cleanup: ()=>{ this._deathPool.free.push(sys); } });
+    this._alive.push({ points: sys.points, uniforms: sys.uniforms, maxLife: 1.0, pool, retainResources:true, cleanup: ()=>{ pool.free.push(sys); } });
+    return sys.points;
+  }
+
+  spawnConfetti(center) {
+    if (!center) return null;
+    const THREE = this.THREE;
+    const pool = this._confettiPool;
+    let sys = pool.free.pop();
+    if (!sys) {
+      if (!Number.isFinite(pool.created)) {
+        pool.created = pool.free.length + this._alive.filter(effect => effect.pool === pool).length;
+      }
+      if (pool.created >= pool.cap) return null;
+      const count = 64;
+      const positions = new Float32Array(count * 3);
+      const dirs = new Float32Array(count * 3);
+      const colors = new Float32Array(count * 3);
+      const speeds = new Float32Array(count);
+      const lifes = new Float32Array(count);
+      const phases = new Float32Array(count);
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geometry.setAttribute('aDir', new THREE.BufferAttribute(dirs, 3));
+      geometry.setAttribute('aColor', new THREE.BufferAttribute(colors, 3));
+      geometry.setAttribute('aSpeed', new THREE.BufferAttribute(speeds, 1));
+      geometry.setAttribute('aLife', new THREE.BufferAttribute(lifes, 1));
+      geometry.setAttribute('aPhase', new THREE.BufferAttribute(phases, 1));
+      const uniforms = {
+        uElapsed: { value: 0 },
+        uOrigin: { value: new THREE.Vector3() },
+        uGravity: { value: new THREE.Vector3(0, -11, 0) },
+        uSize: { value: 4.2 }
+      };
+      const material = new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.NormalBlending,
+        uniforms,
+        vertexShader: `uniform float uElapsed; uniform vec3 uOrigin; uniform vec3 uGravity; uniform float uSize; attribute vec3 aDir; attribute vec3 aColor; attribute float aSpeed; attribute float aLife; attribute float aPhase; varying float vAlpha; varying vec3 vColor; void main(){ float t=min(uElapsed,aLife); vec3 pos=uOrigin+aDir*(aSpeed*t)+0.5*uGravity*(t*t); pos.x+=sin(t*12.0+aPhase)*0.22; pos.z+=cos(t*10.0+aPhase)*0.22; vec4 mv=modelViewMatrix*vec4(pos,1.0); gl_Position=projectionMatrix*mv; gl_PointSize=uSize*clamp(180.0/-mv.z,1.0,8.0); vAlpha=1.0-(t/aLife); vColor=aColor; }`,
+        fragmentShader: `precision mediump float; varying float vAlpha; varying vec3 vColor; void main(){ vec2 p=abs(gl_PointCoord-0.5); if(max(p.x,p.y)>0.46) discard; gl_FragColor=vec4(vColor,vAlpha); }`
+      });
+      sys = { points: new THREE.Points(geometry, material), geom: geometry, uniforms, cap: count };
+      pool.created += 1;
+    }
+    if (!sys.points.parent) this.scene.add(sys.points);
+    const geometry = sys.geom;
+    const positions = geometry.attributes.position.array;
+    const dirs = geometry.attributes.aDir.array;
+    const colors = geometry.attributes.aColor.array;
+    const speeds = geometry.attributes.aSpeed.array;
+    const lifes = geometry.attributes.aLife.array;
+    const phases = geometry.attributes.aPhase.array;
+    const palette = [0x67e8f9, 0xf472b6, 0xfacc15, 0x86efac, 0xffffff];
+    for (let i = 0; i < sys.cap; i++) {
+      const i3 = i * 3;
+      positions[i3] = center.x;
+      positions[i3 + 1] = center.y + 0.8;
+      positions[i3 + 2] = center.z;
+      const angle = Math.random() * Math.PI * 2;
+      const rise = 0.55 + Math.random() * 0.55;
+      const direction = new THREE.Vector3(Math.cos(angle), rise, Math.sin(angle)).normalize();
+      dirs[i3] = direction.x;
+      dirs[i3 + 1] = direction.y;
+      dirs[i3 + 2] = direction.z;
+      const color = new THREE.Color(palette[i % palette.length]);
+      colors[i3] = color.r;
+      colors[i3 + 1] = color.g;
+      colors[i3 + 2] = color.b;
+      speeds[i] = 4.5 + Math.random() * 4.5;
+      lifes[i] = 1.1 + Math.random() * 0.6;
+      phases[i] = Math.random() * Math.PI * 2;
+    }
+    for (const attribute of ['position', 'aDir', 'aColor', 'aSpeed', 'aLife', 'aPhase']) {
+      geometry.attributes[attribute].needsUpdate = true;
+    }
+    sys.uniforms.uOrigin.value.copy(center);
+    sys.uniforms.uElapsed.value = 0;
+    this._alive.push({ points: sys.points, uniforms: sys.uniforms, maxLife: 1.7, pool, retainResources: true, cleanup: () => { pool.free.push(sys); } });
+    return sys.points;
+  }
+
+  animateStageDeath(root, { style = 'opening_act', grade = 1, direction = null, variant = null } = {}) {
+    if (!root?.position || !root?.rotation || !this.scene) return null;
+    const THREE = this.THREE;
+    const startPosition = root.position.clone();
+    const startRotation = root.rotation.clone();
+    const startScale = root.scale.clone();
+    const drift = direction?.clone?.() || new THREE.Vector3(0, 0, 1);
+    drift.y = 0;
+    if (drift.lengthSq() < 0.0001) drift.set(0, 0, 1);
+    drift.normalize();
+    const currentGrade = Math.min(2, Math.max(1, Math.floor(Number(grade) || 1)));
+    const finalCut = style === 'final_cut';
+    const finalMotion = finalCut ? createFinalCutMotion(root, { variant: variant || undefined, grade: currentGrade, direction: drift }) : null;
+    const maxLife = finalMotion?.duration || (currentGrade >= 2 ? 1.15 : 0.92);
+    let elapsed = 0;
+
+    root.removeFromParent?.();
+    root.visible = true;
+    this.scene.add(root);
+
+    const entry = {
+      mesh: root,
+      life: 0,
+      maxLife,
+      tick: dt => {
+        elapsed = Math.min(maxLife, elapsed + Math.max(0, Number(dt) || 0));
+        const t = maxLife > 0 ? elapsed / maxLife : 1;
+        if (finalMotion) finalMotion.applyElapsed(elapsed);
+        else {
+          const rise = Math.sin(Math.PI * Math.min(1, t)) * (currentGrade >= 2 ? 3.4 : 2.65);
+          root.position.copy(startPosition).addScaledVector(drift, t * (currentGrade >= 2 ? 2.6 : 1.9));
+          root.position.y = startPosition.y + rise;
+          root.rotation.copy(startRotation);
+          root.rotation.y += t * Math.PI * (currentGrade >= 2 ? 2.4 : 1.7);
+          root.rotation.z += t * (currentGrade >= 2 ? 1.35 : 0.95);
+          root.scale.copy(startScale).multiplyScalar(1 - t * 0.18);
+        }
+      },
+      cleanup: () => {
+        finalMotion?.restore?.();
+        root.removeFromParent?.();
+      }
+    };
+    this._alive.push(entry);
+    return entry;
   }
 
   // Composite explosion: shockwave, fireball, sparks, smoke, light flash
@@ -983,17 +1151,8 @@ spawnBulletImpact(position, normal){
     const segs = 40;
     ring.geometry?.dispose?.();
     ring.geometry = new THREE.RingGeometry(1, 1.2, segs, 1, thetaStart, thetaLen);
-    ring.material = ring.material || new THREE.ShaderMaterial({
-      transparent:true, depthWrite:false, blending:THREE.AdditiveBlending,
-      uniforms:{ uElapsed:{value:0}, uLife:{value:0.6}, uStart:{value:radius*0.1}, uEnd:{value:radius}, uColor:{value:new THREE.Color(color)} },
-      vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-      fragmentShader:`precision mediump float; varying vec2 vUv; uniform float uElapsed; uniform float uLife; uniform float uStart; uniform float uEnd; uniform vec3 uColor; void main(){ float t=clamp(uElapsed/uLife,0.0,1.0); float r=mix(uStart,uEnd,t); float d=abs(length(vUv-0.5)*2.0 - r); float a=smoothstep(0.08,0.0,d)*(1.0-t); if(a<0.01) discard; gl_FragColor=vec4(uColor,a); }`
-    });
-    ring.material.uniforms.uElapsed.value = 0;
-    ring.material.uniforms.uLife.value = 0.6;
-    ring.material.uniforms.uStart.value = radius*0.1;
-    ring.material.uniforms.uEnd.value = radius;
-    ring.material.uniforms.uColor.value = new THREE.Color(color);
+    ring.userData.ringGeometryKind = 'arc';
+    this._configureRingMaterial(ring, radius, color);
     ring.position.copy(center.clone().setY(0.05));
     ring.quaternion.setFromEuler(new THREE.Euler(-Math.PI/2, Math.atan2(dir.z, dir.x), 0, 'XYZ'));
     ring.visible = true;
@@ -1007,22 +1166,13 @@ spawnBulletImpact(position, normal){
     const THREE = this.THREE;
     const ring = this._allocRing();
     if (!ring) return null;
-    if (!ring.material || !ring.geometry) {
+    if (ring.userData.ringGeometryKind !== 'ground') {
       const segs = 80;
+      ring.geometry?.dispose?.();
       ring.geometry = new THREE.RingGeometry(1, 1.2, segs, 1);
-      ring.material = new THREE.ShaderMaterial({
-        transparent:true, depthWrite:false, blending:THREE.AdditiveBlending,
-        uniforms:{ uElapsed:{value:0}, uLife:{value:0.6}, uStart:{value:radius*0.1}, uEnd:{value:radius}, uColor:{value:new THREE.Color(color)} },
-        vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-        fragmentShader:`precision mediump float; varying vec2 vUv; uniform float uElapsed; uniform float uLife; uniform float uStart; uniform float uEnd; uniform vec3 uColor; void main(){ float t=clamp(uElapsed/uLife,0.0,1.0); float r=mix(uStart,uEnd,t); float d=abs(length(vUv-0.5)*2.0 - r); float a=smoothstep(0.08,0.0,d)*(1.0-t); if(a<0.01) discard; gl_FragColor=vec4(uColor, a); }`
-      });
-    } else {
-      ring.material.uniforms.uLife.value = 0.6;
-      ring.material.uniforms.uStart.value = radius*0.1;
-      ring.material.uniforms.uEnd.value = radius;
-      ring.material.uniforms.uColor.value = new THREE.Color(color);
-      ring.material.uniforms.uElapsed.value = 0;
+      ring.userData.ringGeometryKind = 'ground';
     }
+    this._configureRingMaterial(ring, radius, color);
     ring.position.copy(center.clone().setY(0.05));
     ring.rotation.x = -Math.PI/2;
     ring.visible = true;

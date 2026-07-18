@@ -1,34 +1,44 @@
-import { createWingedDrone } from '../assets/winged_drone.js';
+import { createEnhancedWingedDrone } from '../assets/enemy-retrofits.js';
 import { logError } from '../util/log.js';
+import { cloneNodeMaterial, instantiateSharedTemplate } from './render-template.js';
+
+const _flyerTemplates = new WeakMap();
+
 export class FlyerEnemy {
-  constructor({ THREE, mats, cfg, spawnPos }) {
+  constructor({ THREE, mats, cfg, spawnPos, rng = Math.random }) {
     this.THREE = THREE;
     this.cfg = cfg;
+    this.rng = rng;
 
     // Model: winged drone asset
-    const built = createWingedDrone({ THREE, mats, scale: 1.0 });
+    const built = instantiateSharedTemplate(
+      _flyerTemplates,
+      THREE,
+      () => createEnhancedWingedDrone({ THREE, mats, scale: 1.0 })
+    );
     const body = built.root; const head = built.head; this._animRefs = built.refs || {};
+    try { cloneNodeMaterial(head); } catch (e) { logError(e); }
     body.position.copy(spawnPos);
     body.userData = { type: cfg.type, head, hp: cfg.hp };
 
     this.root = body;
 
     // Movement tuning
-    this.speed = 3.2 + Math.random() * 0.6;           // cruise speed 3.2–3.8
-    this.diveSpeed = 10.0 + Math.random() * 3.0;      // dive speed 10.0–13.0
-    this.separationRadius = 1.0;                      // light separation
+    this.speed = 3.2 + this.rng() * 0.6;              // cruise speed 3.2–3.8
+    this.diveSpeed = 10.0 + this.rng() * 3.0;         // dive speed 10.0–13.0
+    this.separationRadius = 2.1;                      // readable air-to-air spacing
     this.avoidProbe = 1.2;                            // short forward probe distance
 
     // Altitude + oscillation (raised range)
-    this.cruiseAltitude = 4 + Math.random() * 3;  // 2.8–4.6
-    this.oscPhase = Math.random() * Math.PI * 2;
-    this.oscSpeed = 1.6 + Math.random() * 0.8;
-    this.oscAmp = 0.2 + Math.random() * 0.1;
+    this.cruiseAltitude = 4 + this.rng() * 3;
+    this.oscPhase = this.rng() * Math.PI * 2;
+    this.oscSpeed = 1.6 + this.rng() * 0.8;
+    this.oscAmp = 0.2 + this.rng() * 0.1;
 
     // Attack behavior
-    this.triggerDist = 10 + Math.random() * 4;        // 10–14m trigger
+    this.triggerDist = 10 + this.rng() * 4;           // 10–14m trigger
     this.telegraphRequired = 0.4;                     // 0.4s windup
-    this.cooldownBase = 1.2 + Math.random() * 0.6;    // 1.2–1.8s
+    this.cooldownBase = 1.2 + this.rng() * 0.6;       // 1.2–1.8s
     this.cooldown = 0;                                // time until next windup allowed
     this.damageDps = 20;                              // only during dive window
     this.damageWindow = 0.6;                          // active damage window length
@@ -49,16 +59,16 @@ export class FlyerEnemy {
     this._arenaClamp = 39.0; // keep inside walls at ±40
 
     this._savedEmissive = null; // head glow cache
-    this._windupStrafeSign = Math.random() < 0.5 ? 1 : -1;
+    this._windupStrafeSign = this.rng() < 0.5 ? 1 : -1;
     this._attackAnchor = null; // XZ point to move to before diving
 
     // Evasive buzzing parameters
     this._t = 0;                                       // local time accumulator
-    this.orbitSign = Math.random() < 0.5 ? 1 : -1;     // clockwise vs counter-clockwise
-    this.standoffRadius = 8 + Math.random() * 4;       // prefer buzzing around this radius
-    this.buzzFreqA = 2.0 + Math.random() * 1.5;        // Hz-like
-    this.buzzFreqB = 1.5 + Math.random() * 1.2;
-    this.buzzAmp = 0.9 + Math.random() * 0.6;          // lateral sway factor
+    this.orbitSign = this.rng() < 0.5 ? 1 : -1;        // clockwise vs counter-clockwise
+    this.standoffRadius = 8 + this.rng() * 4;          // prefer buzzing around this radius
+    this.buzzFreqA = 2.0 + this.rng() * 1.5;
+    this.buzzFreqB = 1.5 + this.rng() * 1.2;
+    this.buzzAmp = 0.9 + this.rng() * 0.6;
     this.jukeCooldown = 0;                             // time until next juke allowed
     this.jukeTime = 0;                                  // remaining juke duration
     this.jukeDir = new this.THREE.Vector3();            // world-XZ juke direction
@@ -72,6 +82,11 @@ export class FlyerEnemy {
     const THREE = this.THREE;
     const e = this.root;
     const playerPos = ctx.player.position.clone();
+    const sensed = ctx.sensePlayer?.(e, dt) || {
+      rawWorldLOS: this._hasLineOfSight(e.position, playerPos, ctx.objects),
+      stableWorldLOS: this._hasLineOfSight(e.position, playerPos, ctx.objects),
+      tacticalFireClear: true
+    };
 
     // Tick timers
     if (this.cooldown > 0) this.cooldown = Math.max(0, this.cooldown - dt);
@@ -104,9 +119,18 @@ export class FlyerEnemy {
     const desiredDir = toPlayer.setY(0);
     if (desiredDir.lengthSq() > 0) desiredDir.normalize();
 
-    // Steering helpers (short probe avoid + light separation)
-    const avoid = desiredDir.lengthSq() > 0 ? ctx.avoidObstacles(e.position, desiredDir, this.avoidProbe) : new THREE.Vector3();
+    // Air bodies use the shared swept solver, which naturally ignores props below
+    // their vertical span while still colliding with walls and other aircraft.
+    const avoid = new THREE.Vector3();
     const sep = ctx.separation(e.position, this.separationRadius, e);
+
+    const moveHorizontal = (direction, speedScale = 1) => {
+      if (!direction || direction.lengthSq() <= 0.0001) return null;
+      const step = direction.clone();
+      step.y = 0;
+      step.normalize().multiplyScalar(this.speed * speedScale * dt);
+      return ctx.moveWithCollisions?.(e, step) || null;
+    };
 
     // State transitions and movement
     switch (this.state) {
@@ -127,17 +151,24 @@ export class FlyerEnemy {
           steer.add(fwd.clone().multiplyScalar(buzzS * 0.35 * this.buzzAmp));
           steer.add(side.clone().multiplyScalar(buzzC * 0.55 * this.buzzAmp));
 
-          if (this.jukeCooldown <= 0 && this.jukeTime <= 0 && Math.random() < 0.9 * dt) {
-            const dir = side.clone().multiplyScalar(Math.random() < 0.5 ? 1 : -1).add(fwd.clone().multiplyScalar((Math.random()-0.5)*0.4)).normalize();
+          if (this.jukeCooldown <= 0 && this.jukeTime <= 0 && this.rng() < 0.9 * dt) {
+            const dir = side.clone().multiplyScalar(this.rng() < 0.5 ? 1 : -1).add(fwd.clone().multiplyScalar((this.rng()-0.5)*0.4)).normalize();
             this.jukeDir.copy(dir);
-            this.jukeTime = 0.18 + Math.random() * 0.18;
-            this.jukeCooldown = 0.8 + Math.random() * 0.6;
+            this.jukeTime = 0.18 + this.rng() * 0.18;
+            this.jukeCooldown = 0.8 + this.rng() * 0.6;
           }
           if (this.jukeTime > 0) steer.add(this.jukeDir.clone().multiplyScalar(1.6));
         }
+        if (this._formationTarget) {
+          const toFormation = this._formationTarget.clone().sub(e.position).setY(0);
+          if (toFormation.lengthSq() > 9) steer.add(toFormation.normalize().multiplyScalar(0.75));
+        }
         steer.add(avoid.multiplyScalar(1.2));
-        steer.add(sep.multiplyScalar(0.7));
-        if (steer.lengthSq() > 0) { steer.y = 0; steer.normalize(); e.position.add(steer.multiplyScalar(this.speed * dt)); }
+        steer.add(sep.multiplyScalar(1.8));
+        const cruiseMove = moveHorizontal(steer);
+        if (cruiseMove?.blockedBy === 'ally') {
+          ctx.emitAIEvent?.(e, 'aerial_congestion', { blockerRoot: cruiseMove.blockerRoot });
+        }
         // Bank wings during turns
         try {
           const lw = this._animRefs?.leftWing, rw = this._animRefs?.rightWing;
@@ -153,19 +184,32 @@ export class FlyerEnemy {
         } catch (e) { logError(e); }
 
         // Try initiating dive
-        if (this.cooldown <= 0 && dist <= this.triggerDist && this._hasLineOfSight(e.position, playerPos, ctx.objects)) {
-          this.state = 'windup';
-          this.timeInState = 0;
-          this.telegraphTime = 0;
-          this._attackAnchor = null; // recompute per attempt
-          this._setHeadGlow(true);
+        if (this.cooldown <= 0 && dist <= this.triggerDist && sensed.stableWorldLOS) {
+          const reserved = ctx.reserveAirAttack?.(
+            e,
+            this._formationOwnerRoot || null,
+            { maxConcurrent: 2, duration: 3.2 }
+          ) ?? true;
+          if (reserved) {
+            this.state = 'windup';
+            this.timeInState = 0;
+            this.telegraphTime = 0;
+            this._attackAnchor = null; // recompute per attempt
+            this._setHeadGlow(true);
+            ctx.emitAIEvent?.(e, 'flyer_dive_windup', {});
+          } else {
+            this.cooldown = 0.2 + this.rng() * 0.2;
+            ctx.emitAIEvent?.(e, 'flyer_dive_slot_delayed', { ownerRoot: this._formationOwnerRoot || null });
+          }
         }
+        ctx.setAIState?.(e, 'orbiting', { selectedAnchor: this._formationTarget || null });
         break;
       }
 
       case 'windup': {
         // Telegraph while repositioning to avoid vertical dives
         this.telegraphTime += dt;
+        ctx.reserveAirAttack?.(e, this._formationOwnerRoot || null, { maxConcurrent: 2, duration: 3.2 });
 
         // Horizontal distance and minimum needed to satisfy 30° from vertical
         const thetaMin = Math.PI / 6; // 30°
@@ -197,9 +241,13 @@ export class FlyerEnemy {
           const buzz = Math.sin(this._t * this.buzzFreqA) * 0.4;
           steer.add(side.multiplyScalar(0.6 + buzz));
         }
-        steer.add(ctx.avoidObstacles(e.position, steer, this.avoidProbe).multiplyScalar(1.0));
-        steer.add(sep.multiplyScalar(0.6));
-        if (steer.lengthSq() > 0) { steer.y = 0; steer.normalize(); e.position.add(steer.multiplyScalar(this.speed * 0.95 * dt)); }
+        steer.add(sep.multiplyScalar(1.6));
+        const windupMove = moveHorizontal(steer, 0.95);
+        if (windupMove?.blockedBy === 'ally') {
+          this._windupStrafeSign *= -1;
+          this._attackAnchor = null;
+          ctx.emitAIEvent?.(e, 'dive_angle_changed', { blockerRoot: windupMove.blockerRoot });
+        }
         // Strafe telegraph wing tilt
         try {
           const lw = this._animRefs?.leftWing, rw = this._animRefs?.rightWing;
@@ -211,13 +259,13 @@ export class FlyerEnemy {
         if (!closeToAnchor && this.telegraphTime > 1.25) { this._windupStrafeSign *= -1; this._attackAnchor = null; }
 
         // Only start dive once positioned at anchor, LOS valid, and telegraph done
-        const readyByAnchor = this.telegraphTime >= this.telegraphRequired && closeToAnchor && this._hasLineOfSight(e.position, playerPos, ctx.objects);
+        const readyByAnchor = this.telegraphTime >= this.telegraphRequired && closeToAnchor && sensed.stableWorldLOS;
         // Fallback: if stuck too long, dive anyway using angle-enforced vector
-        const forceDive = this.telegraphTime >= 1.2; // if we can't settle quickly, attack anyway
+        const forceDive = this.telegraphTime >= 1.2 && sensed.stableWorldLOS;
         if (readyByAnchor || forceDive) {
           // Aim directly at player's chest from current position (should satisfy 30° now)
-          const aim = playerPos.clone(); aim.y = 1.5;
-          const toAim = aim.sub(e.position);
+          const aimPoint = playerPos.clone(); aimPoint.y = 1.5;
+          const toAim = aimPoint.clone().sub(e.position);
           // Enforce minimum 30° from vertical if needed
           const thetaMin = Math.PI / 6; // 30°
           const horiz = new this.THREE.Vector3(toAim.x, 0, toAim.z);
@@ -234,10 +282,20 @@ export class FlyerEnemy {
             }
             toAim.x = horiz.x; toAim.z = horiz.z;
           }
+          const corridorTarget = e.position.clone().add(toAim);
+          const corridor = ctx.chargeCorridorClear?.(e, corridorTarget, 0.2) || { clear: true };
+          if (!corridor.clear) {
+            this._windupStrafeSign *= -1;
+            this._attackAnchor = null;
+            this.telegraphTime = Math.min(this.telegraphTime, 0.35);
+            ctx.emitAIEvent?.(e, 'dive_corridor_blocked', { blockerRoot: corridor.blockerRoot });
+            ctx.setAIState?.(e, 'dive_delayed', { blockerRoot: corridor.blockerRoot });
+            break;
+          }
+          const distanceToAim = toAim.length();
           this._diveDir.copy(toAim.lengthSq() > 0 ? toAim.normalize() : new this.THREE.Vector3(0, -1, 0));
 
           // Adaptive dive time and damage window towards end of dive
-          const distanceToAim = toAim.length();
           const expected = distanceToAim / this.diveSpeed;
           this.maxDiveTime = Math.max(0.7, Math.min(1.4, expected + 0.25));
           this._damageWindowStart = Math.max(0.1, this.maxDiveTime - this.damageWindow);
@@ -246,11 +304,22 @@ export class FlyerEnemy {
           this.timeInState = 0; this.diveTime = 0;
           this._dealtDamageThisDive = false;
           this._setHeadGlow(false);
+          ctx.emitAIEvent?.(e, 'flyer_dive_started', { ownerRoot: this._formationOwnerRoot || e });
           // Wings tuck slightly on dive
           try {
             const lw = this._animRefs?.leftWing, rw = this._animRefs?.rightWing;
             if (lw && rw) { lw.rotation.z = -0.02; rw.rotation.z = 0.02; lw.rotation.y = -0.95; rw.rotation.y = 0.95; }
           } catch (e) { logError(e); }
+        }
+        if (!sensed.stableWorldLOS && this.telegraphTime > 0.5) {
+          this.state = 'cruise';
+          this.timeInState = 0;
+          this._attackAnchor = null;
+          this._setHeadGlow(false);
+          ctx.releaseAirAttack?.(e);
+          ctx.emitAIEvent?.(e, 'flyer_dive_cancelled', { reason: 'lost_los' });
+        } else if (this.state === 'windup') {
+          ctx.setAIState?.(e, 'dive_windup', { tacticalFireClear: sensed.tacticalFireClear });
         }
         break;
       }
@@ -259,7 +328,21 @@ export class FlyerEnemy {
         // Commit to dive direction; keep shallow downward bias
         this.diveTime += dt;
         const diveStep = this._diveDir.clone().multiplyScalar(this.diveSpeed * dt);
-        e.position.add(diveStep);
+        e.position.y += diveStep.y;
+        const diveMove = ctx.moveWithCollisions?.(e, new THREE.Vector3(diveStep.x, 0, diveStep.z));
+        if (diveMove?.blockedBy === 'ally' || diveMove?.blockedBy === 'world') {
+          this.state = 'recover';
+          this.timeInState = 0;
+          this.recoverTime = 0;
+          ctx.releaseAirAttack?.(e);
+          ctx.emitAIEvent?.(e, 'flyer_dive_cancelled', {
+            reason: diveMove.blockedBy,
+            blockerRoot: diveMove.blockerRoot
+          });
+          ctx.setAIState?.(e, 'recovering', { reason: diveMove.blockedBy });
+          break;
+        }
+        ctx.setAIState?.(e, 'diving', { ownerRoot: this._formationOwnerRoot || e });
 
         // Damage window: last ~0.6s of the dive by default
         if (this.diveTime >= this._damageWindowStart && this.diveTime <= this.maxDiveTime) {
@@ -268,13 +351,23 @@ export class FlyerEnemy {
           const dy = (e.position.y + 0.4) - playerPos.y; // body center to chest height
           const dz = e.position.z - playerPos.z;
           const d2 = dx*dx + dy*dy + dz*dz;
-          if (d2 < 1.35 * 1.35 && ctx.onPlayerDamage && !this._dealtDamageThisDive) {
-            const impact = this.impactDamageMin + Math.random() * (this.impactDamageMax - this.impactDamageMin);
-            ctx.onPlayerDamage(impact);
+          if (d2 < 1.35 * 1.35 && !this._dealtDamageThisDive) {
+            const impact = this.impactDamageMin + this.rng() * (this.impactDamageMax - this.impactDamageMin);
+            if (ctx.damagePlayer) {
+              ctx.damagePlayer(impact, {
+                sourceKind: 'flyer_dive',
+                sourceRoot: e,
+                ownerRoot: this._formationOwnerRoot || e
+              });
+            } else {
+              ctx.onPlayerDamage?.(impact);
+            }
             this._dealtDamageThisDive = true;
+            ctx.emitAIEvent?.(e, 'flyer_dive_hit', { amount: impact, ownerRoot: this._formationOwnerRoot || e });
             // on contact, immediately recover
             this.state = 'recover';
             this.timeInState = 0; this.recoverTime = 0;
+            ctx.releaseAirAttack?.(e);
           }
         }
 
@@ -282,6 +375,7 @@ export class FlyerEnemy {
         if (this.diveTime >= this.maxDiveTime || this._isNearWall(e.position)) {
           this.state = 'recover';
           this.timeInState = 0; this.recoverTime = 0;
+          ctx.releaseAirAttack?.(e);
         }
         break;
       }
@@ -291,11 +385,9 @@ export class FlyerEnemy {
         const steer = new THREE.Vector3();
         if (desiredDir.lengthSq() > 0) steer.add(desiredDir.multiplyScalar(0.8));
         steer.add(avoid.multiplyScalar(1.2));
-        steer.add(sep.multiplyScalar(0.7));
+        steer.add(sep.multiplyScalar(1.6));
         if (steer.lengthSq() > 0) {
-          steer.y = 0; steer.normalize();
-          const step = steer.multiplyScalar(this.speed * dt);
-          e.position.add(step);
+          moveHorizontal(steer);
         }
         // Vertical recover toward cruise altitude faster
         const targetAlt = this.cruiseAltitude;
@@ -311,6 +403,7 @@ export class FlyerEnemy {
             if (lw && rw) { lw.rotation.z = -0.15; rw.rotation.z = 0.15; lw.rotation.y = 0; rw.rotation.y = 0; }
           } catch (e) { logError(e); }
         }
+        ctx.setAIState?.(e, 'recovering', {});
         break;
       }
     }

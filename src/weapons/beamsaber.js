@@ -13,6 +13,7 @@ export class BeamSaber extends Weapon {
     this._charging = false;
     this._chargeStart = 0;
     this._chargeSound = null;
+    this._comboTimer = null;
   }
 
   _slash(ctx, damage, heavy=false) {
@@ -42,13 +43,15 @@ export class BeamSaber extends Weapon {
 
       try { window._HUD && window._HUD.showHitmarker && window._HUD.showHitmarker(); } catch (e) { logError(e); }
       obj.userData.hp -= damage;
+      const killed = obj.userData.hp <= 0;
+      this.recordCombatHit(ctx, obj, { damage, killed, distance: hit.distance });
       const kb = heavy ? 0.4 : 0.25;
       applyKnockback?.(obj, dir.clone().multiplyScalar(kb));
       if (S?.saberHit) S.saberHit();
       if (S && S.impactFlesh) S.impactFlesh();
       if (S && S.enemyPain) S.enemyPain(obj?.userData?.type || 'grunt');
 
-      if (obj.userData.hp <= 0) {
+      if (killed) {
         effects?.enemyDeath?.(obj.position.clone());
         if (S && S.enemyDeath) S.enemyDeath(obj?.userData?.type || 'grunt');
         const eType = obj?.userData?.type;
@@ -83,9 +86,24 @@ export class BeamSaber extends Weapon {
     this._slash(ctx, 40, false);
   }
 
+  hasAltFire() {
+    return true;
+  }
+
   altTriggerDown(ctx) {
     const now = performance.now();
     if (!this.canFire(now)) return;
+    const combo = ctx.mutations?.getBeamSaberComboProfile?.();
+    if (combo?.enabled) {
+      this._nextFireAtMs = now + combo.lockoutMs;
+      this.beginAttack(ctx);
+      this._slash(ctx, combo.firstDamage, false);
+      this._comboTimer = setTimeout(() => {
+        this._comboTimer = null;
+        this._slash(ctx, combo.secondDamage, true);
+      }, combo.delayMs);
+      return;
+    }
     this._charging = true;
     this._chargeStart = now;
     this._nextFireAtMs = Infinity;
@@ -106,10 +124,15 @@ export class BeamSaber extends Weapon {
     const ratio = Math.min(1, held / 2500);
     const damage = 20 + 60 * ratio;
     this._nextFireAtMs = now + (this.cfg.fireDelayMs || 0);
+    this.beginAttack(ctx);
     this._slash(ctx, damage, true);
   }
 
   altTriggerCancel(ctx) {
+    if (this._comboTimer !== null) {
+      clearTimeout(this._comboTimer);
+      this._comboTimer = null;
+    }
     if (!this._charging) return;
     this._charging = false;
     this._nextFireAtMs = 0;
@@ -118,6 +141,16 @@ export class BeamSaber extends Weapon {
       this._chargeSound.stop();
       this._chargeSound = null;
     }
+  }
+
+  reset() {
+    if (this._comboTimer !== null) clearTimeout(this._comboTimer);
+    this._comboTimer = null;
+    this._charging = false;
+    this._chargeStart = 0;
+    if (this._chargeSound && typeof this._chargeSound.stop === 'function') this._chargeSound.stop();
+    this._chargeSound = null;
+    super.reset();
   }
 }
 

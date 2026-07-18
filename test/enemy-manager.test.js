@@ -16,6 +16,7 @@ class Vector3 {
   clone() { return new Vector3(this.x, this.y, this.z); }
   add(v) { this.x += v.x; this.y += v.y; this.z += v.z; return this; }
   sub(v) { this.x -= v.x; this.y -= v.y; this.z -= v.z; return this; }
+  multiplyScalar(s) { this.x *= s; this.y *= s; this.z *= s; return this; }
   lengthSq() { return this.x * this.x + this.y * this.y + this.z * this.z; }
   length() { return Math.sqrt(this.lengthSq()); }
   normalize() { const len = this.length(); if (len) { this.x /= len; this.y /= len; this.z /= len; } return this; }
@@ -71,6 +72,30 @@ function makeScene() {
 function makeBox(min, max) {
   return { min: new Vector3(min.x, min.y, min.z), max: new Vector3(max.x, max.y, max.z) };
 }
+
+test('external mounted targets can register without losing their authored parent', () => {
+  const { manager, scene } = makeManager();
+  const authoredParent = { name: 'zeppelin_hull' };
+  const root = { userData: { type: 'boss_pod_engine' }, parent: authoredParent };
+  const instance = { root, update() {} };
+
+  manager.registerExternalEnemy(instance, { countsTowardAlive: false, preserveParent: true });
+
+  assert.equal(root.parent, authoredParent);
+  assert.equal(scene.added.includes(root), false);
+  assert.equal(manager.enemies.has(root), true);
+});
+
+test('registered boss roots resolve boss-sized bodies before regular behavior fallbacks', () => {
+  const { manager } = makeManager();
+  const root = { userData: { type: 'boss_broodmaker' }, position: new Vector3(0, 0.8, 0) };
+  manager.registerExternalEnemy({ root, update() {} }, { countsTowardAlive: false });
+
+  const profile = manager._profileForRoot(root);
+  assert.equal(profile.id, 'boss_broodmaker');
+  assert.ok(profile.collisionRadius > 2);
+  assert.deepEqual(profile.preferredRange, [15, 22]);
+});
 
 function makeManager({ objects = [], rng = sequenceRng([0.8, 0.2]), scene = makeScene() } = {}) {
   const manager = new EnemyManager(
@@ -131,6 +156,58 @@ test('refreshColliders rebuilds obstacle bounding boxes after object changes', (
   assert.equal(manager._isSpawnAreaClear(new Vector3(11, 0.8, 11), 0.1), false);
 });
 
+test('authored-only spawn selection returns null instead of falling back to arena coordinates', () => {
+  const { manager } = makeManager();
+  manager.setEncounterHooks({ authoredOnly: true, getSpawnCandidates: () => [] });
+
+  assert.equal(manager._chooseSpawnPosForType('tank'), null);
+  assert.equal(manager.spawn('tank'), null);
+});
+
+test('blocked authored enemies stay reserved in the retry queue', () => {
+  const { manager } = makeManager();
+  manager.setEncounterHooks({ authoredOnly: true, getSpawnCandidates: () => [] });
+  manager.queueAuthoredEnemies(['grunt', 'shooter'], { initial: true });
+
+  manager._updateAuthoredSpawnQueue(1);
+
+  assert.equal(manager.alive, 2);
+  assert.equal(manager._authoredSpawnQueue.length, 2);
+  assert.ok(manager._authoredSpawnCooldown > 0);
+});
+
+test('objective completion hook gates and explicitly retries wave advancement', () => {
+  const { manager } = makeManager();
+  let complete = false;
+  let started = 0;
+  manager.suspendWaves = false;
+  manager.alive = 0;
+  manager.wave = 3;
+  manager.setEncounterHooks({ canCompleteWave: () => complete });
+  manager.startWave = () => { started++; };
+
+  assert.equal(manager.tryAdvanceWave(), false);
+  complete = true;
+  assert.equal(manager.tryAdvanceWave(), true);
+  assert.equal(manager.wave, 4);
+  assert.equal(started, 1);
+});
+
+test('applyKnockback leaves explicitly immovable encounter fixtures in place', () => {
+  const { manager } = makeManager();
+  const fixture = {
+    position: new Vector3(6, 0, -4),
+    userData: { type: 'boss_node_algorithm', knockbackImmune: true }
+  };
+  let movementCalls = 0;
+  manager._moveWithCollisions = () => { movementCalls += 1; };
+
+  manager.applyKnockback(fixture, new Vector3(0.5, 0, 0));
+
+  assert.equal(movementCalls, 0);
+  assert.deepEqual(fixture.position, new Vector3(6, 0, -4));
+});
+
 test('startWave reports wave and remaining counts through hooks', () => {
   const { manager } = makeManager();
   const calls = [];
@@ -144,6 +221,110 @@ test('startWave reports wave and remaining counts through hooks', () => {
 
   assert.equal(manager.alive, 11);
   assert.deepEqual(calls, [['wave', 1, 11], ['remaining', 11]]);
+});
+
+test('Wave 72 starts the shooter-free Last Light package and reserves all 42 units', () => {
+  const { manager } = makeManager();
+  const waveCalls = [];
+  const specialCalls = [];
+  manager.wave = 72;
+  manager.onWave = (wave, count, types) => waveCalls.push({ wave, count, types });
+  manager.onSpecialWave = event => specialCalls.push(event);
+
+  manager.startWave();
+
+  const [waveCall] = waveCalls;
+  assert.equal(waveCall.wave, 72);
+  assert.equal(waveCall.count, 42);
+  assert.equal(waveCall.types.length, 42);
+  assert.equal(waveCall.types.filter(type => type === 'grunt').length, 10);
+  assert.equal(waveCall.types.filter(type => type === 'gruntling').length, 10);
+  assert.equal(waveCall.types.filter(type => type === 'rusher').length, 12);
+  assert.equal(waveCall.types.filter(type => type === 'tank').length, 3);
+  assert.equal(waveCall.types.filter(type => type === 'flyer').length, 5);
+  assert.equal(waveCall.types.filter(type => type === 'healer').length, 1);
+  assert.equal(waveCall.types.filter(type => type === 'warden').length, 1);
+  assert.equal(waveCall.types.includes('shooter'), false);
+  assert.equal(waveCall.types.includes('sniper'), false);
+  assert.equal(manager.alive, 42);
+  assert.equal(manager.specialWaveState.reserve.length, 42);
+  assert.equal(manager.specialWaveState.packages[0].threshold, 17);
+  assert.deepEqual(
+    specialCalls.map(event => [event.type, event.surge, event.totalSurges]),
+    [['start', 1, 4]]
+  );
+});
+
+test('Wave 72 warns after the clear threshold and commits its next package after the alarm', () => {
+  const { manager } = makeManager();
+  const specialCalls = [];
+  manager.wave = 72;
+  manager.spawn = () => null;
+  manager.onSpecialWave = event => specialCalls.push(event);
+  manager.startWave();
+  manager.specialWaveState.packages[0].kills = 17;
+
+  manager._aiClock = 18;
+  manager._updateSpecialWave(18);
+  assert.equal(manager.specialWaveState.packagesCommitted, 1);
+  assert.equal(manager.specialWaveState.pendingSurgeAt, 21);
+
+  manager._aiClock = 21;
+  manager._updateSpecialWave(3);
+
+  assert.equal(manager.specialWaveState.packagesCommitted, 2);
+  assert.equal(manager.specialWaveState.packages[1].size, 41);
+  assert.equal(manager.specialWaveState.packages[1].threshold, 17);
+  assert.equal(manager.specialWaveState.committedTotal, 83);
+  assert.equal(manager.alive, 83);
+  assert.deepEqual(
+    specialCalls.map(event => event.type),
+    ['start', 'surge-warning', 'surge']
+  );
+});
+
+test('Wave 72 completion advances only after all four packages and their reserve are cleared', () => {
+  const { manager } = makeManager();
+  const specialCalls = [];
+  let startWaveCalls = 0;
+  manager.wave = 72;
+  manager.onSpecialWave = event => specialCalls.push(event);
+  manager.startWave();
+  manager.specialWaveState.packagesCommitted = 4;
+  manager.specialWaveState.reserve.length = 0;
+  manager.specialWaveState.committedTotal = 165;
+  manager.alive = 1;
+  const root = {
+    userData: { type: 'grunt', hp: 0, specialWavePackageIndex: 3 },
+    position: new Vector3(4, 0.8, 6)
+  };
+  manager.enemies.add(root);
+  manager.startWave = () => { startWaveCalls += 1; };
+
+  manager.remove(root);
+
+  assert.equal(manager.alive, 0);
+  assert.equal(manager.specialWaveState, null);
+  assert.equal(manager.wave, 73);
+  assert.equal(startWaveCalls, 1);
+  assert.equal(specialCalls.at(-1).type, 'complete');
+  assert.equal(specialCalls.at(-1).committedTotal, 165);
+});
+
+test('only the final wave-counted enemy can enter last-survivor behavior', () => {
+  const { manager } = makeManager();
+  const healer = { userData: { type: 'healer' }, position: new Vector3() };
+  manager.enemies.add(healer);
+  manager.alive = 1;
+
+  assert.equal(manager.isLastWaveEnemy(healer), true);
+
+  manager.alive = 2;
+  assert.equal(manager.isLastWaveEnemy(healer), false);
+
+  manager.alive = 1;
+  manager._nonWaveEnemies.add(healer);
+  assert.equal(manager.isLastWaveEnemy(healer), false);
 });
 
 test('reset clears enemies, projectiles, heal sprites, and restarts waves when not suspended', () => {
@@ -170,4 +351,277 @@ test('reset clears enemies, projectiles, heal sprites, and restarts waves when n
   assert.equal(manager._bulletPools.shooter.mesh.count, 0);
   assert.equal(manager._healSprites.length, 0);
   assert.equal(startWaveCalls, 1);
+});
+
+test('reset accepts an explicit starting wave for debug playthroughs', () => {
+  const { manager } = makeManager();
+  let startedAt = 0;
+  manager.startWave = () => { startedAt = manager.wave; };
+
+  manager.reset({ wave: 71 });
+
+  assert.equal(manager.wave, 71);
+  assert.equal(startedAt, 71);
+});
+
+test('reset invalidates delayed enemy spawns scheduled by the previous run', () => {
+  const { manager } = makeManager();
+  const scheduled = [];
+  const originalSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = callback => {
+    scheduled.push(callback);
+    return scheduled.length;
+  };
+
+  try {
+    manager.bossManager.startBoss = () => false;
+    manager._getWaveTypes = (_wave, count) => Array.from({ length: count }, () => 'grunt');
+    let spawnCalls = 0;
+    manager.spawn = () => { spawnCalls += 1; };
+
+    manager.startWave();
+    const staleSpawn = scheduled[0];
+    manager.reset();
+    staleSpawn();
+
+    assert.equal(spawnCalls, 0, 'a delayed spawn from the old run must not enter the reset run');
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
+});
+
+test('spawnAt registers the existing enemy root without per-spawn model traversal', () => {
+  const { manager, scene } = makeManager();
+  const initialSceneNodes = scene.added.length;
+  const root = {
+    userData: { type: 'grunt', hp: 100 },
+    position: new Vector3(4, 0.8, 6),
+    traverse() { throw new Error('spawnAt must not walk the render tree'); }
+  };
+  const instance = { root };
+  manager._createInstance = () => instance;
+
+  const result = manager.spawnAt('grunt', root.position, { countsTowardAlive: false });
+
+  assert.equal(result, root);
+  assert.equal(scene.added.length, initialSceneNodes + 1);
+  assert.equal(scene.added.at(-1), root);
+  assert.equal(manager.instances.has(instance), true);
+  assert.equal(manager.enemies.has(root), true);
+  assert.equal(root.userData.readabilityMarker, undefined);
+});
+
+test('removing a non-wave enemy does not decrement alive or advance the wave', () => {
+  const { manager } = makeManager();
+  const root = {
+    userData: { type: 'grunt', hp: 100 },
+    position: new Vector3(4, 0.8, 6)
+  };
+  manager._createInstance = () => ({ root });
+  let startWaveCalls = 0;
+  manager.startWave = () => { startWaveCalls += 1; };
+
+  manager.spawnAt('grunt', root.position, { countsTowardAlive: false });
+  manager.remove(root);
+
+  assert.equal(manager.alive, 0);
+  assert.equal(manager.wave, 1);
+  assert.equal(startWaveCalls, 0);
+});
+
+test('removing a reserved wave spawn decrements alive and advances the wave', () => {
+  const { manager } = makeManager();
+  const root = {
+    userData: { type: 'grunt', hp: 100 },
+    position: new Vector3(4, 0.8, 6)
+  };
+  manager._createInstance = () => ({ root });
+  manager._chooseSpawnPos = () => root.position;
+  manager.alive = 1;
+  let startWaveCalls = 0;
+  manager.startWave = () => { startWaveCalls += 1; };
+
+  manager.spawn('grunt');
+  manager.remove(root);
+
+  assert.equal(manager.alive, 0);
+  assert.equal(manager.wave, 2);
+  assert.equal(startWaveCalls, 1);
+});
+
+test('Punchline Rush pushes and stuns each nearby non-boss enemy once', () => {
+  const { manager } = makeManager();
+  manager._aiClock = 4;
+  const near = { userData: { type: 'grunt' }, position: new Vector3(0.5, 0.8, 0) };
+  const far = { userData: { type: 'grunt' }, position: new Vector3(5, 0.8, 0) };
+  manager.enemies.add(near);
+  manager.enemies.add(far);
+  const pushes = [];
+  manager.applyKnockback = (root, vector) => pushes.push({ root, vector });
+  const hitSet = new Set();
+
+  const first = manager.applyRushImpact(new Vector3(0, 0, 0), new Vector3(0, 0, -1), { hitSet });
+  const second = manager.applyRushImpact(new Vector3(0, 0, 0), new Vector3(0, 0, -1), { hitSet });
+
+  assert.deepEqual(first, [near]);
+  assert.deepEqual(second, []);
+  assert.equal(pushes.length, 1);
+  assert.equal(near.userData.stunnedUntil, 5.5);
+  assert.equal(far.userData.stunnedUntil, undefined);
+});
+
+test('Callback shockwave pushes nearby enemies away from the player without affecting bosses', () => {
+  const { manager } = makeManager();
+  const near = { userData: { type: 'grunt' }, position: new Vector3(2, 0.8, 0) };
+  const far = { userData: { type: 'grunt' }, position: new Vector3(8, 0.8, 0) };
+  const boss = { userData: { type: 'boss' }, position: new Vector3(1, 0.8, 0) };
+  manager.enemies.add(near);
+  manager.enemies.add(far);
+  manager.enemies.add(boss);
+  manager.bossManager.active = true;
+  manager.bossManager.boss = { root: boss };
+  const pushes = [];
+  manager.applyKnockback = (root, vector) => pushes.push({ root, vector });
+
+  const affected = manager.applyRadialKnockback(new Vector3(0, 0, 0), { radius: 3.5, pushDistance: 1.4 });
+
+  assert.deepEqual(affected, [near]);
+  assert.equal(pushes.length, 1);
+  assert.equal(pushes[0].root, near);
+  assert.ok(Math.abs(pushes[0].vector.length() - 1.4) < 1e-9);
+  assert.ok(pushes[0].vector.x > 0);
+});
+
+test('stunned enemies skip AI updates until their stun expires', () => {
+  const { manager } = makeManager();
+  manager.bossManager.update = () => {};
+  manager._updateBulletPools = () => {};
+  const root = { userData: { stunnedUntil: 1.5 }, position: new Vector3(1, 0.8, 1) };
+  let updates = 0;
+  manager.instances.add({ root, update() { updates += 1; } });
+
+  manager.tickAI({ position: new Vector3(0, 1.7, 0) }, 0.1, () => {});
+  assert.equal(updates, 0);
+  root.userData.stunnedUntil = 0;
+  manager.tickAI({ position: new Vector3(0, 1.7, 0) }, 0.1, () => {});
+  assert.equal(updates, 1);
+});
+
+test('the active boss is updated only by BossManager, not the generic instance loop', () => {
+  const { manager } = makeManager();
+  manager._updateBulletPools = () => {};
+  const root = { userData: { type: 'boss_test' }, position: new Vector3(8, 0.8, 8) };
+  let updates = 0;
+  const boss = { root, update() { updates += 1; } };
+  manager.instances.add(boss);
+  manager.enemies.add(root);
+  manager.bossManager.active = true;
+  manager.bossManager.boss = boss;
+  manager.bossManager.update = (_dt, ctx) => boss.update(_dt, ctx);
+
+  manager.tickAI({ position: new Vector3(0, 1.7, 0) }, 0.1, () => {});
+
+  assert.equal(updates, 1);
+});
+
+test('retrofit ornaments are discovered incrementally and hidden only at distance', () => {
+  const { manager } = makeManager();
+  manager.bossManager.update = () => {};
+  manager._updateBulletPools = () => {};
+  const detail = { userData: { performanceDetail: true }, visible: true };
+  const root = {
+    userData: {},
+    position: new Vector3(20, 0.8, 0),
+    traverse(callback) { callback(this); callback(detail); }
+  };
+  const instance = { root, update() {} };
+  manager.enemies.add(root);
+  manager.instances.add(instance);
+  manager._detailScanQueue.push(root);
+
+  for (let i = 0; i < 6; i++) manager.tickAI({ position: new Vector3(0, 1.7, 0) }, 0.1, () => {});
+  assert.equal(detail.visible, false);
+
+  root.position.x = 10;
+  for (let i = 0; i < 6; i++) manager.tickAI({ position: new Vector3(0, 1.7, 0) }, 0.1, () => {});
+  assert.equal(detail.visible, true);
+});
+
+
+test('shared swept bodies steer ground enemies around allies while separated air spans pass', () => {
+  const { manager } = makeManager();
+  const mover = { position: new Vector3(0, 0.8, 0), userData: { type: 'grunt', behaviorId: 'grunt' } };
+  const blocker = { position: new Vector3(0, 0.8, 2), userData: { type: 'grunt', behaviorId: 'grunt' } };
+  manager.enemies.add(mover);
+  manager.enemies.add(blocker);
+  manager._ctx = { player: { position: new Vector3(100, 1.7, 100) } };
+
+  const result = manager._moveWithCollisions(mover, new Vector3(0, 0, 4));
+
+  assert.equal(result.blockedBy, null);
+  assert.equal(result.slidAround, 'ally');
+  assert.equal(result.blockerRoot, blocker);
+  assert.ok(result.appliedDistance < result.requestedDistance);
+  assert.ok(Math.hypot(mover.position.x - blocker.position.x, mover.position.z - blocker.position.z) >= 1.14);
+
+  const flyer = { position: new Vector3(0, 8, 0), userData: { type: 'flyer', behaviorId: 'flyer' } };
+  manager.enemies.add(flyer);
+  manager.spatialIndex.clear();
+  const airResult = manager._moveWithCollisions(flyer, new Vector3(0, 0, 4));
+  assert.notEqual(airResult.blockedBy, 'ally');
+});
+
+test('air attack reservations cap concurrent dives per formation owner', () => {
+  const { manager } = makeManager();
+  const owner = { position: new Vector3(0, 10, 0), userData: { behaviorId: 'warden' } };
+  const first = { position: new Vector3(0, 5, 0), userData: { behaviorId: 'flyer' } };
+  const second = { position: new Vector3(2, 5, 0), userData: { behaviorId: 'flyer' } };
+  const third = { position: new Vector3(-2, 5, 0), userData: { behaviorId: 'flyer' } };
+  manager.enemies.add(first);
+  manager.enemies.add(second);
+  manager.enemies.add(third);
+
+  assert.equal(manager._reserveAirAttack(first, owner, { maxConcurrent: 2 }), true);
+  assert.equal(manager._reserveAirAttack(second, owner, { maxConcurrent: 2 }), true);
+  assert.equal(manager._reserveAirAttack(third, owner, { maxConcurrent: 2 }), false);
+  manager._releaseAirAttack(first);
+  assert.equal(manager._reserveAirAttack(third, owner, { maxConcurrent: 2 }), true);
+});
+
+test('overlapping air bodies receive opposite separation and may move outward', () => {
+  const { manager } = makeManager();
+  const first = { position: new Vector3(0, 5, 0), userData: { type: 'flyer', behaviorId: 'flyer' } };
+  const second = { position: new Vector3(0, 5, 0), userData: { type: 'flyer', behaviorId: 'flyer' } };
+  manager.enemies.add(first);
+  manager.enemies.add(second);
+  manager._ctx = { player: { position: new Vector3(100, 1.7, 100) } };
+  manager._rebuildSpatialIndex();
+
+  const firstSeparation = manager.separation(first.position, 1.8, first);
+  const secondSeparation = manager.separation(second.position, 1.8, second);
+  assert.ok(firstSeparation.lengthSq() > 0);
+  assert.ok(secondSeparation.lengthSq() > 0);
+  assert.ok(firstSeparation.dot(secondSeparation) < 0);
+
+  const result = manager._moveWithCollisions(first, firstSeparation.normalize().multiplyScalar(0.2));
+  assert.notEqual(result.blockedBy, 'ally');
+  assert.ok(Math.hypot(first.position.x, first.position.z) > 0);
+});
+
+test('tactical segment queries identify an allied body before the player', () => {
+  const { manager } = makeManager();
+  const shooter = { position: new Vector3(0, 0.8, 0), userData: { type: 'shooter', behaviorId: 'shooter' } };
+  const blocker = { position: new Vector3(0, 0.8, 4), userData: { type: 'tank', behaviorId: 'tank' } };
+  manager.enemies.add(shooter);
+  manager.enemies.add(blocker);
+  manager._rebuildSpatialIndex();
+
+  const hit = manager._firstAllyOnSegment(
+    new Vector3(0, 1.2, 0),
+    new Vector3(0, 1.2, 10),
+    shooter,
+    0.04
+  );
+
+  assert.equal(hit.entry.root, blocker);
 });

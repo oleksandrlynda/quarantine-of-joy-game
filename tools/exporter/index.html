@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Quarantine of Joy — Asset Exporter</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "../../node_modules/three/build/three.module.js",
+        "three/addons/": "../../node_modules/three/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-mark">Q</div>
+    <div class="brand-copy">
+      <strong>Asset Exporter</strong>
+      <span>Quarantine of Joy · procedural GLB pipeline</span>
+    </div>
+    <div class="topbar-actions">
+      <button class="button button-secondary" id="validateAll" type="button">Validate all</button>
+      <button class="button button-primary" id="exportAll" type="button">Export all to folder</button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <aside class="catalog panel">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">Asset registry</p>
+          <h1>Build targets</h1>
+        </div>
+        <span class="count" id="assetCount">0</span>
+      </div>
+
+      <div class="filters">
+        <label class="search-field">
+          <span class="sr-only">Search assets</span>
+          <input id="search" type="search" placeholder="Search ID, label, or factory">
+        </label>
+        <label>
+          <span class="sr-only">Filter category</span>
+          <select id="category">
+            <option value="all">All categories</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="asset-list" id="assetList" role="listbox" aria-label="Exportable assets"></div>
+    </aside>
+
+    <section class="preview panel">
+      <div class="preview-bar">
+        <div>
+          <p class="eyebrow" id="selectedCategory">Asset preview</p>
+          <h2 id="selectedLabel">Select an asset</h2>
+        </div>
+        <button class="button button-primary" id="exportSelected" type="button" disabled>Export selected GLB</button>
+      </div>
+      <div class="viewport" id="viewport">
+        <div class="viewport-badge"><span></span>Live factory output</div>
+        <canvas id="previewCanvas"></canvas>
+        <p class="viewport-help">Drag to orbit · wheel to zoom · right-drag to pan</p>
+      </div>
+    </section>
+
+    <aside class="inspector panel">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">Build inspection</p>
+          <h2>Asset report</h2>
+        </div>
+        <span class="status status-idle" id="validationStatus">Not checked</span>
+      </div>
+
+      <div class="option-group">
+        <label class="toggle-row">
+          <span><strong>Ground at Y = 0</strong><small>Move the lowest bound to the asset origin.</small></span>
+          <input id="ground" type="checkbox" checked>
+        </label>
+        <label class="toggle-row">
+          <span><strong>Center X/Z pivot</strong><small>Place the horizontal bounds around the origin.</small></span>
+          <input id="centerXZ" type="checkbox" checked>
+        </label>
+      </div>
+
+      <dl class="metrics">
+        <div><dt>Meshes</dt><dd id="metricMeshes">—</dd></div>
+        <div><dt>Triangles</dt><dd id="metricTriangles">—</dd></div>
+        <div><dt>Materials</dt><dd id="metricMaterials">—</dd></div>
+        <div><dt>Nodes</dt><dd id="metricNodes">—</dd></div>
+      </dl>
+
+      <div class="bounds-card">
+        <p class="eyebrow">Normalized bounds</p>
+        <div id="bounds">No asset selected.</div>
+      </div>
+
+      <div class="messages" id="messages">
+        <p>Select an asset to inspect its export geometry.</p>
+      </div>
+
+      <div class="log-card">
+        <div class="log-heading">
+          <p class="eyebrow">Session log</p>
+          <button id="clearLog" type="button">Clear</button>
+        </div>
+        <pre id="log" aria-live="polite">Exporter ready.</pre>
+      </div>
+    </aside>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

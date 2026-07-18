@@ -9,19 +9,42 @@ import { logError } from '../util/log.js';
 // - Trickle respawn (>=0.28s) from belly bays; respects arena clamp
 // - Cleans up remaining minions on death
 
-import { createSwarmWarden } from '../assets/swarm_warden.js';
+import { createEnhancedSwarmWarden } from '../assets/enemy-retrofits.js';
+import { cloneNodeMaterial, instantiateSharedTemplate } from './render-template.js';
+
+const _wardenTemplates = new WeakMap();
 
 export class SwarmWarden {
-  constructor({ THREE, mats, cfg, spawnPos, enemyManager }) {
+  constructor({ THREE, mats, cfg, spawnPos, enemyManager, arenaRadius, rng = Math.random }) {
     this.THREE = THREE;
     this.mats = mats;
     this.enemyManager = enemyManager;
+    this.rng = rng;
 
     // Visual/asset
-    const built = createSwarmWarden({ THREE, mats, scale: cfg?.scale || 1.0 });
+    const scale = cfg?.scale || 1.0;
+    let templatesForThree = _wardenTemplates.get(THREE);
+    if (!templatesForThree) {
+      templatesForThree = new Map();
+      _wardenTemplates.set(THREE, templatesForThree);
+    }
+    const built = instantiateSharedTemplate(
+      templatesForThree,
+      scale,
+      () => createEnhancedSwarmWarden({ THREE, mats, scale })
+    );
     this.root = built.root;
     this.refs = built.refs || {};
     const head = built.head;
+
+    // These materials are animated per Warden; geometry and all static materials
+    // remain shared with the cached template.
+    cloneNodeMaterial(head);
+    cloneNodeMaterial(this.refs.core);
+    cloneNodeMaterial(this.refs.recallEmitter?.children?.[0]);
+    for (const thruster of (this.refs.thrusters || [])) {
+      cloneNodeMaterial(thruster.children?.[1]);
+    }
 
     this.root.position.copy(spawnPos);
     const hp = (cfg && typeof cfg.hp === 'number') ? cfg.hp : 420;
@@ -29,23 +52,26 @@ export class SwarmWarden {
 
     // Motion (hover + strafe orbit)
     this.speed = 1.9;
-    this.cruiseAltitude = 25.5 + Math.random() * 1.2; // higher than flyers
+    this.cruiseAltitude = 25.5 + this.rng() * 1.2; // higher than flyers
     this._t = 0;
     this._yaw = 0; this._pitch = 0; this._roll = 0; this._desiredRoll = 0;
     // Start near cruising height immediately so it doesn't skim the ground on spawn
     this.root.position.y = this.cruiseAltitude - 0.3;
     this._lastPos = this.root.position.clone();
-    this._arenaClamp = 39;
+    this._lastMoveDistance = 0;
+    this._arenaClamp = Number.isFinite(arenaRadius) ? Math.max(8, arenaRadius - 1) : 39;
+    this._outerAnchor = null;
+    this._anchorGrace = 0;
 
     // Wing anim state
-    this._wingPhase = Math.random() * Math.PI * 2;
+    this._wingPhase = this.rng() * Math.PI * 2;
     this._wingSpeed = 5.2;   // flaps/sec (carrier: slower than gnats)
     this._wingAmp   = 0.26;  // radians
 
     // Swarm management
     this.desiredMin = cfg?.swarmMin ?? 10;
     this.desiredMax = cfg?.swarmMax ?? 15;
-    this.targetCount = Math.floor(this.desiredMin + Math.random() * (this.desiredMax - this.desiredMin + 1));
+    this.targetCount = Math.floor(this.desiredMin + this.rng() * (this.desiredMax - this.desiredMin + 1));
     this.safeRadius = 2.25;                 // no spawns inside this radius around player
     this.trickleBase = 0.28;                // min interval between spawns
     this._regenCd = 0;                      // time until next trickle spawn
@@ -95,7 +121,7 @@ export class SwarmWarden {
   }
 
   // ----------------------------------------------------------------------------
-  // Movement: gentle orbit + altitude hold
+  // Movement: persistent navigable anchor on the arena's outer ring.
   // ----------------------------------------------------------------------------
   _updateMovement(dt, ctx) {
     const e = this.root;
@@ -105,28 +131,34 @@ export class SwarmWarden {
     const targetAlt = this.cruiseAltitude + Math.sin(this._t * 1.6) * 0.15;
     e.position.y += (targetAlt - e.position.y) * Math.min(1, dt * 4.5);
 
-    // orbit/strafe
-    const toP = player.clone().sub(e.position);
-    const dist = toP.length();
-    toP.y = 0; if (toP.lengthSq() > 0) toP.normalize();
-
-    const desired = new this.THREE.Vector3();
-    if (dist > 11) desired.add(toP);
-    else {
-      // orbit clockwise/counter; bias randomly every few seconds
-      const side = new this.THREE.Vector3(-toP.z, 0, toP.x);
-      const swirl = Math.sin(this._t * 0.3) > 0 ? 1 : -1;
-      desired.add(side.multiplyScalar(0.8 * swirl));
+    const playerDistance = Math.hypot(player.x - e.position.x, player.z - e.position.z);
+    this._anchorGrace += dt;
+    const anchorCompromised = this._outerAnchor
+      && Math.hypot(player.x - this._outerAnchor.x, player.z - this._outerAnchor.z) < 20;
+    if (!this._outerAnchor || (this._anchorGrace > 1.5 && (playerDistance < 18 || anchorCompromised))) {
+      this._outerAnchor = this._chooseOuterAnchor(player, ctx);
+      this._anchorGrace = 0;
+      ctx.emitAIEvent?.(e, 'warden_anchor_selected', { anchor: this._outerAnchor?.clone?.() || this._outerAnchor });
     }
 
-    // avoid arena walls a bit, but do NOT use ground collision (flyer stays at altitude)
-    if (desired.lengthSq() > 0) {
+    const desired = this._outerAnchor
+      ? this._outerAnchor.clone().sub(e.position).setY(0)
+      : new this.THREE.Vector3(e.position.x - player.x, 0, e.position.z - player.z);
+    const retreating = playerDistance < 18;
+    if (retreating) {
+      const away = new this.THREE.Vector3(e.position.x - player.x, 0, e.position.z - player.z);
+      if (away.lengthSq() > 0) desired.add(away.normalize().multiplyScalar(1.8));
+    }
+    if (desired.lengthSq() > 0.01) {
       desired.normalize();
-      const steer = (typeof ctx.avoidObstacles === 'function') ? ctx.avoidObstacles(e.position, desired, 1.8) : desired;
-      const step = steer.clone().multiplyScalar(this.speed * dt);
-      e.position.x += step.x;
-      e.position.z += step.z;
+      const step = desired.multiplyScalar(this.speed * (retreating ? 1.35 : 1) * dt);
+      const move = ctx.moveWithCollisions?.(e, step);
+      if (move?.blockedBy) ctx.emitAIEvent?.(e, 'warden_route_blocked', move);
     }
+    ctx.setAIState?.(e, retreating ? 'outer_ring_retreat' : 'outer_ring_anchor', {
+      playerDistance,
+      selectedAnchor: this._outerAnchor
+    });
 
     // clamp inside
     e.position.x = Math.max(-this._arenaClamp, Math.min(this._arenaClamp, e.position.x));
@@ -147,14 +179,43 @@ export class SwarmWarden {
     this._desiredRoll = Math.max(-0.4, Math.min(0.4, moved.x * 1.1));
     this._roll += (this._desiredRoll - this._roll) * Math.min(1, dt * 5);
     e.rotation.set(this._pitch, this._yaw, this._roll);
+    this._lastMoveDistance = moved.length();
     this._lastPos.copy(e.position);
 
     // wings: flap + bank with horizontal movement
     this._updateWings(dt, moved);
   }
 
+  _chooseOuterAnchor(player, ctx) {
+    const radius = Math.max(5, this._arenaClamp - 2);
+    let best = null;
+    let bestScore = -Infinity;
+    for (let i = 0; i < 16; i++) {
+      const angle = (i / 16) * Math.PI * 2;
+      const candidate = new this.THREE.Vector3(
+        Math.cos(angle) * radius,
+        this.cruiseAltitude,
+        Math.sin(angle) * radius
+      );
+      if (ctx.positionClear && !ctx.positionClear(this.root, candidate)) continue;
+      const playerDistance = Math.hypot(candidate.x - player.x, candidate.z - player.z);
+      const travelDistance = Math.hypot(candidate.x - this.root.position.x, candidate.z - this.root.position.z);
+      const score = playerDistance - travelDistance * 0.12;
+      if (score > bestScore) {
+        bestScore = score;
+        best = candidate;
+      }
+    }
+    if (best) return best;
+    const away = new this.THREE.Vector3(this.root.position.x - player.x, 0, this.root.position.z - player.z);
+    if (away.lengthSq() < 0.001) away.set(1, 0, 0);
+    away.normalize().multiplyScalar(radius);
+    away.y = this.cruiseAltitude;
+    return away;
+  }
+
   _updateThrusters(dt) {
-    const speedNow = this.root.position.clone().sub(this._lastPos).length() / Math.max(0.0001, dt);
+    const speedNow = this._lastMoveDistance / Math.max(0.0001, dt);
     const pulse = Math.max(0.25, Math.min(1.0, speedNow * 0.08));
     for (const t of (this.refs.thrusters || [])) {
       const glow = t.children?.[1]?.material;
@@ -242,27 +303,32 @@ export class SwarmWarden {
           try {
             // visuals + hp
             root.userData.type = 'flyer_swarm';
-            root.userData.hp = Math.max(10, Math.floor(12 + Math.random() * 8));
+            root.userData.hp = Math.max(10, Math.floor(12 + this.rng() * 8));
+            root.userData.maxHp = root.userData.hp;
             root.scale.setScalar(this._flyScale);
             // behavior
             if (inst) {
               inst.speed *= 1.05;
               inst.diveSpeed *= 1.02;
               // make sure minions cruise well under the carrier
-              const desiredMinionAlt = (inst.cruiseAltitude || 3.2);
-              inst.cruiseAltitude = Math.min(desiredMinionAlt, this.cruiseAltitude - 5.0);
-              inst.separationRadius = 0.75;
+              const anchor = this._assignAnchor(root);
+              const anchorIndex = Math.max(0, (this.refs.swarmAnchors || []).indexOf(anchor));
+              inst.cruiseAltitude = 4.2 + (anchorIndex % 3) * 1.05;
+              inst.separationRadius = 2.2;
               inst.cooldownBase = Math.max(0.95, (inst.cooldownBase||1.2) * 0.9);
+              inst.cooldown = 0.35 + this._children.size * 0.18;
               // slight damage nerf (more swarm, less spike)
               inst.impactDamageMin = 7;
               inst.impactDamageMax = 11;
               // store anchor for potential future steering integrations
-              inst._homeAnchor = this._assignAnchor(root);
+              inst._homeAnchor = anchor;
+              inst._formationOwnerRoot = this.root;
             }
           } catch (e) { logError(e); }
           this._children.add(root);
           this._regenQueue = Math.max(0, this._regenQueue - 1);
-          this._regenCd = this.trickleBase + Math.random() * 0.18;
+          this._regenCd = this.trickleBase + this.rng() * 0.18;
+          ctx.emitAIEvent?.(this.root, 'warden_child_spawned', { childRoot: root, childCount: this._children.size });
         } else {
           // couldn't spawn now (e.g., cap reached externally) — retry soon
           this._regenCd = 0.25;
@@ -273,22 +339,15 @@ export class SwarmWarden {
       }
     }
 
-    // optionally nudge alive minions toward their anchors if they wander too far (gentle tug)
-    // (safe: just telegraph intent via a weak force; FlyerEnemy handles its own autonomy)
+    // Publish desired formation anchors. Flyer movement consumes these through the
+    // normal collision solver; the Warden never edits a child's position directly.
     for (const r of this._children) {
       const inst = this.enemyManager.instanceByRoot?.get(r);
       const anchor = inst?._homeAnchor || this._anchorByChild.get(r);
       if (anchor) {
         const a = anchor.getWorldPosition(new this.THREE.Vector3());
-        const p = r.position;
-        const dx = a.x - p.x, dz = a.z - p.z;
-        const d2 = dx*dx + dz*dz;
-        if (d2 > 9) {
-          const d = Math.sqrt(d2);
-          const n = new this.THREE.Vector3(dx/d, 0, dz/d);
-          // tiny positional tug so they tend to ring the carrier during downtime
-          r.position.add(n.multiplyScalar(0.6 * dt));
-        }
+        inst._formationTarget = a;
+        inst._formationOwnerRoot = this.root;
       }
     }
   }
@@ -296,15 +355,24 @@ export class SwarmWarden {
   _tryRecallPulse() {
     if (this._recallCd > 0) return;
     this._recallTime = this._recallDur;
-    this._recallCd = 2.0 + Math.random() * 1.0;
+    this._recallCd = 2.0 + this.rng() * 1.0;
   }
 
   _assignAnchor(childRoot) {
     const anchors = this.refs.swarmAnchors || [];
     if (!anchors.length) return null;
-    // choose the least-used anchor by simple round-robin
-    const idx = (this._children.size + Math.floor(Math.random()*3)) % anchors.length;
-    const a = anchors[idx];
+    // Fill the least-used socket first. Random-offset round robin could assign
+    // several children to one socket and permanently interlock the pair.
+    const occupancy = new Map(anchors.map(anchor => [anchor, 0]));
+    for (const assigned of this._anchorByChild.values()) {
+      if (occupancy.has(assigned)) occupancy.set(assigned, occupancy.get(assigned) + 1);
+    }
+    const start = Math.floor(this.rng() * anchors.length);
+    let a = anchors[start];
+    for (let offset = 1; offset < anchors.length; offset++) {
+      const candidate = anchors[(start + offset) % anchors.length];
+      if (occupancy.get(candidate) < occupancy.get(a)) a = candidate;
+    }
     this._anchorByChild.set(childRoot, a);
     return a;
   }
@@ -344,8 +412,8 @@ export class SwarmWarden {
     }
 
     // fallback: ring around the carrier away from player
-    const a = Math.random() * Math.PI * 2;
-    const r = 1.6 + Math.random() * 0.6;
+    const a = this.rng() * Math.PI * 2;
+    const r = 1.6 + this.rng() * 0.6;
     const center = this.root.position;
     const p = new this.THREE.Vector3(center.x + Math.cos(a) * r, Math.max(1.2, center.y - 0.2), center.z + Math.sin(a) * r);
     const player = ctx.player.position;

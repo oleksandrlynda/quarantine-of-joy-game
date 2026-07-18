@@ -1,31 +1,53 @@
-import { createShooterBot } from '../assets/shooter_bot.js';
+import { createEnhancedShooterBot } from '../assets/enemy-retrofits.js';
 import { logError } from '../util/log.js';
+import {
+  cloneNodeMaterial,
+  getCachedRenderResource,
+  instantiateSharedTemplate
+} from './render-template.js';
+
+const _shooterTemplates = new WeakMap();
+const _shooterProjectileGeometries = new WeakMap();
+
+export function isShooterMobileCover(root) {
+  const behaviorId = root?.userData?.behaviorId || root?.userData?.type;
+  return behaviorId === 'grunt' || behaviorId === 'tank';
+}
+
 export class ShooterEnemy {
-  constructor({ THREE, mats, cfg, spawnPos }) {
+  constructor({ THREE, mats, cfg, spawnPos, rng = Math.random }) {
     this.THREE = THREE;
     this.cfg = cfg;
+    this.rng = rng;
   
     // Use ShooterBot asset with right-hand gun; shots originate from muzzle, not head
-    const built = createShooterBot({ THREE, mats, scale: 0.62 });
+    const built = instantiateSharedTemplate(
+      _shooterTemplates,
+      THREE,
+      () => createEnhancedShooterBot({ THREE, mats, scale: 0.62 })
+    );
     const body = built.root; const head = built.head; this._refs = built.refs || {};
     body.position.copy(spawnPos);
     // Ensure head has a unique material so emissive glow doesn't affect other shooters
-    try { if (head && head.material) head.material = head.material.clone(); } catch (e) { logError(e); }
+    try {
+      cloneNodeMaterial(head);
+      cloneNodeMaterial(this._refs.muzzle);
+    } catch (e) { logError(e); }
   
     body.userData = { type: cfg.type, head, hp: cfg.hp };
     this.root = body;
-    this.speed = cfg.speedMin + Math.random() * (cfg.speedMax - cfg.speedMin);
-    this.preferredRange = { min: 5, max: 50 };
-    this.engageRange = { min: 48, max: 90 };
+    this.speed = cfg.speedMin + this.rng() * (cfg.speedMax - cfg.speedMin);
+    this.preferredRange = { min: 12, max: 18 };
+    this.engageRange = { min: 8, max: 36 };
   
     // Firing cadence and telegraph
     this.cooldown = 0;                               // general cooldown timer
-    this.baseCadence = 0.6 + Math.random() * 0.4;   // intra-burst spacing
-    this.interBurstBase = 1.6 + Math.random() * 0.6; // long delay between bursts
+    this.baseCadence = 0.6 + this.rng() * 0.4;   // intra-burst spacing
+    this.interBurstBase = 1.6 + this.rng() * 0.6; // long delay between bursts
     this.inBurst = false;                            // currently executing a burst sequence
     this.windupTime = 0;                             // time spent charging current shot (telegraph before burst)
-    this.windupRequired = 0.5 + Math.random() * 0.2; // 0.5–0.7s telegraph
-    this.strafeDir = Math.random() < 0.5 ? 1 : -1;
+    this.windupRequired = 0.5 + this.rng() * 0.2; // 0.5–0.7s telegraph
+    this.strafeDir = this.rng() < 0.5 ? 1 : -1;
     this.switchCooldown = 0;                         // control strafe dir switching
   
     this.projectiles = [];
@@ -34,12 +56,28 @@ export class ShooterEnemy {
   
     // Peek/relocate behavior state
     this.shotsThisBurst = 0;
-    this.maxBurst = 3 + ((Math.random() * 2) | 0);   // 3–4 shots per burst
+    this.maxBurst = 3 + ((this.rng() * 2) | 0);   // 3–4 shots per burst
     this.relocating = false;
     this.relocateTarget = null;
     this.relocateTimer = 0;
-    this.relocateTimeout = 2.2 + Math.random() * 0.8; // seconds to give up and resume
-    this.relocateDistance = 8 + Math.random() * 4;     // 8–12 units lateral move
+    this.relocateTimeout = 2.2 + this.rng() * 0.8; // seconds to give up and resume
+    this.relocateDistance = 8 + this.rng() * 4;     // 8–12 units lateral move
+    this._peekCommitTimer = 0;
+    this._peekCommitDir = new this.THREE.Vector3();
+    this._worldPeekActive = false;
+    this._worldPeekHoldTimer = 0;
+    this._hadStableWorldLOS = false;
+    this._rangeMovementMode = 'hold';
+    this._routeAnchor = null;
+    this._routeAnchorSubject = null;
+    this._routeAnchorRefresh = 0;
+    this._allyBlockedTimer = 0;
+    this.selectedCoverRoot = null;
+    this._coverRefreshTimer = 0;
+    this._coverPeekSign = this.strafeDir;
+    this._coverMode = 'none';
+    this._prevPlayerPos = null;
+    this._playerVelocity = new this.THREE.Vector3();
   
     // On-hit micro-juke
     this._hitJukeTime = 0;
@@ -91,20 +129,58 @@ export class ShooterEnemy {
   
     const e = this.root;
     const playerPos = ctx.player.position.clone();
-    const toPlayer = playerPos.clone().sub(e.position);
+    const muzzle = this._muzzleWorld();
+    const sense = ctx.sensePlayer?.(e, dt, muzzle) || {
+      rawWorldLOS: this._hasLineOfSight(e, playerPos, ctx.objects),
+      stableWorldLOS: this._hasLineOfSight(e, playerPos, ctx.objects),
+      locomotionClear: true,
+      tacticalFireClear: true,
+      pursuitTarget: playerPos.clone()
+    };
+    const behaviorTarget = sense.stableWorldLOS ? playerPos : sense.pursuitTarget;
+    if (!behaviorTarget) {
+      this._releaseAllyCover(ctx, 'no_known_target');
+      this.inBurst = false;
+      this.windupTime = 0;
+      this._setHeadGlow(false);
+      this._updateAimLine(null, ctx.scene);
+      ctx.setAIState?.(e, sense.searchActive ? 'searching' : 'idle_unaware');
+      return;
+    }
+    const toPlayer = behaviorTarget.clone().sub(e.position);
     const dist = toPlayer.length();
-    const hasLOS = this._hasLineOfSight(e, playerPos, ctx.objects);
+    const hasLOS = sense.stableWorldLOS;
+    const tacticalFireClear = sense.tacticalFireClear;
+    this._worldPeekHoldTimer = Math.max(0, this._worldPeekHoldTimer - dt);
+    this._routeAnchorRefresh = Math.max(0, this._routeAnchorRefresh - dt);
+    if (hasLOS && !this._hadStableWorldLOS && this._worldPeekActive) {
+      // Once a wall-edge peek succeeds, hold that firing anchor long enough to
+      // finish the telegraph instead of immediately strafing back behind cover.
+      this._worldPeekHoldTimer = Math.max(this._worldPeekHoldTimer, 1.25);
+    }
+    if (!hasLOS) this._worldPeekActive = true;
+    this._hadStableWorldLOS = hasLOS;
+    const rangeMovementMode = this._updateRangeMovementMode(dist);
     const playerSpeed = (ctx.blackboard && (ctx.blackboard.playerSpeed || 0)) || 0;
     const playerStationary = playerSpeed < 0.8;
+    if (sense.stableWorldLOS && this._prevPlayerPos) {
+      const measured = playerPos.clone().sub(this._prevPlayerPos).multiplyScalar(1 / Math.max(0.001, dt));
+      this._playerVelocity.lerp(measured, Math.min(1, 0.35 + dt));
+      this._playerVelocity.y = 0;
+    }
+    if (sense.stableWorldLOS) this._prevPlayerPos = playerPos.clone();
+    this._allyBlockedTimer = tacticalFireClear ? 0 : this._allyBlockedTimer + dt;
+    this._peekCommitTimer = Math.max(0, this._peekCommitTimer - dt);
   
     // --- NEW: trigger evasive kite if player is too close or rushing in ---
     if (this.evasiveCooldown > 0) this.evasiveCooldown = Math.max(0, this.evasiveCooldown - dt);
     if (this.evasiveTimer > 0) this.evasiveTimer = Math.max(0, this.evasiveTimer - dt);
     const tooClose = dist < this.kiteRange.min;
     const rushing = playerSpeed > 4.0 && dist < this.kiteRange.max && hasLOS;
+    const coverPlan = this._updateAllyCover(dt, playerPos, ctx, hasLOS && !tooClose && !rushing);
     if ((tooClose || rushing) && this.evasiveTimer <= 0 && this.evasiveCooldown <= 0) {
-      this.evasiveTimer = 0.7 + Math.random() * 0.4;     // 0.7–1.1s dash
-      this.evasiveCooldown = 1.2 + Math.random() * 0.6;  // cool down before next dash
+      this.evasiveTimer = 0.7 + this.rng() * 0.4;     // 0.7–1.1s dash
+      this.evasiveCooldown = 1.2 + this.rng() * 0.6;  // cool down before next dash
       // break telegraph/burst immediately
       this.inBurst = false;
       this.windupTime = 0;
@@ -116,6 +192,8 @@ export class ShooterEnemy {
   
     // 2) Movement: maintain standoff, peek when LOS blocked, relocate after bursts
     const desired = new THREE.Vector3();
+    let allyCoverState = null;
+    let movementState = null;
   
     // NEW: evasive overrides with backpedal + serpentine sidestep
     if (this.evasiveTimer > 0) {
@@ -125,11 +203,24 @@ export class ShooterEnemy {
         const side = new THREE.Vector3(-away.z, 0, away.x).multiplyScalar(this.strafeDir);
         desired.add(away.multiplyScalar(1.8)).add(side.multiplyScalar(0.9));
       }
+    } else if (coverPlan) {
+      // Cooldown is spent tucked directly behind the frontline ally. When the
+      // burst is ready, use a prevalidated lateral anchor to expose the muzzle
+      // without asking the projectile system to ignore the cover unit.
+      const peeking = this.inBurst || this.windupTime > 0 || this.cooldown <= 0;
+      const anchor = peeking ? coverPlan.peekAnchor : coverPlan.hideAnchor;
+      const toAnchor = anchor.clone().sub(e.position).setY(0);
+      const anchorDistance = toAnchor.length();
+      if (anchorDistance > 0.5) desired.add(toAnchor.multiplyScalar(1 / anchorDistance));
+      allyCoverState = peeking
+        ? 'peeking_from_ally_cover'
+        : (anchorDistance > 0.65 ? 'moving_to_ally_cover' : 'holding_ally_cover');
+      this._setAllyCoverMode(peeking ? 'peek' : 'hide', ctx);
     } else if (this.relocating) {
       // Relocation overrides normal behavior
       this.relocateTimer += dt;
       if (!this.relocateTarget) {
-        this._beginRelocation(playerPos, toPlayer);
+        this._beginRelocation(behaviorTarget, toPlayer);
       }
       if (this.relocateTarget) {
         const toAnchor = this.relocateTarget.clone().sub(e.position); toAnchor.y = 0;
@@ -138,12 +229,33 @@ export class ShooterEnemy {
         if (d < 0.75 || this.relocateTimer >= this.relocateTimeout) {
           this.relocating = false; this.relocateTarget = null; this.relocateTimer = 0;
           // small cooldown before next windup so it doesn't insta-fire on arrival
-          this.cooldown = Math.max(this.cooldown, 0.4 + Math.random() * 0.3);
+          this.cooldown = Math.max(this.cooldown, 0.4 + this.rng() * 0.3);
         }
+      }
+    } else if (hasLOS && !tacticalFireClear) {
+      // An ally is temporary cover. Commit to one lateral side long enough to
+      // clear the body instead of oscillating at the edge of the lane.
+      if (this._peekCommitTimer <= 0 || this._peekCommitDir.lengthSq() === 0) {
+        const forward = toPlayer.clone().setY(0).normalize();
+        this._peekCommitDir.set(-forward.z, 0, forward.x).multiplyScalar(this.strafeDir);
+        this._peekCommitTimer = 0.9;
+      }
+      desired.add(this._peekCommitDir);
+      if (this._allyBlockedTimer >= 0.2) {
+        this.inBurst = false;
+        this.windupTime = 0;
+        movementState = 'repositioning_for_clear_shot';
       }
     } else if (!hasLOS && dist <= this.engageRange.max) {
       // Try to find a peek direction that reveals LOS around nearby cover
-      const peekDir = this._computePeekDesiredDir(e.position, playerPos, ctx.objects, toPlayer.clone());
+      let peekDir = this._peekCommitTimer > 0 ? this._peekCommitDir.clone() : null;
+      if (!peekDir || peekDir.lengthSq() === 0) {
+        peekDir = this._computePeekDesiredDir(e.position, behaviorTarget, ctx.objects, toPlayer.clone());
+        if (peekDir?.lengthSq() > 0) {
+          this._peekCommitDir.copy(peekDir);
+          this._peekCommitTimer = 1.0;
+        }
+      }
       if (peekDir && peekDir.lengthSq() > 0) desired.add(peekDir);
       else {
         // fallback to circling to vary angle even if peek not found
@@ -151,14 +263,14 @@ export class ShooterEnemy {
         const side = new THREE.Vector3(-fwd.z, 0, fwd.x).multiplyScalar(this.strafeDir);
         desired.add(side);
       }
-    } else if (dist < this.preferredRange.min - 1) {
+      movementState = 'seeking_peek';
+    } else if (this._worldPeekActive && this._worldPeekHoldTimer > 0 && rangeMovementMode === 'hold') {
+      movementState = 'holding_peek_anchor';
+    } else if (rangeMovementMode === 'retreat') {
       // backpedal
       toPlayer.y = 0; if (toPlayer.lengthSq() > 0) desired.add(toPlayer.normalize().multiplyScalar(-1));
-    } else if (dist > this.preferredRange.max + 1) {
-      // approach only if outside engage max; otherwise strafe
-      if (dist > this.engageRange.max) {
-        toPlayer.y = 0; if (toPlayer.lengthSq() > 0) desired.add(toPlayer.normalize());
-      }
+    } else if (rangeMovementMode === 'close') {
+      toPlayer.y = 0; if (toPlayer.lengthSq() > 0) desired.add(toPlayer.normalize());
     } else {
       // strafe around player; if regrouping, widen standoff toward 22–28 and orbit until allies catch up
       toPlayer.y = 0; if (toPlayer.lengthSq() > 0) {
@@ -172,23 +284,36 @@ export class ShooterEnemy {
           side = side.multiplyScalar(1.2); // a bit more lateral pressure when aiming
         }
   
-        const regroup = ctx.blackboard && ctx.blackboard.regroup;
-        if (regroup) {
-          // push toward 22–28m ring
-          const targetMin = 22, targetMax = 28;
-          const target = (targetMin + targetMax) * 0.5;
-          if (dist < targetMin) desired.add(fwd.clone().multiplyScalar(-1.2));
-          else if (dist > targetMax) desired.add(fwd.clone().multiplyScalar(1.0));
-          desired.add(side.multiplyScalar(1.2));
-        } else {
-          desired.add(side);
-        }
+        desired.add(side);
         // occasionally switch strafe dir (less often if aiming)
         if (this.switchCooldown > 0) this.switchCooldown -= dt;
-        else if (Math.random() < (this.windupTime > 0 ? 0.006 : 0.01)) { this.strafeDir *= -1; this.switchCooldown = 1.2; }
+        else if (this.rng() < (this.windupTime > 0 ? 0.006 : 0.01)) { this.strafeDir *= -1; this.switchCooldown = 1.2; }
       }
     }
   
+    const needsRoute = !hasLOS || (!sense.locomotionClear && rangeMovementMode !== 'hold');
+    if (needsRoute && ctx.pathfind) {
+      const subjectMoved = !this._routeAnchorSubject
+        || this._routeAnchorSubject.distanceToSquared(behaviorTarget) > 4;
+      if (!this._routeAnchor || this._routeAnchorRefresh <= 0 || subjectMoved) {
+        const away = e.position.clone().sub(behaviorTarget).setY(0);
+        if (away.lengthSq() === 0) away.set(1, 0, 0);
+        away.normalize();
+        this._routeAnchor = behaviorTarget.clone().add(away.multiplyScalar(15));
+        this._routeAnchorSubject = behaviorTarget.clone();
+        this._routeAnchorRefresh = 0.8;
+      }
+      ctx.pathfind.recomputeIfStale(this, this._routeAnchor, { cacheFor: 1.2 }).then(path => { this._path = path; });
+      const waypoint = ctx.pathfind.nextWaypoint(this);
+      if (waypoint) desired.set(waypoint.x - e.position.x, 0, waypoint.z - e.position.z).normalize();
+      movementState = hasLOS ? 'routing_to_range' : 'seeking_peek';
+    } else if (ctx.pathfind) {
+      ctx.pathfind.clear(this);
+      this._path = null;
+      this._routeAnchor = null;
+      this._routeAnchorSubject = null;
+    }
+
     // Obstacle avoidance + separation
     const avoid = desired.lengthSq() > 0 ? ctx.avoidObstacles(e.position, desired, 1.6) : desired;
     const sep = ctx.separation(e.position, 1.2, e);
@@ -238,6 +363,16 @@ export class ShooterEnemy {
     const turnRate = 5.0; // slightly reduced to smooth out jitter
     this._yaw = wrap(this._yaw + Math.max(-turnRate*dt, Math.min(turnRate*dt, dy)));
     e.rotation.set(0, this._yaw, 0);
+    if (sense.searchActive) ctx.setAIState?.(e, 'searching');
+    else if (this.evasiveTimer > 0) ctx.setAIState?.(e, 'evading');
+    else if (this.relocating) ctx.setAIState?.(e, 'relocating');
+    else if (this.windupTime > 0) ctx.setAIState?.(e, coverPlan ? 'aim_windup_from_ally_cover' : 'aim_windup');
+    else if (this.inBurst) ctx.setAIState?.(e, coverPlan ? 'firing_from_ally_cover' : 'firing_burst');
+    else if (allyCoverState) ctx.setAIState?.(e, allyCoverState, { coverRoot: this.selectedCoverRoot });
+    else if (movementState) ctx.setAIState?.(e, movementState, { blockerRoot: sense.blockingAlly || null });
+    else if (rangeMovementMode === 'retreat') ctx.setAIState?.(e, 'retreating_to_range');
+    else if (rangeMovementMode === 'close') ctx.setAIState?.(e, 'closing_to_range');
+    else ctx.setAIState?.(e, 'holding_range');
   
     // 3) Shooting logic
     if (this.cooldown > 0) this.cooldown -= dt;
@@ -261,37 +396,43 @@ export class ShooterEnemy {
       this._setHeadGlow(false);
   
       // Cancel burst early if conditions break
-      if (!(inBand && hasLOS)) {
+      if (!(inBand && hasLOS && tacticalFireClear)) {
         this.inBurst = false;
         this.shotsThisBurst = 0;
-        this.cooldown = Math.max(this.cooldown, 0.4 + Math.random() * 0.3);
+        this.cooldown = Math.max(this.cooldown, 0.4 + this.rng() * 0.3);
       } else if (this.cooldown <= 0) {
         // Fire next shot in the burst
-        this._fireProjectile(playerPos, ctx.scene);
+        const fired = this._fireProjectile(this._predictAimPoint(playerPos), ctx);
+        if (!fired) {
+          this.inBurst = false;
+          this.shotsThisBurst = 0;
+          this.cooldown = Math.max(this.cooldown, 0.25);
+          this._allyBlockedTimer = Math.max(this._allyBlockedTimer, 0.2);
+        }
         // Mark suppression immediately after firing if target was stationary and exposed
-        if (ctx.blackboard && playerStationary) ctx.blackboard.suppression = true;
+        if (fired && ctx.blackboard && playerStationary) ctx.blackboard.suppression = true;
   
-        if (this.shotsThisBurst >= this.maxBurst) {
+        if (fired && this.shotsThisBurst >= this.maxBurst) {
           // End burst: long inter-burst delay and relocation to vary angle
           this.inBurst = false;
           this.shotsThisBurst = 0;
           this.cooldown = this.interBurstBase;
-          if (!this.relocating) {
+          if (!this.selectedCoverRoot && !this.relocating) {
             this.relocating = true;
             this.relocateTarget = null;
             this.relocateTimer = 0;
           }
           // Reroll next burst parameters for variety
-          this.maxBurst = 3 + ((Math.random() * 2) | 0); // 3–4
-          this.baseCadence = 0.6 + Math.random() * 0.4; // intra-burst spacing
-          this.interBurstBase = 1.6 + Math.random() * 0.6;
-          this.windupRequired = 0.5 + Math.random() * 0.2;
-        } else {
+          this.maxBurst = 3 + ((this.rng() * 2) | 0); // 3–4
+          this.baseCadence = 0.6 + this.rng() * 0.4; // intra-burst spacing
+          this.interBurstBase = 1.6 + this.rng() * 0.6;
+          this.windupRequired = 0.5 + this.rng() * 0.2;
+        } else if (fired) {
           // Space next intra-burst shot
           this.cooldown = this.baseCadence;
         }
       }
-    } else if (inBand && hasLOS && this.cooldown <= 0) {
+    } else if (inBand && hasLOS && tacticalFireClear && this.cooldown <= 0) {
       // Telegraph with head glow and aim line; keep checking LOS
       this.windupTime += dt;
       this._setHeadGlow(true);
@@ -308,15 +449,19 @@ export class ShooterEnemy {
         this._setHeadGlow(false);
         this.windupTime = 0;
         this._updateAimLine(null, ctx.scene);
-        this.inBurst = true;
         // fresh parameters for this burst
-        this.maxBurst = 3 + ((Math.random() * 2) | 0);   // 3–4 shots per burst
-        this.baseCadence = 0.6 + Math.random() * 0.4;  // intra-burst spacing
-        this.interBurstBase = 1.6 + Math.random() * 0.6; // inter-burst gap
+        this.maxBurst = 3 + ((this.rng() * 2) | 0);   // 3–4 shots per burst
+        this.baseCadence = 0.6 + this.rng() * 0.4;  // intra-burst spacing
+        this.interBurstBase = 1.6 + this.rng() * 0.6; // inter-burst gap
         // First shot now, then set spacing for next
-        this._fireProjectile(playerPos, ctx.scene);
-        if (ctx.blackboard && playerStationary) ctx.blackboard.suppression = true;
-        if (this.shotsThisBurst >= this.maxBurst) {
+        const fired = this._fireProjectile(this._predictAimPoint(playerPos), ctx);
+        this.inBurst = fired;
+        if (fired && ctx.blackboard && playerStationary) ctx.blackboard.suppression = true;
+        if (!fired) {
+          this.shotsThisBurst = 0;
+          this.cooldown = Math.max(this.cooldown, 0.25);
+          this._allyBlockedTimer = Math.max(this._allyBlockedTimer, 0.2);
+        } else if (this.shotsThisBurst >= this.maxBurst) {
           // Degenerate rare case: maxBurst==1; end immediately
           this.inBurst = false;
           this.shotsThisBurst = 0;
@@ -335,6 +480,20 @@ export class ShooterEnemy {
     }
   }  
 
+  _updateRangeMovementMode(distance) {
+    const hysteresis = 0.45;
+    if (this._rangeMovementMode === 'close' && distance <= this.preferredRange.max - hysteresis) {
+      this._rangeMovementMode = 'hold';
+    } else if (this._rangeMovementMode === 'retreat' && distance >= this.preferredRange.min + hysteresis) {
+      this._rangeMovementMode = 'hold';
+    }
+    if (this._rangeMovementMode === 'hold') {
+      if (distance > this.preferredRange.max) this._rangeMovementMode = 'close';
+      else if (distance < this.preferredRange.min) this._rangeMovementMode = 'retreat';
+    }
+    return this._rangeMovementMode;
+  }
+
   _hasLineOfSight(_fromRoot, targetPos, objects) {
     const THREE = this.THREE;
     const origin = this._muzzleWorld();
@@ -348,7 +507,13 @@ export class ShooterEnemy {
     return !(hits && hits.length > 0);
   }
 
-  _fireProjectile(targetPos, scene) {
+  _predictAimPoint(playerPos) {
+    const origin = this._muzzleWorld();
+    const travelSeconds = Math.max(0.08, Math.min(1.25, origin.distanceTo(playerPos) / 25));
+    return playerPos.clone().add(this._playerVelocity.clone().multiplyScalar(travelSeconds));
+  }
+
+  _fireProjectile(targetPos, ctx) {
     const THREE = this.THREE;
     // Fire from gun muzzle if available; otherwise from chest height
     let origin;
@@ -369,6 +534,19 @@ export class ShooterEnemy {
     } else {
       origin = new THREE.Vector3(this.root.position.x, this.root.position.y + 1.2, this.root.position.z);
     }
+
+    const finalLine = ctx.tacticalLineClear?.(this.root, origin, targetPos, 0.18);
+    const finalSense = finalLine ? null : ctx.sensePlayer?.(this.root, 0, origin);
+    const worldClear = finalLine ? finalLine.worldClear : finalSense?.rawWorldLOS;
+    const tacticalClear = finalLine ? finalLine.clear : finalSense?.tacticalFireClear;
+    const blockerRoot = finalLine?.blockerRoot || finalSense?.blockingAlly || null;
+    if (worldClear === false || tacticalClear === false) {
+      ctx.emitAIEvent?.(this.root, 'shot_withheld', {
+        reason: blockerRoot ? 'ally_blocked' : 'world_blocked',
+        blockerRoot
+      });
+      return false;
+    }
   
     // Base direction
     let dir = targetPos.clone().sub(origin);
@@ -387,7 +565,7 @@ export class ShooterEnemy {
       const right = new THREE.Vector3().crossVectors(up, dir).normalize();
       const upOrtho = new THREE.Vector3().crossVectors(dir, right).normalize();
       // Use a squarer distribution (closer to center) rather than uniform edge
-      const u = Math.random(), v = Math.random();
+      const u = this.rng(), v = this.rng();
       const angle = cone * (Math.sqrt(u)); // central bias
       const yaw = 2 * Math.PI * v;
       // small offset vector in the tangent plane
@@ -401,33 +579,39 @@ export class ShooterEnemy {
   
     const speed = 25; // units/s
   
-    const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(0.12, 10, 10),
-      new THREE.MeshBasicMaterial({ color: 0x10b981 })
-    );
-    mesh.position.copy(origin);
-    mesh.material.transparent = true;
-    mesh.material.opacity = 1;
-    scene.add(mesh);
-  
-    this.projectiles.push({
-      mesh,
-      velocity: dir.multiplyScalar(speed),
-      life: 0,
-      maxLife: 2.5,
-      damage: 22
-    });
+    const velocity = dir.multiplyScalar(speed);
+    const pooled = ctx._spawnBullet?.('shooter', origin, velocity, 2.5, 22, this.root);
+    if (!pooled) {
+      const mesh = new THREE.Mesh(
+        getCachedRenderResource(
+          _shooterProjectileGeometries,
+          THREE,
+          () => new THREE.SphereGeometry(0.12, 10, 10)
+        ),
+        new THREE.MeshBasicMaterial({ color: 0x10b981 })
+      );
+      mesh.position.copy(origin);
+      mesh.material.transparent = true;
+      mesh.material.opacity = 1;
+      ctx.scene.add(mesh);
+      this.projectiles.push({ mesh, velocity, life: 0, maxLife: 2.5, damage: 22, ownerRoot: this.root });
+    }
     this.shotsThisBurst += 1;
+    ctx.emitAIEvent?.(this.root, 'projectile_fired', {
+      kind: 'shooter', origin: origin.clone(), target: targetPos.clone(),
+      worldClear: true, tacticalClear: true
+    });
+    return true;
   }  
 
   onHit(damage, isHead) {
     // Short lateral juke on hit (0.12–0.2s)
-    const base = 0.12 + Math.random() * 0.08;
+    const base = 0.12 + this.rng() * 0.08;
     this._hitJukeTime = Math.max(this._hitJukeTime, base);
     // pick random lateral relative to facing toward player
     const fwd = this._lastFwd.lengthSq() > 0 ? this._lastFwd.clone() : new this.THREE.Vector3(0,0,1);
     const side = new this.THREE.Vector3(-fwd.z, 0, fwd.x);
-    const sideSign = Math.random() < 0.5 ? 1 : -1;
+    const sideSign = this.rng() < 0.5 ? 1 : -1;
     this._hitJukeDir.copy(side.multiplyScalar(sideSign));
   }
 
@@ -438,6 +622,14 @@ export class ShooterEnemy {
       const prev = p.mesh.position.clone();
       const step = p.velocity.clone().multiplyScalar(dt);
       const next = prev.clone().add(step);
+
+      const allyHit = ctx.enemyManager?._firstAllyOnSegment?.(prev, next, p.ownerRoot || this.root, 0.04);
+      if (allyHit) {
+        ctx.emitAIEvent?.(this.root, 'projectile_blocked_by_ally', { blockerRoot: allyHit.entry.root, kind: 'shooter' });
+        ctx.scene.remove(p.mesh);
+        this.projectiles.splice(i, 1);
+        continue;
+      }
 
       // Raycast against world objects along the step
       const dir = step.clone().normalize();
@@ -459,7 +651,7 @@ export class ShooterEnemy {
         const dz = next.z - playerPos.z;
         const distXZ = Math.hypot(dx, dz);
         if (distXZ < 0.6) {
-          if (ctx.onPlayerDamage) ctx.onPlayerDamage(p.damage);
+          ctx.damagePlayer?.(p.damage, { sourceKind: 'shooter_projectile', sourceRoot: this.root, ownerRoot: this.root });
           ctx.scene.remove(p.mesh);
           this.projectiles.splice(i, 1);
           continue;
@@ -531,19 +723,167 @@ export class ShooterEnemy {
     return bestDir;
   }
 
+  _updateAllyCover(dt, playerPos, ctx, permitted) {
+    this._coverRefreshTimer = Math.max(0, this._coverRefreshTimer - dt);
+    if (!permitted) {
+      this._releaseAllyCover(ctx, 'cover_unsafe');
+      return null;
+    }
+
+    const manager = ctx.enemyManager;
+    const coverStillAlive = !this.selectedCoverRoot
+      || !manager?.enemies
+      || manager.enemies.has(this.selectedCoverRoot);
+    if (!coverStillAlive || (this.selectedCoverRoot?.userData?.hp ?? 1) <= 0) {
+      this._releaseAllyCover(ctx, 'cover_removed');
+    }
+
+    let plan = this.selectedCoverRoot
+      ? this._buildAllyCoverPlan(this.selectedCoverRoot, playerPos, ctx)
+      : null;
+    if (plan) return plan;
+    if (this._coverRefreshTimer > 0) return null;
+    this._coverRefreshTimer = 0.45;
+
+    const selfPosition = this.root.position;
+    const playerToSelf = selfPosition.clone().sub(playerPos).setY(0);
+    const selfDistance = playerToSelf.length();
+    if (selfDistance <= 0.001) return null;
+    playerToSelf.multiplyScalar(1 / selfDistance);
+
+    let bestRoot = null;
+    let bestPlan = null;
+    let bestScore = -Infinity;
+    const candidates = ctx.nearbyAllies?.(selfPosition, 18, this.root, {
+      layer: 'ground', verticalRadius: 3
+    }) || [];
+    for (const entry of candidates) {
+      const coverRoot = entry?.root;
+      if (!isShooterMobileCover(coverRoot) || (coverRoot.userData?.hp ?? 1) <= 0) continue;
+      const playerToCover = coverRoot.position.clone().sub(playerPos).setY(0);
+      const coverDistance = playerToCover.length();
+      const projection = playerToCover.dot(playerToSelf);
+      const lateral = Math.abs(playerToCover.x * playerToSelf.z - playerToCover.z * playerToSelf.x);
+      // The frontline body must remain between the player and Shooter. A small
+      // lateral allowance lets the Shooter deliberately align behind it.
+      if (projection <= 1.5 || projection >= selfDistance - 0.7 || lateral > 4.5) continue;
+      const candidatePlan = this._buildAllyCoverPlan(coverRoot, playerPos, ctx);
+      if (!candidatePlan) continue;
+      const travel = Math.hypot(
+        candidatePlan.hideAnchor.x - selfPosition.x,
+        candidatePlan.hideAnchor.z - selfPosition.z
+      );
+      const typeBonus = (coverRoot.userData?.behaviorId || coverRoot.userData?.type) === 'tank' ? 3 : 0;
+      const score = 12 + typeBonus - lateral * 1.4 - travel * 0.35 - Math.abs(coverDistance - 7) * 0.08;
+      if (score > bestScore) {
+        bestScore = score;
+        bestRoot = coverRoot;
+        bestPlan = candidatePlan;
+      }
+    }
+
+    if (!bestRoot) {
+      this._releaseAllyCover(ctx, 'no_viable_cover');
+      return null;
+    }
+    if (bestRoot !== this.selectedCoverRoot) {
+      this._releaseAllyCover(ctx, 'cover_reselected');
+      this.selectedCoverRoot = bestRoot;
+      this.relocating = false;
+      this.relocateTarget = null;
+      this.relocateTimer = 0;
+      this._coverMode = 'none';
+      ctx.emitAIEvent?.(this.root, 'ally_cover_selected', {
+        coverRoot: bestRoot,
+        coverType: bestRoot.userData?.behaviorId || bestRoot.userData?.type
+      });
+    }
+    return bestPlan;
+  }
+
+  _buildAllyCoverPlan(coverRoot, playerPos, ctx) {
+    if (!coverRoot?.position || !playerPos) return null;
+    const THREE = this.THREE;
+    const away = coverRoot.position.clone().sub(playerPos).setY(0);
+    const coverPlayerDistance = away.length();
+    if (coverPlayerDistance < 1.5) return null;
+    away.multiplyScalar(1 / coverPlayerDistance);
+
+    const selfProfile = ctx.enemyManager?._profileForRoot?.(this.root) || { collisionRadius: 0.55 };
+    const coverProfile = ctx.enemyManager?._profileForRoot?.(coverRoot) || { collisionRadius: 0.58 };
+    const selfPlayerDistance = Math.hypot(
+      this.root.position.x - playerPos.x,
+      this.root.position.z - playerPos.z
+    );
+    const bodyClearance = selfProfile.collisionRadius + coverProfile.collisionRadius + 0.35;
+    const nearestSafePlayerDistance = coverPlayerDistance + bodyClearance;
+    if (nearestSafePlayerDistance > this.preferredRange.max - 0.15) return null;
+    const desiredPlayerDistance = Math.max(
+      13,
+      nearestSafePlayerDistance,
+      Math.min(17.5, selfPlayerDistance)
+    );
+    const distanceBehindCover = desiredPlayerDistance - coverPlayerDistance;
+    const hideAnchor = coverRoot.position.clone().add(away.clone().multiplyScalar(distanceBehindCover));
+    hideAnchor.y = this.root.position.y;
+    if (ctx.positionClear && !ctx.positionClear(this.root, hideAnchor, coverRoot)) return null;
+
+    const side = new THREE.Vector3(-away.z, 0, away.x);
+    const peekOffset = Math.max(1.25, Math.min(
+      4.5,
+      (coverProfile.collisionRadius + 0.16) * desiredPlayerDistance / Math.max(2.5, coverPlayerDistance)
+        + selfProfile.collisionRadius * 0.35
+    ));
+    const target = playerPos.clone();
+    target.y = playerPos.y || 1.6;
+    let peekAnchor = null;
+    for (const sign of [this._coverPeekSign, -this._coverPeekSign]) {
+      const candidate = hideAnchor.clone().add(side.clone().multiplyScalar(peekOffset * sign));
+      if (ctx.positionClear && !ctx.positionClear(this.root, candidate, coverRoot)) continue;
+      if (!this._hasLineOfSightFrom(candidate, target, ctx.objects || [])) continue;
+      const origin = candidate.clone();
+      origin.y += 1.4;
+      const line = ctx.tacticalLineClear?.(this.root, origin, target, 0.04);
+      if (line && !line.clear) continue;
+      peekAnchor = candidate;
+      this._coverPeekSign = sign;
+      break;
+    }
+    if (!peekAnchor) return null;
+    return { coverRoot, hideAnchor, peekAnchor };
+  }
+
+  _setAllyCoverMode(mode, ctx) {
+    if (!this.selectedCoverRoot || this._coverMode === mode) return;
+    this._coverMode = mode;
+    ctx.emitAIEvent?.(this.root, mode === 'peek' ? 'ally_cover_peek_started' : 'ally_cover_hidden', {
+      coverRoot: this.selectedCoverRoot
+    });
+  }
+
+  _releaseAllyCover(ctx, reason) {
+    if (!this.selectedCoverRoot) return;
+    const coverRoot = this.selectedCoverRoot;
+    this.selectedCoverRoot = null;
+    this._coverMode = 'none';
+    ctx?.emitAIEvent?.(this.root, 'ally_cover_released', { coverRoot, reason });
+  }
+
   _beginRelocation(playerPos, toPlayer) {
     const THREE = this.THREE;
     const fwd = toPlayer.clone().setY(0); if (fwd.lengthSq() > 0) fwd.normalize();
-    const side = new THREE.Vector3(-fwd.z, 0, fwd.x).multiplyScalar(Math.random() < 0.5 ? 1 : -1);
+    const side = new THREE.Vector3(-fwd.z, 0, fwd.x).multiplyScalar(this.rng() < 0.5 ? 1 : -1);
     // move laterally relative to current position to change angle on the player
     const target = this.root.position.clone().add(side.multiplyScalar(this.relocateDistance));
     this.relocateTarget = target;
+    this._worldPeekActive = false;
+    this._worldPeekHoldTimer = 0;
   }
 
   _updateAimLine(targetPos, scene, color = 0x10b981) {
     const THREE = this.THREE;
     if (!targetPos) {
-      if (this._aimLine) { scene.remove(this._aimLine); this._aimLine = null; }
+      if (this._aimLine) this._aimLine.visible = false;
       return;
     }
     const from = this._muzzleWorld();
@@ -553,6 +893,7 @@ export class ShooterEnemy {
       this._aimLine = new THREE.Line(g, m);
       scene.add(this._aimLine);
     } else {
+      this._aimLine.visible = true;
       const pos = this._aimLine.geometry.getAttribute('position');
       pos.setXYZ(0, from.x, from.y, from.z);
       pos.setXYZ(1, targetPos.x, targetPos.y, targetPos.z);
@@ -571,6 +912,11 @@ export class ShooterEnemy {
   onRemoved(scene) {
     for (const p of this.projectiles) scene.remove(p.mesh);
     this.projectiles.length = 0;
-    if (this._aimLine) { scene.remove(this._aimLine); this._aimLine = null; }
+    if (this._aimLine) {
+      scene.remove(this._aimLine);
+      this._aimLine.geometry?.dispose?.();
+      this._aimLine.material?.dispose?.();
+      this._aimLine = null;
+    }
   }
 }

@@ -6,7 +6,7 @@ import MinHeap from '../util/MinHeap.js';
 
 function hash(ix, iz) { return ix + ',' + iz; }
 
-function buildGrid(start, goal, obstacles, gridSize, radius) {
+function buildGrid(start, goal, obstacles, gridSize, radius, agentRadius = 0.5) {
   const minX = Math.floor(Math.min(start.x, goal.x) - radius);
   const maxX = Math.ceil(Math.max(start.x, goal.x) + radius);
   const minZ = Math.floor(Math.min(start.z, goal.z) - radius);
@@ -15,7 +15,7 @@ function buildGrid(start, goal, obstacles, gridSize, radius) {
   const height = Math.ceil((maxZ - minZ) / gridSize) + 1;
 
   const blocked = new Array(width * height).fill(false);
-  const margin = 0.5;
+  const margin = Math.max(0.15, agentRadius);
   for (const ob of obstacles || []) {
     const minix = Math.floor((ob.min.x - margin - minX) / gridSize);
     const maxix = Math.floor((ob.max.x + margin - minX) / gridSize);
@@ -39,7 +39,7 @@ function heuristic(ax, az, bx, bz) {
 function findPath(start, goal, obstacles, opts = {}) {
   const gridSize = opts.gridSize || 1;
   const radius = opts.radius || 20;
-  const grid = buildGrid(start, goal, obstacles, gridSize, radius);
+  const grid = buildGrid(start, goal, obstacles, gridSize, radius, opts.agentRadius ?? 0.5);
   const sx = Math.round((start.x - grid.minX) / gridSize);
   const sz = Math.round((start.z - grid.minZ) / gridSize);
   const gx = Math.round((goal.x - grid.minX) / gridSize);

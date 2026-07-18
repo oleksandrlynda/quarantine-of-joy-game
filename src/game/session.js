@@ -23,6 +23,7 @@ export class GameSession {
     onComboTier = null,
     onGameOver = null
   } = {}) {
+    this.baseMaxHp = maxHp;
     this.maxHp = maxHp;
     this.comboConfig = {
       ...comboConfig,
@@ -37,6 +38,8 @@ export class GameSession {
     this.onGameOver = onGameOver;
 
     this.hp = maxHp;
+    this.maxArmor = 0;
+    this.armor = 0;
     this.score = 0;
     this.best = Number(initialBest) || 0;
     this.gameOver = false;
@@ -49,22 +52,51 @@ export class GameSession {
     this.best = Number(value) || 0;
   }
 
-  damage(amount) {
-    if (this.gameOver) return { gameOver: true, died: false, hp: this.hp };
+  damage(amount, { bypassArmor = false } = {}) {
+    if (this.gameOver) return { gameOver: true, died: false, hp: this.hp, armor: this.armor, armorAbsorbed: 0, hpDamage: 0 };
     const n = Math.max(0, Number(amount) || 0);
-    this.hp = Math.max(0, this.hp - n);
+    const armorAbsorbed = bypassArmor ? 0 : Math.min(this.armor, n);
+    this.armor = Math.max(0, this.armor - armorAbsorbed);
+    const hpDamage = Math.max(0, n - armorAbsorbed);
+    this.hp = Math.max(0, this.hp - hpDamage);
     const died = this.hp <= 0;
     if (died) {
       this.gameOver = true;
       this.onGameOver?.();
     }
-    return { gameOver: this.gameOver, died, hp: this.hp };
+    return { gameOver: this.gameOver, died, hp: this.hp, armor: this.armor, armorAbsorbed, hpDamage };
   }
 
   heal(amount) {
     const n = Math.max(0, Number(amount) || 0);
     this.hp = Math.min(this.maxHp, this.hp + n);
     return this.hp;
+  }
+
+  adjustHealth(amount, { minimum = 0 } = {}) {
+    const before = this.hp;
+    const floor = Math.max(0, Math.min(this.maxHp, Number(minimum) || 0));
+    this.hp = Math.max(floor, Math.min(this.maxHp, this.hp + (Number(amount) || 0)));
+    return { before, hp: this.hp, amount: this.hp - before };
+  }
+
+  addMaxHp(amount, { heal = false } = {}) {
+    const gain = Math.max(0, Number(amount) || 0);
+    this.maxHp = Math.max(this.baseMaxHp, this.maxHp + gain);
+    if (heal) this.hp = Math.min(this.maxHp, this.hp + gain);
+    return this.maxHp;
+  }
+
+  addArmorCapacity(amount, { fill = true } = {}) {
+    const gain = Math.max(0, Number(amount) || 0);
+    this.maxArmor = Math.max(0, this.maxArmor + gain);
+    if (fill) this.armor = Math.min(this.maxArmor, this.armor + gain);
+    return this.maxArmor;
+  }
+
+  repairArmor() {
+    this.armor = this.maxArmor;
+    return this.armor;
   }
 
   addScore(points) {
@@ -119,12 +151,16 @@ export class GameSession {
   }
 
   reset({ weaponSystem, player, effects, sfx } = {}) {
+    this.maxHp = this.baseMaxHp;
     this.hp = this.maxHp;
+    this.maxArmor = 0;
+    this.armor = 0;
     this.score = 0;
     this.gameOver = false;
     this.lastEmergencyAmmoAt = -1000;
     this.resetCombo();
     weaponSystem?.reset?.();
+    player?.resetStaminaCapacity?.();
     if (player && 'stamina' in player) player.stamina = player.staminaMax;
     effects?.setFatigue?.(0);
     sfx?.stopBreath?.();
@@ -132,16 +168,17 @@ export class GameSession {
 
   applyPickup(type, amount, { weaponSystem, story, sfx } = {}) {
     if (type === 'ammo') {
-      weaponSystem?.onAmmoPickup?.(amount);
-      return { type, hp: this.hp };
+      const gained = weaponSystem?.onAmmoPickup?.(amount);
+      return { type, hp: this.hp, amount: Math.max(0, Number(gained) || 0) };
     }
     if (type === 'med') {
+      const hpBefore = this.hp;
       this.heal(amount);
       sfx?.ui?.('pickup');
       story?.onFirstMedPickup?.();
-      return { type, hp: this.hp };
+      return { type, hp: this.hp, amount: Math.max(0, this.hp - hpBefore) };
     }
-    return { type, hp: this.hp };
+    return { type, hp: this.hp, amount: 0 };
   }
 
   onWaveStart(wave, startingAlive, { pickups, weather, player, objects, progression, story } = {}) {

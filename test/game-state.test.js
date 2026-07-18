@@ -32,6 +32,58 @@ test('damage reduces HP and sets gameOver at 0', () => {
   assert.equal(gameOverCalls, 1);
 });
 
+test('armor absorbs damage before HP and reports the split', () => {
+  const session = new GameSession();
+  session.addArmorCapacity(20);
+  const hit = session.damage(30);
+  assert.equal(hit.armorAbsorbed, 20);
+  assert.equal(hit.hpDamage, 10);
+  assert.equal(hit.armor, 0);
+  assert.equal(hit.hp, 90);
+  session.repairArmor();
+  assert.equal(session.armor, 20);
+});
+
+test('explicit percentage hazards can bypass armor and damage HP directly', () => {
+  const session = new GameSession();
+  session.addArmorCapacity(20);
+  const hit = session.damage(50, { bypassArmor: true });
+  assert.equal(hit.armorAbsorbed, 0);
+  assert.equal(hit.hpDamage, 50);
+  assert.equal(hit.armor, 20);
+  assert.equal(hit.hp, 50);
+});
+
+test('direct health adjustments bypass armor and respect health bounds', () => {
+  const session = new GameSession();
+  session.addArmorCapacity(20);
+  session.hp = 80;
+  assert.deepEqual(session.adjustHealth(5), { before: 80, hp: 85, amount: 5 });
+  assert.deepEqual(session.adjustHealth(-7, { minimum: 1 }), { before: 85, hp: 78, amount: -7 });
+  assert.equal(session.armor, 20);
+  assert.deepEqual(session.adjustHealth(999), { before: 78, hp: 100, amount: 22 });
+});
+
+test('run stat mutations reset to base values', () => {
+  const session = new GameSession();
+  const player = {
+    baseStaminaMax: 100,
+    staminaMax: 115,
+    stamina: 12,
+    resetStaminaCapacity() { this.staminaMax = this.baseStaminaMax; this.stamina = this.staminaMax; }
+  };
+  session.addMaxHp(20);
+  session.addArmorCapacity(20);
+  session.damage(15);
+  session.reset({ player });
+  assert.equal(session.maxHp, 100);
+  assert.equal(session.hp, 100);
+  assert.equal(session.maxArmor, 0);
+  assert.equal(session.armor, 0);
+  assert.equal(player.staminaMax, 100);
+  assert.equal(player.stamina, 100);
+});
+
 test('reset restores HP, score, combo, stamina-facing hooks, and game-over flag', () => {
   const session = new GameSession();
   const weaponSystem = makeWeaponSystem();

@@ -1,9 +1,12 @@
 {
   "name": "quarantine-of-joy-game",
-  "version": "1.0.1",
+  "version": "1.0.6",
   "description": "Quarantine of Joy web game",
   "type": "module",
   "scripts": {
+    "assets:build": "node scripts/build-assets.mjs",
+    "assets:validate": "node scripts/build-assets.mjs --validate-only",
+    "assets:verify": "node scripts/verify-generated-assets.mjs",
     "test": "node --test test/*.test.js",
     "lint": "eslint src test",
     "resource-check": "node test/resource-check.js",
@@ -14,5 +17,8 @@
   "license": "ISC",
   "devDependencies": {
     "eslint": "^9.32.0"
+  },
+  "dependencies": {
+    "three": "^0.185.1"
   }
 }

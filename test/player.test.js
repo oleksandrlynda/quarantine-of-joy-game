@@ -38,8 +38,14 @@ globalThis.THREE = THREE;
 
 // Stub DOM globals
 const noop = ()=>{};
+const documentListeners = [];
 globalThis.window = { addEventListener: noop, matchMedia: ()=>({ matches:false }), innerWidth:800, innerHeight:600 };
-globalThis.document = { body: { addEventListener: noop }, getElementById: ()=>null };
+globalThis.document = {
+  body: { addEventListener: noop, ownerDocument: null },
+  addEventListener(type, handler, options){ documentListeners.push({ type, handler, options }); },
+  getElementById: ()=>null
+};
+globalThis.document.body.ownerDocument = globalThis.document;
 globalThis.localStorage = { _s:{}, getItem(k){ return this._s[k] ?? null; }, setItem(k,v){ this._s[k]=String(v); } };
 
 // Create temporary copy of player.js with stubbed PointerLockControls import
@@ -58,7 +64,7 @@ fs.unlinkSync(tmpPath);
 
 // Helper to make basic camera stub
 function makeCamera(){
-  return { rotation:{x:0,y:0,z:0}, fov:75, updateProjectionMatrix: noop };
+  return { rotation:{x:0,y:0,z:0}, fov:75, zoom:1, updateProjectionMatrix: noop };
 }
 
 // Tests
@@ -97,4 +103,93 @@ test('recoil values settle back to zero', () => {
   assert(Math.abs(player.recoilPitchOffset) < 1e-3);
   assert(Math.abs(player.recoilPitchVel) < 1e-3);
   assert(Math.abs(player.appliedRecoilPitch) < 1e-3);
+});
+
+test('stamina capacity mutation fills its delta and resets between runs', () => {
+  const player = new PlayerController(THREE, makeCamera(), document.body, [], Infinity);
+  player.stamina = 40;
+  player.addStaminaCapacity(3, { fill: true });
+  assert.equal(player.staminaMax, 103);
+  assert.equal(player.stamina, 43);
+  player.resetStaminaCapacity();
+  assert.equal(player.staminaMax, 100);
+  assert.equal(player.stamina, 100);
+});
+
+test('stamina restoration is capped by the current run capacity', () => {
+  const player = new PlayerController(THREE, makeCamera(), document.body, [], Infinity);
+  player.stamina = 84;
+  assert.equal(player.restoreStamina(10), 10);
+  assert.equal(player.stamina, 94);
+  assert.equal(player.restoreStamina(20), 6);
+  assert.equal(player.stamina, 100);
+  assert.equal(player.restoreStamina(-5), 0);
+});
+
+test('Punchline Rush commits ten meters, grants temporary invulnerability, and delays stamina recovery', () => {
+  const player = new PlayerController(THREE, makeCamera(), document.body, [], Infinity);
+  const steps = [];
+  player.onRushStep = event => steps.push(event.travelled);
+
+  assert.equal(player.startRush({ distance: 10, duration: 0.6, regenDelay: 8 }), true);
+  assert.equal(player.getStamina(), 0);
+  assert.equal(player.isInvulnerable(), true);
+  assert.equal(player.startRush(), false);
+
+  player.update(0.3);
+  assert.equal(player.isRushing(), true);
+  assert(Math.abs(player.controls.getObject().position.z - 3) < 1e-6);
+  player.update(0.3);
+  assert.equal(player.isInvulnerable(), false);
+  assert(Math.abs(player.controls.getObject().position.z + 2) < 1e-6);
+  assert.equal(steps.length, 2);
+
+  player.update(7.9);
+  assert.equal(player.getStamina(), 0);
+  player.update(0.1);
+  assert(player.getStamina() > 0);
+  assert.equal(player.startRush(), false);
+});
+
+test('weapon zoom smoothly reaches and leaves the requested magnification', () => {
+  const camera = makeCamera();
+  const player = new PlayerController(THREE, camera, document.body, [], Infinity);
+
+  player.setZoomMultiplier(3);
+  for (let i=0; i<60; i++) player.update(0.016);
+  assert(Math.abs(camera.zoom - 3) < 1e-4);
+
+  player.setZoomMultiplier(1);
+  for (let i=0; i<60; i++) player.update(0.016);
+  assert(Math.abs(camera.zoom - 1) < 1e-4);
+});
+
+test('look input uses stable FPS Euler order and rejects pointer-lock outliers', () => {
+  const camera = makeCamera();
+  const player = new PlayerController(THREE, camera, document.body, [], Infinity);
+  const lookListener = documentListeners.filter(listener => listener.type === 'mousemove').at(-1);
+  let propagationStopped = false;
+
+  assert.equal(camera.rotation.order, 'YXZ');
+  assert.equal(lookListener.options, true);
+  lookListener.handler({
+    movementX: 40,
+    movementY: -20,
+    stopImmediatePropagation(){ propagationStopped = true; }
+  });
+  assert.equal(propagationStopped, true);
+  assert.equal(player.yawObject.rotation.y, -0.08);
+  assert.equal(camera.rotation.x, 0.04);
+
+  const yawBeforeOutlier = player.yawObject.rotation.y;
+  const pitchBeforeOutlier = camera.rotation.x;
+  const anomalies = [];
+  player.onLookAnomaly = data => anomalies.push(data);
+  const sixtyDegreeDelta = (Math.PI / 3) / 0.002;
+  assert.equal(player._applyLookDelta(sixtyDegreeDelta, 0, 0.002), false);
+  assert.equal(player.yawObject.rotation.y, yawBeforeOutlier);
+  assert.equal(camera.rotation.x, pitchBeforeOutlier);
+  assert.equal(anomalies.length, 1);
+  assert.equal(Math.round(anomalies[0].yawDeltaDegrees), 60);
+  assert.equal(anomalies[0].thresholdDegrees, 45);
 });

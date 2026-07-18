@@ -11,6 +11,7 @@ export function createWaveStartHandler({
   getProgression = () => progression,
   getStory = () => story,
   getGameTime = () => 0,
+  getWaveContext = () => ({}),
   getLastWaveStartTime = () => 0,
   setLastWaveStartTime = () => {},
   updateHUD = () => {},
@@ -19,10 +20,14 @@ export function createWaveStartHandler({
   return function onWaveStart(wave, startingAlive) {
     const now = Number(getGameTime()) || 0;
     if (wave > 1) {
-      achievements?.check?.({ type: 'waveComplete', time: now - (Number(getLastWaveStartTime()) || 0) });
+      achievements?.check?.({
+        type: 'waveComplete',
+        number: wave - 1,
+        duration: now - (Number(getLastWaveStartTime()) || 0),
+        ...getWaveContext?.(wave - 1, 'complete')
+      });
     }
     setLastWaveStartTime(now);
-    achievements?.check?.({ type: 'wave', number: wave });
 
     if (enemyManager && session?.onWaveStart) {
       const currentProgression = getProgression?.() ?? progression;
@@ -36,6 +41,12 @@ export function createWaveStartHandler({
         story: currentStory
       });
     }
+
+    achievements?.check?.({
+      type: 'waveStart',
+      number: wave,
+      ...getWaveContext?.(wave, 'start')
+    });
 
     updateHUD();
     showToast(`Wave ${wave} start`);

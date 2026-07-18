@@ -20,7 +20,9 @@ test('recomputeIfStale caches paths for a short duration', async () => {
   const player = { x: 5, z: 0 };
   const opts = { cacheFor: 0.05 }; // 50ms
   const first = await recomputeIfStale(enemy, player, [obstacle], opts);
-  const second = await recomputeIfStale(enemy, player, [obstacle], opts);
+  const cachedRequest = recomputeIfStale(enemy, player, [obstacle], opts);
+  assert.equal(cachedRequest.pathRecomputed, false);
+  const second = await cachedRequest;
   assert.strictEqual(first, second);
   await new Promise(r => setTimeout(r, 60));
   const third = await recomputeIfStale(enemy, player, [obstacle], opts);
@@ -37,6 +39,22 @@ test('nextWaypoint advances along the cached path', async () => {
   enemy.position = { ...first };
   const second = nextWaypoint(enemy);
   assert.deepStrictEqual(second, path[2]);
+  clear(enemy);
+});
+
+test('nextWaypoint remains null on repeated ticks after the cached path is exhausted', async () => {
+  const enemy = { position: { x: 0, z: 0 } };
+  const player = { x: 5, z: 0 };
+  await recomputeIfStale(enemy, player, [obstacle], { cacheFor: 1 });
+
+  let waypoint = nextWaypoint(enemy);
+  while (waypoint) {
+    enemy.position = { ...waypoint };
+    waypoint = nextWaypoint(enemy);
+  }
+
+  assert.equal(nextWaypoint(enemy), null);
+  assert.equal(nextWaypoint(enemy), null);
   clear(enemy);
 });
 

@@ -32,6 +32,7 @@
     import { OrbitControls } from 'https://unpkg.com/three@0.159.0/examples/jsm/controls/OrbitControls.js?module';
     import { createWorld } from './src/world.js';
     import { WeatherSystem } from './src/weather.js';
+    import { applyGrassWeatherUniforms, createGrassWeatherMotion, updateGrassWeatherMotion } from './src/game/grass-weather-motion.js';
     import { SFX } from './src/sfx.js';
 
     const { renderer, scene, camera, skyMat, hemi, dir, mats, grassMesh } = createWorld(THREE, Math.random);
@@ -46,32 +47,46 @@
     controls.maxDistance = 80;
 
     const weather = new WeatherSystem({ THREE, scene, skyMat, hemi, dir, mats });
+    const grassWeatherMotion = createGrassWeatherMotion();
     weather._nextChangeAt = Infinity;
 
     const musicShim = { getContext(){ return new (window.AudioContext||window.webkitAudioContext)(); }, getFxBus(){ return null; } };
     window._SFX = new SFX({ audioContextProvider: ()=>musicShim.getContext(), fxBusProvider: ()=>musicShim.getFxBus() });
 
     const sel = document.getElementById('weatherSel');
+    const requestedWeather = new URL(window.location.href).searchParams.get('weather');
+    if ([...sel.options].some(option => option.value === requestedWeather)) sel.value = requestedWeather;
     const apply = ()=> weather.setMode(sel.value);
     sel.addEventListener('change', apply);
     apply();
 
     const clock = new THREE.Clock();
+    let lastT = 0;
     function loop(){
       const t = clock.getElapsedTime();
+      const dt = Math.min(0.05, Math.max(0, t - lastT));
+      lastT = t;
       controls.update();
       weather.update(t, camera);
       const rainMix = weather._mix?.rain || 0;
       const snowMix = weather._mix?.snow || 0;
       const heightFactor = Math.max(0.2, 1 - 0.3 * rainMix - 0.6 * snowMix);
-      grassMesh.material.uniforms.heightFactor.value = heightFactor;
-      grassMesh.material.uniforms.snowMix.value = snowMix;
 
       const windMix = Math.max(weather._mix?.wind || 0, weather._mix?.sand || 0);
       const wind = weather.wind || { x: 1, z: 0 };
-      const len = Math.hypot(wind.x, wind.z) || 1;
-      grassMesh.material.uniforms.windDirection.value.set(wind.x / len, wind.z / len);
-      grassMesh.material.uniforms.windStrength.value = 0.2 + 3.0 * windMix;
+      updateGrassWeatherMotion(grassWeatherMotion, {
+        time: t,
+        dt,
+        stormMix: windMix,
+        rainMix,
+        snowMix
+      });
+      applyGrassWeatherUniforms(grassMesh.material, grassWeatherMotion, {
+        baseWindX: wind.x,
+        baseWindZ: wind.z,
+        heightFactor,
+        snowMix
+      });
 
       skyMat.uniforms.time.value = t;
       renderer.render(scene, camera);

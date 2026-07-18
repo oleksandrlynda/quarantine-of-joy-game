@@ -1,5 +1,10 @@
-import { createRunnerBot } from '../assets/runnerbot.js';
+import {
+  createEnhancedEliteRusherBot,
+  createEnhancedExplosiveRusherBot,
+  createEnhancedRunnerBot
+} from '../assets/enemy-retrofits.js';
 import { logError } from '../util/log.js';
+import { cloneNodeMaterial, instantiateSharedTemplate } from './render-template.js';
 
 // Variant definitions with unique palettes and stats
 export const RUSHER_VARIANTS = {
@@ -44,14 +49,15 @@ export const RUSHER_VARIANTS = {
   }
 };
 
-const _rusherCache = { models: {} };
+const _rusherTemplates = new WeakMap();
 
 // Mild screen shake when a dash connects
 const IMPACT_SHAKE = { strength: 0.1, duration: 0.15 };
 
 export class RusherEnemy {
-  constructor({ THREE, mats, cfg, spawnPos }) {
+  constructor({ THREE, mats, cfg, spawnPos, rng = Math.random }) {
     this.THREE = THREE;
+    this.rng = rng;
 
     const variantName = cfg.variant || 'basic';
     const v = RUSHER_VARIANTS[variantName] || RUSHER_VARIANTS.basic;
@@ -59,43 +65,30 @@ export class RusherEnemy {
     this.cfg = { ...cfg, ...v };
 
     // Slim, agile runner model per variant
-    if (!_rusherCache.models[variantName]) {
-      _rusherCache.models[variantName] = createRunnerBot({ THREE, mats, scale: 0.6, palette: v.palette });
+    let templatesForThree = _rusherTemplates.get(THREE);
+    if (!templatesForThree) {
+      templatesForThree = new Map();
+      _rusherTemplates.set(THREE, templatesForThree);
     }
-    const src = _rusherCache.models[variantName];
-    const clone = src.root.clone(true);
-    // Remap anim refs from asset to this clone so gait/arm anims work
-    const remapRefs = (srcRoot, cloneRoot, refs) => {
-      const out = {};
-      const getPath = (node) => { const path = []; let cur = node; while (cur && cur !== srcRoot) { const parent = cur.parent; if (!parent) return null; const idx = parent.children.indexOf(cur); if (idx < 0) return null; path.push(idx); cur = parent; } return path.reverse(); };
-      const follow = (root, path) => { let cur = root; for (const idx of (path||[])) { if (!cur || !cur.children || idx >= cur.children.length) return null; cur = cur.children[idx]; } return cur; };
-      for (const k of Object.keys(refs||{})) { const p = getPath(refs[k]); out[k] = p ? follow(cloneRoot, p) : null; }
-      return out;
-    };
-    const body = clone; const head = clone.userData?.head || src.head; this._animRefs = remapRefs(src.root, clone, src.refs || {});
+    const built = instantiateSharedTemplate(templatesForThree, variantName, () => {
+      const create = variantName === 'elite'
+        ? createEnhancedEliteRusherBot
+        : (variantName === 'explosive' ? createEnhancedExplosiveRusherBot : createEnhancedRunnerBot);
+      return create({ THREE, mats, scale: 0.6, palette: v.palette });
+    });
+    const body = built.root; const head = built.head; this._animRefs = built.refs || {};
     body.position.copy(spawnPos);
     body.rotation.x = 0; // world yaw only
 
-    // Add a simple blade to right arm for readability
-    if (this._animRefs.rightArm) {
-      const bladeMat = new THREE.MeshLambertMaterial({ color: 0xdff3ff, emissive: 0xdff3ff, emissiveIntensity: 0.7 });
-      const hilt = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.25, 0.08), new THREE.MeshLambertMaterial({ color: 0x2a2d31 }));
-      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.9, 0.10), bladeMat);
-      const group = new THREE.Group();
-      group.add(hilt); group.add(blade);
-      hilt.position.set(0, -0.2, 0.28);
-      blade.position.set(0, -0.8, 0.28);
-      this._animRefs.rightArm.add(group);
-      group.position.set(0.0, -1.6, 0.2);
-      this._bladeRef = group;
-    }
+    this._bladeRef = this._animRefs.blade || null;
+    cloneNodeMaterial(this._bladeRef);
 
     // Keep compatibility with existing hit logic
     body.userData = { type: cfg.type, head, hp: v.hp, maxHp: v.hp };
     this.root = body;
 
     // Movement parameters
-    this.speed = v.speedMin + Math.random() * (v.speedMax - v.speedMin);
+    this.speed = v.speedMin + this.rng() * (v.speedMax - v.speedMin);
     this._prevPlayerPos = null;
     this._playerVel = new THREE.Vector3();
     this._raycaster = new THREE.Raycaster();
@@ -112,6 +105,8 @@ export class RusherEnemy {
     this._lastPos = body.position.clone();
     this._recoverTimer = 0;       // post-dash recovery time
     this._windUpTimer = 0;        // pre-dash wind-up time
+    this._windUpTotal = 0;
+    this._windUpCorrected = false;
     this._windUpSound = null;     // handle to charging audio
     this._stunTimer = 0;          // self-stun time after failed dash
     this._flinchTimer = 0;        // time after being interrupted by damage
@@ -122,9 +117,9 @@ export class RusherEnemy {
     this._stuckTime = 0;          // time spent moving negligibly
 
     // Spawn delay: wander briefly before engaging the player
-    this._spawnDelay = 3 + Math.random() * 2; // 3-5s
-    this._wanderDir = new THREE.Vector3(Math.random() * 2 - 1, 0, Math.random() * 2 - 1).normalize();
-    this._wanderTimer = 0.5 + Math.random() * 0.5;
+    this._spawnDelay = 3 + this.rng() * 2; // 3-5s
+    this._wanderDir = new THREE.Vector3(this.rng() * 2 - 1, 0, this.rng() * 2 - 1).normalize();
+    this._wanderTimer = 0.5 + this.rng() * 0.5;
   }
 
   update(dt, ctx) {
@@ -137,11 +132,12 @@ export class RusherEnemy {
       return;
     }
     if (this._spawnDelay > 0) {
+      ctx.setAIState?.(e, 'spawn_wander');
       this._spawnDelay = Math.max(0, this._spawnDelay - dt);
       this._wanderTimer -= dt;
       if (this._wanderTimer <= 0) {
-        this._wanderDir.set(Math.random() * 2 - 1, 0, Math.random() * 2 - 1).normalize();
-        this._wanderTimer = 0.6 + Math.random() * 0.8;
+        this._wanderDir.set(this.rng() * 2 - 1, 0, this.rng() * 2 - 1).normalize();
+        this._wanderTimer = 0.6 + this.rng() * 0.8;
       }
       const step = this._wanderDir.clone().multiplyScalar(this.speed * 0.4 * dt);
       const before = e.position.clone();
@@ -165,7 +161,7 @@ export class RusherEnemy {
         if (ll && rl) { ll.rotation.x = -swing; rl.rotation.x = swing; }
       }
       try {
-        const blade = this._bladeRef?.children?.[1];
+        const blade = this._bladeRef;
         if (blade && blade.material && blade.material.emissiveIntensity != null) {
           blade.material.emissiveIntensity = 0.7;
         }
@@ -177,6 +173,13 @@ export class RusherEnemy {
     const playerPos = ctx.player.position.clone();
     const toPlayer = playerPos.clone().sub(e.position);
     const dist = toPlayer.length();
+    const sense = ctx.sensePlayer?.(e, dt) || {
+      rawWorldLOS: this._hasLineOfSight(e.position, playerPos, ctx.objects),
+      stableWorldLOS: this._hasLineOfSight(e.position, playerPos, ctx.objects),
+      locomotionClear: true,
+      pursuitTarget: playerPos.clone()
+    };
+    const navigationTarget = sense.pursuitTarget;
     if (this._hitCooldown > 0) this._hitCooldown = Math.max(0, this._hitCooldown - dt);
     if (this._recoverTimer > 0) this._recoverTimer = Math.max(0, this._recoverTimer - dt);
     if (this._stunTimer > 0) this._stunTimer = Math.max(0, this._stunTimer - dt);
@@ -184,56 +187,76 @@ export class RusherEnemy {
     if (this._windUpTimer > 0) {
       this._windUpTimer = Math.max(0, this._windUpTimer - dt);
       if (this._windUpTimer === 0) {
-        // wind-up finished -> start dash
-        this._dashTimer = (this.cfg.dashDuration ?? 0.5) + Math.random() * 0.2;
-        this._dashTotal = this._dashTimer;
-        this._overrunTimer = 0;
-        this._charging = true;
-        this._hitCooldown = 0;
-        this._hasDealtHit = false;
-        this._flinchAccum = 0;
-        try {
-          this._windUpSound?.stop?.();
-          window?._SFX?.dashWhoosh?.();
-          window?._EFFECTS?.spawnDashTrail?.(e.position.clone(), this._dashDir.clone(), this.cfg.color);
-        } catch (e) { logError(e); }
+        const corridor = navigationTarget ? ctx.chargeCorridorClear?.(e, navigationTarget, 0.1) : { clear: false };
+        if (!sense.rawWorldLOS || !sense.locomotionClear || corridor?.clear === false) {
+          this._dashCooldown = Math.max(this._dashCooldown, 0.35);
+          ctx.emitAIEvent?.(e, 'charge_cancelled', { reason: corridor?.clear === false ? 'ally_blocked' : 'lost_sight', blockerRoot: corridor?.blockerRoot || null });
+        } else {
+          // The elite gets exactly one final predictive correction before lock.
+          if (this.variant === 'elite' && !this._windUpCorrected) {
+            const corrected = playerPos.clone().add(this._playerVel.clone().multiplyScalar(0.18)).sub(e.position).setY(0);
+            if (corrected.lengthSq() > 0) this._dashDir.copy(corrected.normalize());
+            this._windUpCorrected = true;
+          }
+          this._dashTimer = (this.cfg.dashDuration ?? 0.5) + this.rng() * 0.2;
+          this._dashTotal = this._dashTimer;
+          this._overrunTimer = 0;
+          this._charging = true;
+          this._hitCooldown = 0;
+          this._hasDealtHit = false;
+          this._flinchAccum = 0;
+          ctx.emitAIEvent?.(e, 'charge_started', { variant: this.variant });
+          try {
+            this._windUpSound?.stop?.();
+            window?._SFX?.dashWhoosh?.();
+            window?._EFFECTS?.spawnDashTrail?.(e.position.clone(), this._dashDir.clone(), this.cfg.color);
+          } catch (e) { logError(e); }
+        }
         this._windUpSound = null;
       }
     }
-    if (dist < 2.0 && this._charging && ctx.onPlayerDamage && this._hitCooldown <= 0 && !this._hasDealtHit) {
-      ctx.onPlayerDamage(20, 'melee');
+    if (dist < 2.0 && sense.rawWorldLOS && sense.locomotionClear && this._charging && ctx.damagePlayer && this._hitCooldown <= 0 && !this._hasDealtHit) {
+      ctx.damagePlayer(20, { sourceKind: 'rusher_charge', sourceRoot: e, ownerRoot: e });
       this._hitCooldown = 0.8;
       this._hasDealtHit = true;
+      ctx.emitAIEvent?.(e, 'charge_hit', { damage: 20 });
       try {
         window?._EFFECTS?.screenShake?.(IMPACT_SHAKE.strength, IMPACT_SHAKE.duration);
         window?._EFFECTS?.spawnDashImpact?.(e.position.clone(), this.cfg.color);
       } catch (e) { logError(e); }
     }
-    if (dist > 70) return;
+    if (dist > 70 || (!navigationTarget && !this._charging)) {
+      ctx.setAIState?.(e, sense.searchActive ? 'searching' : 'idle_unaware');
+      return;
+    }
 
+    const toNavigation = (navigationTarget || playerPos).clone().sub(e.position).setY(0);
     toPlayer.y = 0; if (toPlayer.lengthSq() === 0) return; toPlayer.normalize();
+    if (toNavigation.lengthSq() > 0) toNavigation.normalize();
 
     // Update player velocity estimate (EMA)
-    if (this._prevPlayerPos) {
+    if (sense.stableWorldLOS && this._prevPlayerPos) {
       const delta = playerPos.clone().sub(this._prevPlayerPos);
       const instVel = delta.multiplyScalar(dt > 0 ? 1 / dt : 0);
       this._playerVel.lerp(instVel, Math.min(1, 0.4 + dt * 0.6));
       this._playerVel.y = 0;
     }
-    this._prevPlayerPos = playerPos.clone();
+    if (sense.stableWorldLOS) this._prevPlayerPos = playerPos.clone();
 
     // Desired direction with intercept prediction
-    const toPlayerFlat = playerPos.clone().setY(0).sub(new THREE.Vector3(e.position.x, 0, e.position.z));
+    const steeringTarget = sense.stableWorldLOS ? playerPos : navigationTarget;
+    const toPlayerFlat = steeringTarget.clone().setY(0).sub(new THREE.Vector3(e.position.x, 0, e.position.z));
     const horizDist = toPlayerFlat.length();
     const leadTime = Math.max(0, Math.min(0.5, (horizDist / Math.max(0.1, this.speed)) * 0.25));
-    const predicted = playerPos.clone().add(this._playerVel.clone().multiplyScalar(leadTime));
+    const predicted = steeringTarget.clone().add(sense.stableWorldLOS ? this._playerVel.clone().multiplyScalar(leadTime) : new THREE.Vector3());
     const toPred = predicted.sub(e.position); toPred.y = 0;
-    let desired = toPred.lengthSq() > 0 ? toPred.normalize() : toPlayer.clone();
+    let desired = toPred.lengthSq() > 0 ? toPred.normalize() : toNavigation.clone();
 
-    const hasLOS = this._hasLineOfSight(e.position, playerPos, ctx.objects);
+    const hasLOS = sense.stableWorldLOS;
     const isStuck = this._stuckTime > 0.4;
-    if ((!hasLOS || isStuck) && ctx.pathfind && !this._charging) {
-      ctx.pathfind.recomputeIfStale(this, playerPos).then(p => { this._path = p; });
+    if ((!hasLOS || !sense.locomotionClear || isStuck) && ctx.pathfind && !this._charging) {
+      ctx.setAIState?.(e, sense.searchActive ? 'searching' : 'routing');
+      ctx.pathfind.recomputeIfStale(this, navigationTarget).then(p => { this._path = p; });
       const wp = ctx.pathfind.nextWaypoint(this);
       if (wp) {
         const dir = new THREE.Vector3(wp.x - e.position.x, 0, wp.z - e.position.z);
@@ -242,6 +265,17 @@ export class RusherEnemy {
     } else if (hasLOS && !isStuck && ctx.pathfind) {
       ctx.pathfind.clear(this);
       this._path = null;
+    }
+
+    const chargeCorridor = ctx.chargeCorridorClear?.(e, predicted, this.variant === 'explosive' ? 0.25 : 0.1) || { clear: true };
+    if (!this._charging && chargeCorridor.clear === false && chargeCorridor.blockerRoot) {
+      const blockerDir = chargeCorridor.blockerRoot.position.clone().sub(e.position).setY(0);
+      if (blockerDir.lengthSq() > 0) {
+        blockerDir.normalize();
+        const side = new THREE.Vector3(-blockerDir.z, 0, blockerDir.x);
+        desired.add(side.multiplyScalar(this.variant === 'explosive' ? 1.4 : 1.0)).normalize();
+      }
+      ctx.setAIState?.(e, 'clearing_charge_lane', { blockerRoot: chargeCorridor.blockerRoot });
     }
 
     // Avoid obstacles and separation unless currently charging
@@ -266,7 +300,7 @@ export class RusherEnemy {
       if (this._dashTimer > 0) {
         this._dashTimer = Math.max(0, this._dashTimer - dt);
         if (this._dashTimer === 0 && !this._hasDealtHit) {
-          const overrunFrac = 0.2 + Math.random() * 0.2;
+          const overrunFrac = 0.2 + this.rng() * 0.2;
           this._overrunTimer = this._dashTotal * overrunFrac;
         }
       } else if (this._overrunTimer > 0) {
@@ -275,16 +309,20 @@ export class RusherEnemy {
       if (this._dashTimer === 0 && this._overrunTimer === 0) {
         this._charging = false;
         this._dashTotal = 0;
-        this._recoverTimer = 0.7 + Math.random() * 0.4;
-        if (!this._hasDealtHit) this._stunTimer = 1.0 + Math.random() * 0.4;
+        this._recoverTimer = 0.7 + this.rng() * 0.4;
+        if (!this._hasDealtHit) this._stunTimer = 1.0 + this.rng() * 0.4;
         this._flinchAccum = 0;
-        this._dashCooldown = 1.2 + Math.random() * 0.8;
+        this._dashCooldown = 1.2 + this.rng() * 0.8;
       }
     }
-    const canDash = (dist >= 5 && dist <= 20) && !this._charging && this._dashCooldown <= 0 && this._recoverTimer <= 0 && this._windUpTimer <= 0 && this._stunTimer <= 0 && this._flinchTimer <= 0 && hasLOS;
-    if (canDash && Math.random() < 1.2 * dt) {
+    const canDash = (dist >= 5 && dist <= 20) && !this._charging && this._dashCooldown <= 0 && this._recoverTimer <= 0 && this._windUpTimer <= 0 && this._stunTimer <= 0 && this._flinchTimer <= 0 && hasLOS && sense.locomotionClear && chargeCorridor.clear;
+    if (canDash && this.rng() < 1.2 * dt) {
       this._windUpTimer = this.cfg.windUp || 0.3;
+      this._windUpTotal = this._windUpTimer;
+      this._windUpCorrected = false;
       this._dashDir.copy(desired);
+      ctx.setAIState?.(e, 'dash_windup');
+      ctx.emitAIEvent?.(e, 'charge_windup_started', { variant: this.variant });
       try { this._windUpSound?.stop?.(); this._windUpSound = window?._SFX?.dashWindup?.(); } catch (e) { logError(e); }
       // face dash direction immediately
       const desiredYaw = Math.atan2(this._dashDir.x, this._dashDir.z);
@@ -299,13 +337,20 @@ export class RusherEnemy {
     const moveDir = this._charging ? this._dashDir : desired;
     const step = moveDir.clone().multiplyScalar(this.speed * dashMul * recoverMul * windMul * stunMul * flinchMul * dt);
 
+    if (this._charging) ctx.setAIState?.(e, 'dash');
+    else if (this._windUpTimer > 0) ctx.setAIState?.(e, 'dash_windup');
+    else if (this._recoverTimer > 0) ctx.setAIState?.(e, 'dash_recover');
+    else if (this._stunTimer > 0) ctx.setAIState?.(e, 'stunned');
+    else if (sense.searchActive) ctx.setAIState?.(e, 'searching');
+    else if (sense.locomotionClear) ctx.setAIState?.(e, 'pursuing');
+
     // Move and face motion
     const before = e.position.clone();
     const wasCharging = this._charging;
-    ctx.moveWithCollisions(e, step);
+    const moveResult = ctx.moveWithCollisions(e, step) || {};
     const movedVec = e.position.clone().sub(before); movedVec.y = 0;
     if (wasCharging && movedVec.lengthSq() + 1e-6 < step.lengthSq()) {
-      if (this.cfg.explodesOnDeath) {
+      if (this.cfg.explodesOnDeath && moveResult.blockedBy === 'world') {
         this._explode(ctx);
         ctx.enemyManager?.remove?.(e);
         return;
@@ -314,13 +359,17 @@ export class RusherEnemy {
       this._dashTimer = 0;
       this._overrunTimer = 0;
       this._dashTotal = 0;
-      this._recoverTimer = 0.7 + Math.random() * 0.4;
-      this._stunTimer = 1.0 + Math.random() * 0.4;
+      this._recoverTimer = 0.7 + this.rng() * 0.4;
+      this._stunTimer = 1.0 + this.rng() * 0.4;
       try {
         window?._EFFECTS?.spawnDashImpact?.(e.position.clone(), this.cfg.color);
       } catch (e) { logError(e); }
       this._flinchAccum = 0;
-      this._dashCooldown = 1.2 + Math.random() * 0.8;
+      this._dashCooldown = 1.2 + this.rng() * 0.8;
+      ctx.emitAIEvent?.(e, 'charge_ended', {
+        reason: moveResult.blockedBy === 'ally' ? 'ally_blocked' : (moveResult.blockedBy || 'miss'),
+        blockerRoot: moveResult.blockerRoot || null
+      });
     }
     const speedNow = movedVec.length() / Math.max(dt, 0.00001);
     if (movedVec.lengthSq() > 1e-6) {
@@ -356,7 +405,7 @@ export class RusherEnemy {
     }
     // Blade glow during wind-up / dash
     try {
-      const blade = this._bladeRef?.children?.[1];
+      const blade = this._bladeRef;
       if (blade && blade.material && blade.material.emissiveIntensity != null) {
         blade.material.emissiveIntensity = (this._windUpTimer > 0 || this._charging) ? 1.4 : 0.7;
       }
@@ -387,7 +436,7 @@ export class RusherEnemy {
     try {
       const pPos = ctx?.player?.position;
       if (pPos && pos.distanceTo(pPos) <= radius) {
-        ctx?.onPlayerDamage?.(dmg, 'explosion');
+        ctx?.damagePlayer?.(dmg, { sourceKind: 'explosive_rusher', sourceRoot: this.root, ownerRoot: this.root });
       }
     } catch (_err) {
       console.warn('player damage during explosion failed', _err);

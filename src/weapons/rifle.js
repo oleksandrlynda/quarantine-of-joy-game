@@ -3,23 +3,33 @@ import { performHitscan } from './hitscan.js';
 import { logError } from '../util/log.js';
 
 export class Rifle extends Weapon {
-  constructor() {
+  constructor({ mastery = null } = {}) {
     super({
       name: 'Rifle',
       mode: 'auto',
       fireDelayMs: 120, // ~500 RPM
       magSize: 16,
+      getMagSize: () => mastery?.getMagazineSize?.('Rifle', 16) ?? 16,
       reserve: 64
     });
     this._bloom = 0;            // mild recoil bloom
     this._maxBloom = 0.02;      // radians max extra spread
     this._baseSpread = 0.002;   // radians baseline
+    this.zoomMultiplier = 1.5;
   }
 
   update(dt, ctx){
     super.update(dt, ctx);
     // mild decay
     this._bloom = Math.max(0, this._bloom - dt * 0.22);
+  }
+
+  hasAltFire(ctx) {
+    return ctx?.mutations?.isUnlocked?.('rifle_focus') === true;
+  }
+
+  getDamageMultiplier(ctx) {
+    return ctx?.mutations?.getWeaponDamageMultiplier?.('Rifle') ?? 1;
   }
 
   onFire(ctx) {
@@ -64,16 +74,19 @@ export class Rifle extends Weapon {
       const fall = dist <= fallStart ? 1.0 : Math.max(0.7, 1 - (dist - fallStart) / (effectiveRange - fallStart));
       const part = res.bodyPart;
       const base = isHead ? 100 : ((part==='arm'||part==='leg') ? 16 : 40);
-      const dmg = base * fall;
+      const damageMultiplier = this.getDamageMultiplier(ctx);
+      const dmg = base * fall * damageMultiplier;
       res.enemyRoot.userData.hp -= dmg;
+      const killed = res.enemyRoot.userData.hp <= 0;
+      this.recordCombatHit(ctx, res.enemyRoot, { damage: dmg, killed, isHead, distance: dist });
+      effects?.spawnBulletDecal?.(end, res.hitFace?.normal, { size: 0.10, ttl: 10, color: 0x1a1a1a, softness: 0.6, object: res.hitObject, owner: res.enemyRoot, attachTo: res.hitObject });
       // pushback
       const dir2 = new THREE.Vector3(); camera.getWorldDirection(dir2);
       applyKnockback?.(res.enemyRoot, dir2.clone().multiplyScalar(0.16));
       effects?.spawnBulletImpact?.(end, res.hitFace?.normal);
       if (S && S.impactFlesh) S.impactFlesh();
       if (S && S.enemyPain) S.enemyPain(res.enemyRoot?.userData?.type || 'grunt');
-      effects?.spawnBulletDecal?.(end, res.hitFace?.normal, { size: 0.10, ttl: 10, color: 0x1a1a1a, softness: 0.6, object: res.hitObject, owner: res.enemyRoot, attachTo: res.enemyRoot });
-      if (res.enemyRoot.userData.hp <= 0) {
+      if (killed) {
         effects?.enemyDeath?.(res.enemyRoot.position.clone());
         if (S && S.enemyDeath) S.enemyDeath(res.enemyRoot?.userData?.type || 'grunt');
         const eType = res.enemyRoot?.userData?.type;
@@ -91,7 +104,8 @@ export class Rifle extends Weapon {
         addComboAction?.(0.25);
       }
     } else if (res.type === 'world') {
-      obstacleManager?.handleHit?.(res.hitObject, 40);
+      const damageMultiplier = this.getDamageMultiplier(ctx);
+      obstacleManager?.handleHit?.(res.hitObject, 40 * damageMultiplier);
       effects?.spawnBulletImpact?.(res.hitPoint, res.hitFace?.normal);
       effects?.spawnBulletDecal?.(res.hitPoint, res.hitFace?.normal, { size: 0.11, ttl: 16, color: 0x121212, softness: 0.35, object: res.hitObject });
       if (S && S.impactWorld) S.impactWorld();

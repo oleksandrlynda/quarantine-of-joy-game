@@ -118,14 +118,17 @@ export function createInfluencerCaptainAsset({ THREE, mats, scale = 1.0, palette
   
     const add = (mesh, parent = group, pos, mat) => { if (mat) mesh.material = mat; if (pos) mesh.position.set(pos.x, pos.y, pos.z); parent.add(mesh); return mesh; };
   
-    // Blimp body: cylinder + hemispherical caps
+    // Blimp body: cylinder + hemispherical caps, aligned along the local Z flight axis.
     const body = new THREE.Group(); group.add(body); body.position.set(0, 4.0 * scale, 0);
-    add(new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 6.4, 18, 1, true), matHull), body);
-    add(new THREE.Mesh(new THREE.SphereGeometry(1.2, 18, 12), matHull), body, new THREE.Vector3(0, 3.2, 0));
-    add(new THREE.Mesh(new THREE.SphereGeometry(1.2, 18, 12), matHull), body, new THREE.Vector3(0,-3.2, 0));
+    const envelope = add(new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 6.4, 18, 1, true), matHull), body);
+    envelope.rotation.x = Math.PI / 2;
+    add(new THREE.Mesh(new THREE.SphereGeometry(1.2, 18, 12), matHull), body, new THREE.Vector3(0, 0, 3.2));
+    add(new THREE.Mesh(new THREE.SphereGeometry(1.2, 18, 12), matHull), body, new THREE.Vector3(0, 0,-3.2));
     // Stripes
-    add(new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 6.0, 10, 1, true), matStripe), body, new THREE.Vector3(0.9, 0, 0));
-    add(new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 6.0, 10, 1, true), matStripe), body, new THREE.Vector3(-0.9, 0, 0));
+    const stripeA = add(new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 6.0, 10, 1, true), matStripe), body, new THREE.Vector3(0.9, 0, 0));
+    const stripeB = add(new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 6.0, 10, 1, true), matStripe), body, new THREE.Vector3(-0.9, 0, 0));
+    stripeA.rotation.x = Math.PI / 2;
+    stripeB.rotation.x = Math.PI / 2;
   
     // Gondola
     const gondola = new THREE.Group(); group.add(gondola); gondola.position.set(0, 1.9 * scale, 0);

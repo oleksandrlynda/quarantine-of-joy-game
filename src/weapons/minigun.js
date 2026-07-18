@@ -4,13 +4,15 @@ import { logError } from '../util/log.js';
 
 // High fire-rate bullet hose with low per-shot damage
 export class Minigun extends Weapon {
-  constructor() {
+  constructor({ mastery = null } = {}) {
     super({
       name: 'Minigun',
       mode: 'auto',
       fireDelayMs: 20, // ~66 rps
       magSize: 200,
-      reserve: 300
+      getMagSize: () => mastery?.getMagazineSize?.('Minigun', 200) ?? 200,
+      reserve: 300,
+      getReserveSize: () => mastery?.getMinigunReserveSize?.() ?? 300
     });
     this._bloom = 0; // grows while firing
     this._maxBloom = 0.12; // radians (~6.8 deg)
@@ -37,7 +39,8 @@ export class Minigun extends Weapon {
     const forward = new THREE.Vector3(); camera.getWorldDirection(forward);
     const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0,1,0)).normalize();
     const up = new THREE.Vector3().crossVectors(right, forward).normalize();
-    const spread = this._baseSpread + this._bloom * this._maxBloom;
+    const masteryProfile = ctx.mutations?.getMinigunProfile?.() || { damageMultiplier: 1, spreadMultiplier: 1 };
+    const spread = (this._baseSpread + this._bloom * this._maxBloom) * masteryProfile.spreadMultiplier;
     const rx = (Math.random() * 2 - 1) * spread;
     const ry = (Math.random() * 2 - 1) * spread;
     const dir = forward.clone().add(right.multiplyScalar(rx)).add(up.multiplyScalar(ry)).normalize();
@@ -50,14 +53,16 @@ export class Minigun extends Weapon {
       try { window._HUD && window._HUD.showHitmarker && window._HUD.showHitmarker(); } catch (e) { logError(e); }
       const isHead = !!(res.isHead || res.bodyPart==='head');
       const part = res.bodyPart;
-      const base = isHead ? 12 : ((part==='arm'||part==='leg') ? 2 : 4);
+      const base = (isHead ? 12 : ((part==='arm'||part==='leg') ? 2 : 4)) * masteryProfile.damageMultiplier;
       res.enemyRoot.userData.hp -= base;
+      const killed = res.enemyRoot.userData.hp <= 0;
+      this.recordCombatHit(ctx, res.enemyRoot, { damage: base, killed, isHead, distance: res.distance || origin.distanceTo(end) });
+      effects?.spawnBulletDecal?.(end, res.hitFace?.normal, { size: 0.07, ttl: 7, color: 0x1a1a1a, softness: 0.6, object: res.hitObject, owner: res.enemyRoot, attachTo: res.hitObject });
       applyKnockback?.(res.enemyRoot, dir.clone().multiplyScalar(0.05));
       effects?.spawnBulletImpact?.(end, res.hitFace?.normal);
       if (S && S.impactFlesh) S.impactFlesh();
       if (S && S.enemyPain) S.enemyPain(res.enemyRoot?.userData?.type || 'grunt');
-      effects?.spawnBulletDecal?.(end, res.hitFace?.normal, { size: 0.07, ttl: 7, color: 0x1a1a1a, softness: 0.6, object: res.hitObject, owner: res.enemyRoot, attachTo: res.enemyRoot });
-      if (res.enemyRoot.userData.hp <= 0) {
+      if (killed) {
         effects?.enemyDeath?.(res.enemyRoot.position.clone());
         if (S && S.enemyDeath) S.enemyDeath(res.enemyRoot?.userData?.type || 'grunt');
         const eType = res.enemyRoot?.userData?.type;
@@ -75,7 +80,7 @@ export class Minigun extends Weapon {
         addComboAction?.(0.15);
       }
     } else if (res.type === 'world') {
-      obstacleManager?.handleHit?.(res.hitObject, 8);
+      obstacleManager?.handleHit?.(res.hitObject, 8 * masteryProfile.damageMultiplier);
       effects?.spawnBulletImpact?.(res.hitPoint, res.hitFace?.normal);
       effects?.spawnBulletDecal?.(res.hitPoint, res.hitFace?.normal, { size: 0.07, ttl: 9, color: 0x131313, softness: 0.4, object: res.hitObject });
       if (S && S.impactWorld) S.impactWorld();

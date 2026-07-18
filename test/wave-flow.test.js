@@ -29,7 +29,7 @@ test('wave start records first-wave hooks without completing a prior wave', () =
 
   handler(1, 7);
 
-  assert.deepEqual(checks, [{ type: 'wave', number: 1 }]);
+  assert.deepEqual(checks, [{ type: 'waveStart', number: 1 }]);
   assert.equal(lastWaveStart, 5);
   assert.equal(enemyManager.waveStartingAlive, 7);
   assert.equal(session.waveStartingAlive, 7);
@@ -61,8 +61,8 @@ test('wave start after wave one emits wave completion duration before new wave e
   handler(2, 11);
 
   assert.deepEqual(checks, [
-    { type: 'waveComplete', time: 32 },
-    { type: 'wave', number: 2 }
+    { type: 'waveComplete', number: 1, duration: 32 },
+    { type: 'waveStart', number: 2 }
   ]);
   assert.equal(lastWaveStart, 42);
   assert.equal(enemyManager.waveStartingAlive, 11);
