@@ -6,7 +6,9 @@ export function createGrassMesh({
   bladeCount = 5000,
   colorRange = [0x6dbb3c, 0x4c8a2f],
   heightRange = [0.8, 1.6],
-  windStrength = 0.3
+  windStrength = 0.3,
+  noiseFreq = 0.2,
+  proxyTexture = null
 } = {}) {
   // Base geometry for a single blade
   const blade = new THREE.PlaneGeometry(0.1, 1, 1, 3);
@@ -19,8 +21,13 @@ export function createGrassMesh({
 
   const offsets = new Float32Array(bladeCount * 3);
   const angles = new Float32Array(bladeCount);
-  const scales = new Float32Array(bladeCount);
-  const colors = new Float32Array(bladeCount * 3);
+  const heights = new Float32Array(bladeCount);
+  const seeds = new Float32Array(bladeCount);
+  const tilts = new Float32Array(bladeCount);
+  const swayPhases = new Float32Array(bladeCount);
+  const swayAmps = new Float32Array(bladeCount);
+  const chunkSize = 10;
+  const chunks = new Map();
 
   // Prepare triangle data for random sampling on the floor geometry
   const posArr = floorGeometry.attributes.position.array;
@@ -29,6 +36,18 @@ export function createGrassMesh({
 
   const colorA = new THREE.Color(colorRange[0]);
   const colorB = new THREE.Color(colorRange[1]);
+  const proxyColor = colorA.clone().lerp(colorB, 0.5);
+  const proxyMat = new THREE.MeshBasicMaterial({
+    color: proxyColor,
+    map: proxyTexture,
+    transparent: true,
+    opacity: 0,
+    side: THREE.DoubleSide
+  });
+  const noise2D = (x, z) => {
+    const s = Math.sin(x * 12.9898 + z * 78.233) * 43758.5453;
+    return s - Math.floor(s);
+  };
 
   for (let i = 0; i < bladeCount; i++) {
     // Pick a random triangle on the floor
@@ -53,18 +72,60 @@ export function createGrassMesh({
     const y = u * ay + v * by + w * cy + 0.01; // Offset slightly above floor
     const z = u * az + v * bz + w * cz;
 
+    const n = noise2D(x * noiseFreq, z * noiseFreq);
     offsets.set([x, y, z], i * 3);
     angles[i] = Math.random() * Math.PI * 2;
-    scales[i] = THREE.MathUtils.randFloat(heightRange[0], heightRange[1]);
+    seeds[i] = Math.random();
+    tilts[i] = Math.random();
+    swayPhases[i] = Math.random() * Math.PI * 2;
+    swayAmps[i] = 0.5 + Math.random() * 0.5;
+    const minScale = heightRange[0];
+    const maxScale = heightRange[1];
+    heights[i] = Math.max(minScale, n * maxScale);
 
-    const c = colorA.clone().lerp(colorB, Math.random());
-    colors.set([c.r, c.g, c.b], i * 3);
+    const cellX = Math.floor(x / chunkSize);
+    const cellZ = Math.floor(z / chunkSize);
+    const key = `${cellX},${cellZ}`;
+    let chunk = chunks.get(key);
+    if (!chunk) {
+      chunk = {
+        indices: [],
+        center: new THREE.Vector2((cellX + 0.5) * chunkSize, (cellZ + 0.5) * chunkSize)
+      };
+      chunks.set(key, chunk);
+    }
+    chunk.indices.push(i);
   }
 
-  geo.setAttribute('offset', new THREE.InstancedBufferAttribute(offsets, 3));
-  geo.setAttribute('angle', new THREE.InstancedBufferAttribute(angles, 1));
-  geo.setAttribute('scale', new THREE.InstancedBufferAttribute(scales, 1));
-  geo.setAttribute('color', new THREE.InstancedBufferAttribute(colors, 3));
+  const offsetAttr = new THREE.InstancedBufferAttribute(offsets, 3);
+  const angleAttr = new THREE.InstancedBufferAttribute(angles, 1);
+  const heightAttr = new THREE.InstancedBufferAttribute(heights, 1);
+  const seedAttr = new THREE.InstancedBufferAttribute(seeds, 1);
+  const tiltAttr = new THREE.InstancedBufferAttribute(tilts, 1);
+  const swayPhaseAttr = new THREE.InstancedBufferAttribute(swayPhases, 1);
+  const swayAmpAttr = new THREE.InstancedBufferAttribute(swayAmps, 1);
+  offsetAttr.setUsage(THREE.DynamicDrawUsage);
+  angleAttr.setUsage(THREE.DynamicDrawUsage);
+  heightAttr.setUsage(THREE.DynamicDrawUsage);
+  seedAttr.setUsage(THREE.DynamicDrawUsage);
+  tiltAttr.setUsage(THREE.DynamicDrawUsage);
+  swayPhaseAttr.setUsage(THREE.DynamicDrawUsage);
+  swayAmpAttr.setUsage(THREE.DynamicDrawUsage);
+  geo.setAttribute('offset', offsetAttr);
+  geo.setAttribute('angle', angleAttr);
+  geo.setAttribute('aHeight', heightAttr);
+  geo.setAttribute('aSeed', seedAttr);
+  geo.setAttribute('aTilt', tiltAttr);
+  geo.setAttribute('swayPhase', swayPhaseAttr);
+  geo.setAttribute('swayAmp', swayAmpAttr);
+  geo.instanceCount = bladeCount;
+  const baseOffsets = offsets.slice();
+  const baseAngles = angles.slice();
+  const baseHeights = heights.slice();
+  const baseSeeds = seeds.slice();
+  const baseTilts = tilts.slice();
+  const baseSwayPhases = swayPhases.slice();
+  const baseSwayAmps = swayAmps.slice();
 
   const material = new THREE.ShaderMaterial({
     uniforms: {
@@ -72,26 +133,44 @@ export function createGrassMesh({
       windStrength: { value: windStrength },
       windDirection: { value: new THREE.Vector2(1, 0) },
       heightFactor: { value: 1 },
-      snowMix: { value: 0 }
+      snowMix: { value: 0 },
+      actorPos: { value: new THREE.Vector3() },
+      actorRadius: { value: 1.5 }
     },
     vertexShader: `
       attribute vec3 offset;
       attribute float angle;
-      attribute float scale;
-      attribute vec3 color;
+      attribute float aHeight;
+      attribute float aSeed;
+      attribute float aTilt;
+      attribute float swayPhase;
+      attribute float swayAmp;
       uniform float time;
       uniform float windStrength;
       uniform vec2 windDirection;
       uniform float heightFactor;
-      varying vec3 vColor;
+      uniform vec3 actorPos;
+      uniform float actorRadius;
+      varying float vT;
+      varying float vHue;
       void main(){
-        vColor = color;
         vec3 pos = position;
-        pos.y *= scale * heightFactor;
-        float sway = sin(time + offset.x + offset.z);
-        float disp = (windStrength * 0.6 + max(0.0, sway) * windStrength +
-          min(0.0, sway) * windStrength * 0.1) * position.y;
-        pos.xz += windDirection * disp;
+        float t = clamp(pos.y, 0.0, 1.0);
+        vT = t;
+        vHue = fract(aSeed * 13.37);
+        float tx = (aTilt - 0.5) * 0.25;
+        float tz = (fract(aTilt * 1.7) - 0.5) * 0.25;
+        mat3 RX = mat3(1.0,0.0,0.0, 0.0,cos(tx),-sin(tx), 0.0,sin(tx),cos(tx));
+        mat3 RZ = mat3(cos(tz),-sin(tz),0.0, sin(tz),cos(tz),0.0, 0.0,0.0,1.0);
+        pos = RZ * RX * pos;
+        pos.y *= aHeight * heightFactor;
+        float sway = sin(time + swayPhase) * swayAmp;
+        pos.xz += windDirection * (windStrength * sway * t * t);
+        vec2 actorVec = offset.xz - actorPos.xz;
+        float dist = length(actorVec);
+        float influence = max(0.0, 1.0 - dist / actorRadius);
+        if (dist > 0.0001) actorVec /= dist; else actorVec = vec2(0.0);
+        pos.xz += actorVec * influence * 0.2 * t;
         float c = cos(angle);
         float s = sin(angle);
         pos = vec3(
@@ -104,11 +183,21 @@ export function createGrassMesh({
       }
     `,
     fragmentShader: `
-      varying vec3 vColor;
+      precision mediump float;
+      varying float vT;
+      varying float vHue;
       uniform float snowMix;
+      vec3 h2rgb(float h){
+        vec3 k=vec3(1.0,2.0/3.0,1.0/3.0);
+        vec3 p=abs(fract(vec3(h)+k)*6.0-3.0);
+        return clamp(p-1.0,0.0,1.0);
+      }
       void main(){
-        vec3 c = mix(vColor, vec3(1.0), snowMix);
-        gl_FragColor = vec4(c, 1.0);
+        float h=mix(0.28,0.33,vHue);
+        vec3 base=h2rgb(h);
+        vec3 col=mix(base*0.35,base*0.85,smoothstep(0.0,1.0,vT));
+        col=mix(col, vec3(1.0), snowMix);
+        gl_FragColor=vec4(col,1.0);
       }
     `,
     side: THREE.DoubleSide
@@ -116,12 +205,86 @@ export function createGrassMesh({
 
   const mesh = new THREE.Mesh(geo, material);
   mesh.frustumCulled = false;
+  mesh.userData.actor = null;
+  mesh.userData.lod = {
+    chunks,
+    baseOffsets,
+    baseAngles,
+    baseHeights,
+    baseSeeds,
+    baseTilts,
+    baseSwayPhases,
+    baseSwayAmps,
+    near: 15,
+    far: 30
+  };
+  for (const chunk of chunks.values()) {
+    const proxy = new THREE.Mesh(new THREE.PlaneGeometry(chunkSize, chunkSize), proxyMat.clone());
+    proxy.rotation.x = -Math.PI / 2;
+    proxy.position.set(chunk.center.x, 0.01, chunk.center.y);
+    mesh.add(proxy);
+    chunk.proxy = proxy;
+  }
+  const camVec2 = new THREE.Vector2();
   let last = performance.now() / 1000;
-  mesh.onBeforeRender = (_, __, ___, ____, mat) => {
+  mesh.onBeforeRender = (_, __, camera, geometry, mat) => {
     const now = performance.now() / 1000;
     const dt = now - last;
     last = now;
     mat.uniforms.time.value += dt * (0.8 + mat.uniforms.windStrength.value);
+    const actor = mesh.userData.actor;
+    if (actor && actor.position) {
+      mat.uniforms.actorPos.value.copy(actor.position);
+    }
+    const lod = mesh.userData.lod;
+    if (lod) {
+      camVec2.set(camera.position.x, camera.position.z);
+      const offsetsAttr = geometry.getAttribute('offset');
+      const anglesAttr = geometry.getAttribute('angle');
+      const seedAttr = geometry.getAttribute('aSeed');
+      const heightAttr = geometry.getAttribute('aHeight');
+      const tiltAttr = geometry.getAttribute('aTilt');
+      const swayPhaseAttr = geometry.getAttribute('swayPhase');
+      const swayAmpAttr = geometry.getAttribute('swayAmp');
+      let write = 0;
+      // Fade chunk density smoothly based on camera distance and crossfade to proxies
+      for (const chunk of lod.chunks.values()) {
+        const dist = camVec2.distanceTo(chunk.center);
+        let factor = 0;
+        if (dist < lod.near) {
+          factor = 1;
+        } else if (dist < lod.far) {
+          factor = (lod.far - dist) / (lod.far - lod.near);
+        }
+        const proxyOpacity = 1 - factor;
+        if (chunk.proxy) {
+          chunk.proxy.material.opacity = proxyOpacity;
+          chunk.proxy.visible = proxyOpacity > 0.001;
+        }
+        if (factor <= 0.001) continue;
+        for (const idx of chunk.indices) {
+          const baseHeight = lod.baseHeights[idx];
+          if (baseHeight <= 0) continue;
+          const i3 = idx * 3;
+          offsetsAttr.setXYZ(write, lod.baseOffsets[i3], lod.baseOffsets[i3 + 1], lod.baseOffsets[i3 + 2]);
+          anglesAttr.setX(write, lod.baseAngles[idx]);
+          seedAttr.setX(write, lod.baseSeeds[idx]);
+          heightAttr.setX(write, baseHeight * factor);
+          tiltAttr.setX(write, lod.baseTilts[idx]);
+          swayPhaseAttr.setX(write, lod.baseSwayPhases[idx]);
+          swayAmpAttr.setX(write, lod.baseSwayAmps[idx]);
+          write++;
+        }
+      }
+      geometry.instanceCount = write;
+      offsetsAttr.needsUpdate = true;
+      anglesAttr.needsUpdate = true;
+      seedAttr.needsUpdate = true;
+      heightAttr.needsUpdate = true;
+      tiltAttr.needsUpdate = true;
+      swayPhaseAttr.needsUpdate = true;
+      swayAmpAttr.needsUpdate = true;
+    }
   };
   return mesh;
 }
@@ -130,9 +293,12 @@ export function createGrassMesh({
 // `obstacles` should be an array of THREE.Object3D already added to the scene.
 export function cullGrassUnderObjects(grassMesh, obstacles = []) {
   if (!grassMesh || !obstacles.length) return;
-  const offsets = grassMesh.geometry.getAttribute('offset');
-  const scales = grassMesh.geometry.getAttribute('scale');
-  if (!offsets || !scales) return;
+  const lod = grassMesh.userData.lod;
+  if (!lod) return;
+  const offsets = lod.baseOffsets;
+  const heights = grassMesh.geometry.getAttribute('aHeight');
+  const baseHeights = lod.baseHeights;
+  if (!offsets || !heights || !baseHeights) return;
 
   // Precompute bounding boxes to avoid repeated allocations in the loop
   const boxes = [];
@@ -142,21 +308,22 @@ export function cullGrassUnderObjects(grassMesh, obstacles = []) {
     } catch (e) { logError(e); }
   }
 
-  for (let i = 0; i < offsets.count; i++) {
-    const x = offsets.getX(i);
-    const y = offsets.getY(i);
-    const z = offsets.getZ(i);
+  for (let i = 0; i < baseHeights.length; i++) {
+    const x = offsets[i * 3];
+    const y = offsets[i * 3 + 1];
+    const z = offsets[i * 3 + 2];
     for (const b of boxes) {
       if (
         x >= b.min.x && x <= b.max.x &&
         z >= b.min.z && z <= b.max.z &&
         y >= b.min.y && y <= b.max.y
       ) {
-        scales.setX(i, 0);
+        if (i < heights.count) heights.setX(i, 0);
+        baseHeights[i] = 0;
         break;
       }
     }
   }
-  scales.needsUpdate = true;
+  heights.needsUpdate = true;
 }
 
