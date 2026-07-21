@@ -168,7 +168,7 @@ test('defeating the Wave 5 boss triggers the first mutation offer exactly once',
   assert.equal(p.bossKills, 2);
 });
 
-test('classified milestones reveal weapon trials and the Grenade Slot 3 package', () => {
+test('classified milestones reveal primary licenses without trials and keep the Grenade Slot 3 trial', () => {
   setupLocalStorage();
   const revealed = [];
   const trials = new Set();
@@ -177,9 +177,9 @@ test('classified milestones reveal weapon trials and the Grenade Slot 3 package'
   const mutations = {
     revealClassifiedWeapon(id) { revealed.push(id); return true; },
     grantWeaponTrial(id) { trials.add(id); return true; },
-    getClassifiedWeaponDefinition(id) { return { id }; },
-    hasWeaponAccess(id) { return trials.has(id); },
-    claimClassifiedDossier() { dossierClaims += 1; return 5; },
+    getClassifiedWeaponDefinition(id) { return { id, tacticalSlot: id === 'grenade' }; },
+    isWeaponOwned() { return false; },
+    claimArchiveMilestone() { dossierClaims += 1; return 5; },
     shouldOfferAtWave() { return false; }
   };
   const ws = {
@@ -197,15 +197,19 @@ test('classified milestones reveal weapon trials and the Grenade Slot 3 package'
   p._presentOffer = () => false;
 
   p.onWave(6);
-  assert.equal(trials.has('rifle'), true);
+  assert.equal(trials.has('rifle'), false);
   p.onBossDefeated(10);
-  assert.equal(trials.has('dmr'), true);
+  assert.equal(trials.has('dmr'), false);
   p.onBossDefeated(15);
   assert.equal(trials.has('grenade'), true);
   assert.equal(grenadeSlots, 1);
   assert.equal(dossierClaims, 1);
   p.onBossDefeated(20);
   assert.equal(trials.has('dynamite'), false);
+  p.onBossDefeated(30);
+  p.onBossDefeated(45);
+  p.onBossDefeated(60);
+  assert.equal(dossierClaims, 4);
   assert.deepEqual(revealed, ['rifle', 'dmr', 'grenade']);
   assert.deepEqual(notifications, ['rifle', 'dmr', 'grenade']);
 });

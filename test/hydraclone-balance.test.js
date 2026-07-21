@@ -3,6 +3,12 @@ import assert from 'node:assert/strict';
 import * as THREE from 'three';
 
 import { BossManager } from '../src/bosses/manager.js';
+import {
+  HYDRACLONE_GENERATION_PROFILES,
+  HYDRACLONE_MIRROR_INTERCEPT,
+  HYDRACLONE_MIRROR_DAMAGE,
+  Hydraclone
+} from '../src/bosses/hydraclone.js';
 
 function makeMaterials() {
   return { head: new THREE.MeshLambertMaterial({ color: 0x111827 }) };
@@ -68,6 +74,30 @@ test('Wave 30 Hydraclone remains a boss encounter after its core splits', () => 
   }
 });
 
+test('Hydraclone descendants shed health while the Wave 30 core stays durable', () => {
+  assert.deepEqual(
+    [0, 1, 2, 3].map(generation => HYDRACLONE_GENERATION_PROFILES[generation].hp),
+    [12000, 1000, 250, 150]
+  );
+  assert.ok(HYDRACLONE_GENERATION_PROFILES[1].hp > HYDRACLONE_GENERATION_PROFILES[2].hp);
+  assert.ok(HYDRACLONE_GENERATION_PROFILES[2].hp > HYDRACLONE_GENERATION_PROFILES[3].hp);
+  assert.deepEqual(HYDRACLONE_MIRROR_DAMAGE, [12, 7, 4, 2]);
+
+  const { enemyManager } = makeManager();
+  const echo = new Hydraclone({
+    THREE,
+    mats: makeMaterials(),
+    spawnPos: new THREE.Vector3(),
+    generation: 2,
+    enemyManager,
+    bossId: 'balance-check',
+    rng: () => .5
+  });
+  assert.equal(echo.root.userData.hp, 250);
+  assert.equal(echo.root.userData.maxHp, 250);
+  Hydraclone.resetLineage('balance-check');
+});
+
 test('Hydraclone core adds an early fracture wave at 70 percent health', () => {
   const { bossManager, enemyManager, scene, player } = makeManager();
 
@@ -114,13 +144,48 @@ test('Hydraclone mirror echoes are released by a visible cast and separate into 
     core._updateCloneCast(0.28, ctx);
     assert.equal(core._mirrorClones.length, 2);
     assert.notEqual(core._mirrorClones[0].path[0].x, core._mirrorClones[1].path[0].x);
+    const echoGeometry = core._mirrorClones[0].root.getObjectByProperty('isMesh', true).geometry;
+    const echoMaterial = core._mirrorClones[0].root.getObjectByProperty('isMesh', true).material;
+    let geometryDisposed = 0;
+    let materialDisposed = 0;
+    echoGeometry.addEventListener('dispose', () => { geometryDisposed++; });
+    echoMaterial.addEventListener('dispose', () => { materialDisposed++; });
 
-    player.position.set(-0.65, 0.8, 0);
+    player.position.set(-1.2, 0.8, 0);
     core._updateMirrorClones(0.4, ctx);
     core._updateMirrorClones(0.2, ctx);
     assert.equal(hits.length, 1, 'one separated echo lane should hit the player');
     assert.equal(hits[0].damage, 12);
     assert.equal(hits[0].attribution.sourceKind, 'hydraclone_echo');
+    assert.equal(geometryDisposed, 1, 'completed mirror geometry must release its GPU resource');
+    assert.equal(materialDisposed, 1, 'completed mirror material must release its GPU resource');
+  } finally {
+    bossManager.reset();
+  }
+});
+
+test('Hydraclone mirror echoes predict sustained movement and converge ahead of the player', () => {
+  const { bossManager, scene, player } = makeManager();
+
+  try {
+    assert.equal(bossManager.startBoss(30), true);
+    const core = bossManager.boss;
+    core._playerPath = Array.from({ length: 8 }, (_, index) => (
+      new THREE.Vector3(0, 0.8, index)
+    ));
+    core._spawnMirrorClones({ scene, player });
+
+    assert.equal(core._mirrorClones.length, 2);
+    const leftPath = core._mirrorClones[0].path;
+    const rightPath = core._mirrorClones[1].path;
+    const leftEnd = leftPath.at(-1);
+    const rightEnd = rightPath.at(-1);
+    assert.ok(leftEnd.z > 7 + HYDRACLONE_MIRROR_INTERCEPT.predictionSeconds * 5);
+    assert.ok(rightEnd.z > 7 + HYDRACLONE_MIRROR_INTERCEPT.predictionSeconds * 5);
+    assert.ok(
+      Math.abs(leftEnd.x - rightEnd.x) < Math.abs(leftPath[0].x - rightPath[0].x),
+      'the two lanes should pinch toward the predicted interception point'
+    );
   } finally {
     bossManager.reset();
   }

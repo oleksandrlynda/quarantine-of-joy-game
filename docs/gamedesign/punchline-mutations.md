@@ -1,17 +1,17 @@
 # Punchline Mutations and Weapon Mastery
 
-Punchline progression separates permanent possibility unlocks, modest weapon mastery, optional stagecraft, and temporary run power. Archive purchases never grant unlimited permanent stat stacking: survival purchases add choices to the run progression pool, while cosmetic or utility purchases state their bounded permanent effect directly.
+Punchline progression separates permanent possibility unlocks, modest weapon mastery, optional stagecraft, and temporary run power. Archive purchases never grant unlimited permanent stat stacking: ranked survival purchases add choices to the run progression pool, while passive, cosmetic, or utility purchases state their bounded permanent effect directly.
 
-Current Q ability loadout: Dynamite costs 35 fragments and stores three charges with a 25-second sequential recharge; Gravity Well costs 70 and recharges in 40 seconds; Satellite Strike costs 32 and recharges in 32 seconds; Punchline Rush costs 10 and recharges in 12 seconds. One is equipped at a time, none occupies a weapon slot, and Rush no longer consumes stamina. Any older Slot 3 Dynamite notes below are superseded by this rule.
+Current Q ability loadout: Dynamite Grade I costs 28 fragments and stores two charges; Grade II costs 40 more and restores three stronger, wider charges. Both grades use a 35-second sequential recharge. Gravity Well costs 55 and recharges in 90 seconds; Satellite Strike costs 42 and recharges in 42 seconds; Punchline Rush costs 10 and recharges in 17 seconds. One is equipped at a time and none occupies a weapon slot.
 
 ## Archive and Memefragments
 
 - The first standard run has no mutation unlocks. The Archive appears after the first death.
 - Earn 1 Memefragment after every two cleared waves and 2 after each boss through Wave 15. After Wave 15, those rewards rise to 2 and 4 respectively. Tutorial and wave-skipped diagnostic runs award none and cannot alter persistent progression.
-- The first Wave 15 boss victory also grants a one-time 5-fragment Classified Dossier. This late-run injection helps fund the Grenade Launcher without accelerating the early Archive.
+- The first Wave 15 boss victory grants a one-time 5-fragment Classified Dossier. First clears of Waves 30, 45, and 60 grant Archive Cache I, II, and III for 5 fragments each. These milestone rewards cannot be farmed on repeat clears.
 - Clearing Waves 1-5 and defeating the first boss awards 4 fragments total: enough for exactly one cheapest unlock or Grade I weapon mastery.
-- Defeating the Wave 10 boss makes all four survival mutations purchasable. Irony Armor costs 4, Extended Bit costs 5, Main Character Energy costs 6, and Callback costs 20. Each is bought once to enter future run offers. Punchline Rush costs 10.
-- Weapon mastery costs 4 fragments for Grade I, 5 for Grade II, and 6 for Grade III. A complete weapon path costs 15.
+- Defeating the Wave 5 boss makes Irony Armor, Extended Bit, and Backup Broadcast purchasable. Defeating the Wave 10 boss adds Main Character Energy, Callback, Background Sync, and Deep Reserves. All seven enter future run offers after their Archive unlock.
+- Standard weapon mastery costs 4 fragments for Grade I, 5 for Grade II, and 6 for Grade III. SMG and Rifle magazine, damage, and Minigun tracks use their dedicated price curves below.
 - Mastery cards remain hidden until that weapon has been acquired at least once. Classified weapon mastery and optics require the permanent weapon license; a temporary trial does not expose or permit those purchases. Pistol mastery is visible immediately because the Pistol is the starting weapon.
 - Crowd Heckler and the SMG alternate burst have been retired. Existing owners receive a one-time 7-fragment refund during the Archive schema migration.
 - Reset All Saved Data erases the Archive, mastery grades, discoveries, and unspent fragments.
@@ -19,8 +19,8 @@ Current Q ability loadout: Dynamite costs 35 fragments and stores three charges 
 ## Run Mutation Offers
 
 - Unlocked mutations can be offered from Wave 1. Choices occur at Wave 1, after the Wave 5 boss, and at Waves 7, 9, 13, 15, 17, 19, 21, and 23. Waves 3 and 11 are intentionally skipped to avoid consecutive weapon and mutation modals.
-- Defeating the Wave 10 boss announces that survival mutations have been decoded and are now purchasable in the Archive.
-- A run has at most 10 mutation points. Buying a survival mutation once opens all ten temporary run ranks for that track.
+- Defeating the Wave 5 boss announces the Armor and stamina tracks. Defeating the Wave 10 boss announces the health and Callback tracks.
+- A run has at most 10 mutation points. Standard mutation unlocks initially allow two run ranks; four cheap Archive cap grades raise that limit to 4 / 6 / 8 / 10 for 2 / 2 / 3 / 3 fragments. These grades never grant a run effect directly.
 - Offers show up to three unlocked tracks and guarantee one already-ranked, non-maxed track when possible.
 - Weapon mastery never enters these offers and never consumes a run mutation point.
 - Weapon offers resolve before a mutation offer when schedules collide.
@@ -35,12 +35,10 @@ Classified weapons use three distinct states: hidden, revealed, and owned. Befor
 | Rifle | Reach Wave 6 | 10 | Enters future primary Armory offers |
 | DMR | Defeat the Wave 10 boss | 18 | Enters future primary Armory offers |
 | Grenade Launcher | Defeat the Wave 15 boss | 50 | Starts future standard runs in dedicated Slot 3 |
-| Dynamite — Analog Solution | Defeat the Wave 20 boss | 35 | Equippable Slot 3 timed-demolition package |
 
 - Revealing a weapon is not ownership. If the player dies during its trial, the weapon is unavailable until its license is purchased.
 - Rifle and DMR remain temporary primary choices during their reveal runs. Their licenses add possibilities rather than permanent stats.
-- Grenade Launcher and Dynamite packages include the dedicated tactical slot. Owning both creates an Archive loadout choice; only one occupies Slot 3.
-- Dynamite throws up to three sticky charges. Each bundle explodes automatically after a 2.6-second fuse across a 5.2-metre radius, rewarding prediction and commitment rather than remote control.
+- Dynamite is a cooldown-based Q ability and does not occupy the Grenade Launcher's dedicated Slot 3. Grade I throws up to two sticky charges at 108 damage and 3.1 m radius. Grade II restores three charges at 150 damage and 5.2 m radius. Every bundle uses the automatic 2.6-second fuse and 35-second sequential recharge.
 - SMG, Shotgun, Beam Saber, and Minigun remain free run discoveries so early runs retain meaningful variety.
 
 ## Survival Mutation Tracks
@@ -48,7 +46,7 @@ Classified weapons use three distinct states: hidden, revealed, and owned. Befor
 ### Irony Armor
 
 - +2 maximum and current armor per rank; cap 20.
-- Its one-time Archive purchase adds all ten temporary ranks to the run offer pool. It never grants starting armor directly.
+- Its Archive unlock adds the first two temporary ranks to the run offer pool. Rank-cap grades can expand the track to ten; none grants starting armor directly.
 - Armor absorbs incoming damage before HP. Medkits never repair it.
 - Defeating a boss repairs existing armor to its current maximum.
 - Unlocking the track does not add combat HUD noise at Rank 0. The compact armor bar appears only after a run rank creates armor capacity.
@@ -56,53 +54,75 @@ Classified weapons use three distinct states: hidden, revealed, and owned. Befor
 
 ### Main Character Energy
 
-- +2 maximum HP per rank; cap 120 total HP.
-- Its one-time Archive purchase adds all ten temporary ranks to the run offer pool. It never grants permanent HP directly.
-- Ranking does not heal the newly created capacity.
+- +2 maximum HP and +1 current HP per rank; cap 120 maximum HP.
+- Its Archive unlock adds the first two temporary ranks to the run offer pool. Rank-cap grades can expand the track to ten; none grants permanent HP directly.
 
 ### Extended Bit
 
 - +3 maximum and current stamina per rank; cap 130.
-- Its one-time Archive purchase adds all ten temporary ranks to the run offer pool. It never grants permanent stamina directly.
+- Its Archive unlock adds the first two temporary ranks to the run offer pool. Rank-cap grades can expand the track to ten; none grants permanent stamina directly.
 - Sprint/jump costs and stamina regeneration remain at baseline.
+
+### Backup Broadcast
+
+- Costs 4 Memefragments after the Wave 5 milestone and enters temporary mutation offers with a maximum run rank of one.
+- Selecting it replaces the Slot 2 Pistol with a fully stocked SMG for that run. It does not consume the primary slot.
+- If selected before Wave 2, the authored Wave 2 weapon grant becomes a Shotgun, producing a Shotgun primary plus SMG secondary instead of duplicating the SMG.
+- Death, restart, or starting a new run restores the Pistol and removes the temporary SMG until the mutation is selected again.
 
 ### Callback
 
 - Every eighth elimination releases a cyan/magenta shockwave centered on the player.
 - The shockwave deals no damage and does not stun. It pushes normal and elite enemies away from the player; bosses are immune.
 - Rank 1 begins at a 3.5-meter radius and 1.4-meter push. Each rank adds 0.2 meters of radius and 0.1 meters of push, reaching 5.3/2.3 meters at Rank 10.
-- Its one-time 20-fragment Archive purchase adds all ten temporary ranks to the run offer pool. The elimination counter resets between runs and does not advance before the first run rank is selected.
+- Its 15-fragment Archive unlock adds the first two temporary ranks to the run offer pool. Rank-cap grades can expand the track to ten. The elimination counter resets between runs and does not advance before the first run rank is selected.
+
+## Ammunition Mutation Tracks
+
+### Background Sync
+
+- Costs 6 Memefragments after the Wave 10 milestone and enters temporary mutation offers with a maximum run rank of one.
+- Once selected during that run, while the primary weapon holds less than 50% of its combined magazine-and-reserve capacity, it regenerates 5% of that weapon's unupgraded base reserve every 10 active gameplay seconds.
+- Fractional rounds carry between ticks, so one uninterrupted minute restores SMG 32, Rifle 19, Shotgun 7, DMR 10, or Minigun 108 reserve rounds.
+- Pistol, Grenade Launcher, and Beam Saber are excluded. Paused time does not advance the interval.
+
+### Deep Reserves
+
+- Costs 3 fragments to unlock with a two-rank run cap; one additional 3-fragment Archive grade raises that cap to four.
+- Every selected run rank adds 30% of the weapon's unupgraded base reserve to its hard reserve limit: 130%, 160%, 190%, then 220%.
+- The bonus is additive with weapon-specific starting-reserve mastery. A Grade III Minigun keeps its 660-round mastered reserve and reaches 1,092 at Deep Reserves Run Rank 4.
+- A larger limit does not accelerate Background Sync; regeneration always derives from the unupgraded base reserve.
+- Ordinary enemy-dropped ammo expires after 30 active gameplay seconds and visibly fades during its final 8 seconds. Boss, supply, tutorial, and authored-world ammunition retains the standard 75-second lifetime.
 
 ## Stagecraft: Overkill Confetti
 
 - This optional Archive purchase never enters run mutation offers.
-- Grade I costs 3 fragments and adds a colorful confetti burst to every tenth regular-enemy elimination.
-- Grade II costs 7 fragments and also restores 2 HP on that tenth elimination, clamped by maximum health.
+- Grades cost 2 / 4 / 7 fragments. Grade I adds a colorful confetti burst to every tenth regular-enemy elimination, Grade II restores 1 HP, and Grade III restores 2 HP, clamped by maximum health.
 - Bosses and tutorial eliminations do not advance the counter. The counter resets between runs.
 - Players who do not purchase Grade I never see the effect, preserving the restrained baseline presentation.
 
 ## Stagecraft: Algorithm Roulette
 
-- This two-grade Archive item costs 3/7 fragments and never enters run mutation offers.
+- This three-grade Archive item costs 2 / 4 / 7 fragments and never enters run mutation offers.
 - An injured owner must fire seven eligible projectile shots steeply into the sky to ask for a verdict, with at most one verdict per wave.
-- Grade I resolves at 51% for up to +5 HP and 49% for -7 HP. Grade II improves this to 52% for up to +6 HP and 48% for -6 HP.
+- Grade I resolves at 50% for +5 HP and 50% for -5 HP. Grade II improves this to 52% for up to +6 HP and 48% for -6 HP. Grade III keeps those odds and neutralizes the first losing verdict in each five-wave boss cycle.
 - A loss bypasses armor but cannot trigger when the player has fewer than 8 HP.
 - Full-health players, tutorials, Beam Saber attacks, ordinary aim angles, and players without Grade I cannot advance the seven-shot counter.
-- Grade I has negative expected health value; Grade II becomes slightly positive (+0.24 HP per verdict), bounded by seven spent shots and one verdict per wave.
+- Grade I has neutral expected health value. Grade II becomes slightly positive (+0.24 HP per verdict), bounded by seven spent shots and one verdict per wave.
 
 ## Stagecraft: Opening Act
 
-- This two-grade Archive item costs 3/7 fragments and never enters run mutation offers.
+- This three-grade Archive item costs 2 / 4 / 7 fragments and never enters run mutation offers.
 - Grade I gives the first regular enemy defeated in each non-boss wave a short launched-and-spinning model death plus a localized stage cue.
-- Grade II strengthens the launch and pauses combo decay for 3 seconds. It does not add damage, ammunition, or kill credit.
+- Grade II strengthens the launch. Grade III pauses combo decay for 3 seconds. It does not add damage, ammunition, or kill credit.
 - Bosses, tutorials, reinforcements during boss waves, and later eliminations in the same wave never trigger it.
 - Combat removes the enemy from AI and awards the kill immediately; only its rendered model remains briefly for the animation, so wave progression is not delayed.
 
 ## Stagecraft: Final Cut
 
-- This two-grade Archive item costs 5/10 fragments and never enters run mutation offers.
+- This three-grade Archive item costs 3 / 5 / 7 fragments and never enters run mutation offers.
 - Grade I gives the last regular enemy defeated in each non-boss wave a brief cinematic hang followed by a directed fall and double-ring impact cue.
-- Grade II extends the fall and restores up to 10 stamina, capped by the current run maximum.
+- Grade II extends the fall and unlocks the advanced variants. Grade III restores up to 10 stamina and protects combo decay for 3 seconds across the wave transition.
 - Grounded Grade I deterministically selects Backdrop or Fold. Grounded Grade II adds Side Exit and has a 10% chance to use Fall Apart: major body sections detach, spread within a controlled radius, and settle on the floor without becoming damaging debris.
 - Airborne enemies use Signal Lost; Grade II airborne enemies have a 10% chance to receive Corkscrew instead.
 - Variant selection is derived from wave, enemy type, and elimination index so seeded playbacks remain stable. All six treatments run for roughly 1.1-1.5 seconds.
@@ -122,14 +142,14 @@ Mastery is deliberately modest. Standard magazine upgrades do not change reserve
 | Pistol damage | 100% | 105% | 110% | 115% |
 | DMR magazine | 12 | 13 | 14 | 15 |
 | Shotgun base damage per pellet | 12.0 | 12.5 | 13.0 | 13.5 |
-| Minigun magazine / reserve / damage / spread | 200 / 300 / 100% / 100% | 240 / 360 / 110% / 90% | 280 / 440 / 120% / 80% | 320 / 540 / 130% / 70% |
+| Minigun magazine / reserve / damage / spread | 200 / 360 / 100% / 100% | 240 / 440 / 110% / 90% | 280 / 540 / 120% / 80% | 320 / 660 / 130% / 70% |
 | Beam Saber alternate | charged slash | 2 hits / 52 | 2 hits / 56 | 2 hits / 60 |
 
 - Pistol mastery scales all hit zones equally. Grade III torso damage is 25.3, producing a four-shot 100-HP breakpoint without changing the two-headshot identity.
 - Shotgun mastery scales head and limb pellet damage by the same ratio as torso damage. Spread, pellet count, range, and pump cadence are unchanged.
 - SMG and Rifle magazine tracks cost 4 / 6 / 8 fragments. They are accessible utility upgrades and do not increase damage or reserve ammunition.
-- SMG and Rifle damage tracks cost 10 / 20 / 32 fragments. Each grade adds 5% damage independently of magazine progression, making damage a deliberate premium investment.
-- Minigun mastery costs 10 / 24 / 38 fragments. Each grade adds 40 magazine rounds, 10% damage, reduces total spread by 10%, and raises starting reserve to 360 / 440 / 540. Pickup yield is unchanged.
+- SMG and Rifle damage tracks cost 8 / 14 / 20 fragments. Each grade adds 5% damage independently of magazine progression, making damage a deliberate premium investment.
+- Minigun mastery costs 10 / 24 / 38 fragments. Each grade adds 40 magazine rounds, 10% damage, reduces total spread by 10%, and raises starting reserve to 440 / 540 / 660. Minigun ammo pickups use a dedicated 4.0x heavy-weapon multiplier.
 - Beam Saber Grade I replaces the hold-to-charge alternate with two rapid slashes 160 ms apart. Each hit builds combo; the second slash has the wider heavy arc and stronger push. Its 700 ms lockout and 60-damage cap keep two normal primary slashes superior for raw damage.
 - SMG no longer has an alternate attack. This restores the Shotgun as the dedicated close-range burst weapon.
 
@@ -144,8 +164,8 @@ Mastery is deliberately modest. Standard magazine upgrades do not change reserve
 
 ## Permanent Weapon Optics
 
-- Rifle Focus Lens costs 20 Memefragments and permanently enables 1.5× right-click zoom after the Rifle license has been purchased.
-- DMR Longform Scope costs 30 Memefragments and permanently enables 3× right-click zoom after the DMR license has been purchased.
+- Rifle Focus Lens costs 15 Memefragments and permanently enables 1.5× right-click zoom after the Rifle license has been purchased.
+- DMR Longform Scope costs 18 Memefragments and permanently enables 3× right-click zoom after the DMR license has been purchased.
 - Before purchase, right-click does nothing and the mobile ALT button stays hidden. Neither weapon loses baseline accuracy or damage.
 - Optics are expensive utility unlocks, not required damage purchases; they never enter temporary run offers.
 

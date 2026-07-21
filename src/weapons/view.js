@@ -2,7 +2,7 @@ import { logError } from '../util/log.js';
 import { buildWeaponModel, createWeaponGeometryPool, WEAPON_MUZZLE_AXES } from './models.js';
 
 const WEAPON_VIEW_LENGTHS = Object.freeze({
-  pistol: .2646,
+  pistol: .225,
   rifle: .72,
   smg: .48,
   shotgun: .70,
@@ -29,6 +29,34 @@ const WEAPON_ACTION_DURATIONS = Object.freeze({
   beamsaber: .16
 });
 
+function createWeaponDetailTexture(THREE, { base = [132, 145, 139], accent = null } = {}) {
+  const width = 16;
+  const height = 8;
+  const data = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const border = x === 0 || x === width - 1 || y === 0 || y === height - 1;
+      const centerRail = (y === 3 || y === 4) && x >= 3 && x <= 12;
+      const notch = (x === 3 || x === 12) && y >= 2 && y <= 5;
+      const bolt = (x === 2 || x === 13) && (y === 2 || y === 5);
+      if (!border && !centerRail && !notch && !bolt) continue;
+      const offset = (y * width + x) * 4;
+      const blueAccent = accent && y === 3 && x >= 6 && x <= 10;
+      const color = blueAccent ? accent : base;
+      data[offset] = color[0];
+      data[offset + 1] = color[1];
+      data[offset + 2] = color[2];
+      data[offset + 3] = border ? 220 : 255;
+    }
+  }
+  const texture = new THREE.DataTexture(data, width, height, THREE.RGBAFormat);
+  texture.magFilter = THREE.NearestFilter;
+  texture.minFilter = THREE.NearestFilter;
+  texture.generateMipmaps = false;
+  texture.needsUpdate = true;
+  return texture;
+}
+
 export class WeaponView {
     constructor(THREE, camera){
       this.THREE = THREE;
@@ -51,7 +79,7 @@ export class WeaponView {
       this.sockets.muzzle.position.copy(this._muzzleLocal);
   
       // hip offset (початкова позиція зброї у камері)
-      this._hipOffset = new THREE.Vector3(0.12, -0.08, 0.0);
+      this._hipOffset = new THREE.Vector3(0.135, -0.105, 0.0);
       this._adsOffset = new THREE.Vector3();
       this._sprintOffset = new THREE.Vector3();
       this._offsetTarget = new THREE.Vector3();
@@ -106,14 +134,47 @@ export class WeaponView {
       this._kRot = 55.0;
       this._damp = 10.0;  
   
-      // Camera-attached viewmodels use unlit materials. This keeps their palette
-      // stable and avoids paying for world-lighting shaders while the camera moves.
-      this._matMetal = new THREE.MeshBasicMaterial({ color: 0x7f8983 });
-      this._matBody  = new THREE.MeshBasicMaterial({ color: 0x202722 });
-      this._matDark  = new THREE.MeshBasicMaterial({ color: 0x0c110e });
-      this._matGrip  = new THREE.MeshBasicMaterial({ color: 0x303832 });
-      this._matWhite = new THREE.MeshBasicMaterial({ color: 0xe1e7e1 });
-      this._matGlass = new THREE.MeshBasicMaterial({ color: 0x72d8e4 });
+      // Camera-attached viewmodels stay unlit and texture-free for predictable
+      // cost. A stepped charcoal palette gives adjacent parts readable values
+      // even when the world is in a dark weather state.
+      this._matMetal = new THREE.MeshBasicMaterial({ color: 0x8c9b94 });
+      this._matBody  = new THREE.MeshBasicMaterial({ color: 0x303b35 });
+      this._matDark  = new THREE.MeshBasicMaterial({ color: 0x18211d });
+      this._matGrip  = new THREE.MeshBasicMaterial({ color: 0x414c45 });
+      this._matWhite = new THREE.MeshBasicMaterial({ color: 0xd7dfd9 });
+      this._matRifleWhite = new THREE.MeshBasicMaterial({ color: 0xaebbc0 });
+      this._matGlass = new THREE.MeshBasicMaterial({ color: 0x79ddea });
+      this._surfaceDetailGeometry = new THREE.PlaneGeometry(1, 1);
+      this._surfaceDetailTexture = createWeaponDetailTexture(THREE);
+      this._rifleDetailTexture = createWeaponDetailTexture(THREE, {
+        base: [38, 50, 56],
+        accent: [69, 166, 255]
+      });
+      this._matDetail = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        map: this._surfaceDetailTexture,
+        transparent: true,
+        alphaTest: .18,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        toneMapped: false
+      });
+      this._matRifleDetail = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        map: this._rifleDetailTexture,
+        transparent: true,
+        alphaTest: .18,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        toneMapped: false
+      });
+      this._matOutline = new THREE.LineBasicMaterial({
+        color: 0x69746f,
+        transparent: true,
+        opacity: .72,
+        depthWrite: false,
+        toneMapped: false
+      });
       this._weaponAccents = new Map([
         ['pistol', new THREE.MeshBasicMaterial({ color: 0xd7ff3f })],
         ['rifle', new THREE.MeshBasicMaterial({ color: 0x45a6ff })],
@@ -157,7 +218,7 @@ export class WeaponView {
           };
         }
         this._debugOriginalMaterials.clear();
-        for (const object of this._current?.meshes || []) {
+        for (const object of this._current?.renderables || this._current?.meshes || []) {
           if (!object?.material) continue;
           this._debugOriginalMaterials.set(object, object.material);
           object.material = object.isLine
@@ -338,6 +399,25 @@ export class WeaponView {
     }
   
     // ---------- building ----------
+    addModelOutlines(meshes){
+      const geometries = new Map();
+      const lines = [];
+      for (const mesh of meshes || []) {
+        if (!mesh?.geometry || mesh.userData.part === 'surfaceDetail' || mesh.material === this._matBlade) continue;
+        let geometry = geometries.get(mesh.geometry);
+        if (!geometry) {
+          geometry = new this.THREE.EdgesGeometry(mesh.geometry, 38);
+          geometries.set(mesh.geometry, geometry);
+        }
+        const outline = new this.THREE.LineSegments(geometry, this._matOutline);
+        outline.name = 'weaponBoundaryOutline';
+        outline.renderOrder = 5;
+        mesh.add(outline);
+        lines.push(outline);
+      }
+      return { geometries: [...geometries.values()], lines };
+    }
+
     clear(){
       if (!this._current) return;
       if (this.debugBasicMaterial) this.setDebugBasicMaterial(false);
@@ -347,6 +427,7 @@ export class WeaponView {
         }
         for (const node of this._current.nodes||[]) node.removeFromParent();
         for (const geometry of this._current.geometries||[]) geometry.dispose();
+        for (const geometry of this._current.outlineGeometries||[]) geometry.dispose();
       } catch (e) { logError(e); }
       this._current = null;
       this._spinnerVelocity = 0;
@@ -373,12 +454,15 @@ export class WeaponView {
           metal: this._matMetal,
           dark: this._matDark,
           grip: this._matGrip,
-          white: this._matWhite,
+          white: weaponKey === 'rifle' ? this._matRifleWhite : this._matWhite,
           glass: this._matGlass,
           accent,
+          detail: weaponKey === 'rifle' ? this._matRifleDetail : this._matDetail,
           blade: this._matBlade
-        }
+        },
+        surfaceDetailGeometry: this._surfaceDetailGeometry
       });
+      const outlines = this.addModelOutlines(built.meshes);
 
       // Lab models face +X. Rotate that exact assembly into the game's -Z
       // view direction, then mount its rear face beyond the camera near plane.
@@ -416,8 +500,10 @@ export class WeaponView {
       this.sockets.muzzle.position.copy(this._muzzleLocal);
       this._current = {
         meshes: built.meshes,
+        renderables: [...built.meshes, ...outlines.lines],
         nodes: [built.root],
         geometries: Object.values(geometryPool),
+        outlineGeometries: outlines.geometries,
         actionParts: built.actionParts,
         spinner: built.spinner,
         weaponKey

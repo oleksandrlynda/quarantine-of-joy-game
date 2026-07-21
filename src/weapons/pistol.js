@@ -1,5 +1,5 @@
 import { Weapon } from './base.js';
-import { performHitscan } from './hitscan.js';
+import { performHitscan } from './hitscan.js?rev=collision7';
 import { logError } from '../util/log.js';
 
 export class Pistol extends Weapon {
@@ -14,6 +14,77 @@ export class Pistol extends Weapon {
     this._baseSpread = 0.0035; // slightly less accurate than rifle
     this._bloom = 0;
     this._maxBloom = 0.02;
+    this._nextMeleeAtMs = 0;
+    this._meleeDelayMs = 450;
+    this._meleeRange = 3;
+    this._meleeDamage = 10;
+  }
+
+  hasAltFire() {
+    return true;
+  }
+
+  altTriggerDown(ctx) {
+    const now = performance.now();
+    if (now < this._nextMeleeAtMs) return false;
+    this._nextMeleeAtMs = now + this._meleeDelayMs;
+
+    const { THREE, camera, raycaster, enemyManager, objects, effects, S, pickups, addScore, addComboAction, obstacleManager } = ctx;
+    ctx.weaponView?.startSlash?.({ dur: 0.2, angle: 1.35 });
+    if (!THREE || !camera || !raycaster || !enemyManager) return true;
+
+    const origin = camera.getWorldPosition(new THREE.Vector3());
+    const dir = camera.getWorldDirection(new THREE.Vector3()).normalize();
+    const res = performHitscan({
+      THREE,
+      camera,
+      raycaster,
+      enemyManager,
+      objects,
+      origin,
+      dir,
+      range: this._meleeRange
+    });
+
+    if (res.type === 'enemy' && res.enemyRoot) {
+      const target = res.enemyRoot;
+      const damage = this._meleeDamage * (ctx.mutations?.getPistolDamageMultiplier?.() ?? 1);
+      ctx.attackId = `${this.name}:Melee:${++this._attackSequence}`;
+      target.userData.hp -= damage;
+      const killed = target.userData.hp <= 0;
+      this.recordCombatHit(ctx, target, { damage, killed, distance: res.distance || 0 });
+      try { window._HUD?.showHitmarker?.(); } catch (e) { logError(e); }
+      effects?.spawnBulletImpact?.(res.endPoint, res.hitFace?.normal);
+      S?.impactFlesh?.();
+      S?.enemyPain?.(target.userData?.type || 'grunt');
+
+      if (killed) {
+        effects?.enemyDeath?.(target.position.clone());
+        S?.enemyDeath?.(target.userData?.type || 'grunt');
+        if (target.userData?.type === 'tank') {
+          pickups?.dropMultiple?.('random', target.position.clone(), 3 + (Math.random() * 2 | 0));
+        } else {
+          pickups?.maybeDrop?.(target.position.clone());
+        }
+        enemyManager.remove(target);
+        addScore?.(Math.round(100 * (ctx.combo?.multiplier || 1)));
+        addComboAction?.(1);
+      } else {
+        addComboAction?.(0.25);
+      }
+    } else if (res.type === 'world') {
+      obstacleManager?.handleHit?.(res.hitObject, this._meleeDamage);
+      effects?.spawnBulletImpact?.(res.hitPoint, res.hitFace?.normal);
+      S?.impactWorld?.();
+    }
+
+    ctx.updateHUD?.();
+    return true;
+  }
+
+  reset() {
+    this._nextMeleeAtMs = 0;
+    super.reset();
   }
 
   onFire(ctx) {

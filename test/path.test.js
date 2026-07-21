@@ -42,6 +42,36 @@ test('nextWaypoint advances along the cached path', async () => {
   clear(enemy);
 });
 
+test('grid rasterization treats mirrored navigable goals equally near an obstacle', () => {
+  const relayBase = { min: { x: -2.85, z: -10 }, max: { x: 2.85, z: -4 } };
+  const options = { gridSize: 0.75, radius: 56, agentRadius: 0.73 };
+  const westPath = findPath({ x: -27, z: 3.5 }, { x: -4, z: -7 }, [relayBase], options);
+  const eastPath = findPath({ x: 27, z: -9 }, { x: 4, z: -7 }, [relayBase], options);
+
+  assert.ok(westPath.length > 0);
+  assert.ok(eastPath.length > 0);
+  assert.deepEqual(westPath.at(-1), { x: -4, z: -7 });
+  assert.deepEqual(eastPath.at(-1), { x: 4, z: -7 });
+});
+
+test('fractional Wave 13 start advances past the southeast roadblock', async () => {
+  const start = { x: 22.9, z: 13.5 };
+  const goal = { x: 0.4, z: 9.2 };
+  const roadblock = { min: { x: 15, z: 11 }, max: { x: 22, z: 15 } };
+  const options = { gridSize: 1, radius: 20, agentRadius: 0.6, cacheFor: 1 };
+  const path = findPath(start, goal, [roadblock], options);
+
+  assert.ok(path.length > 2);
+  assert.deepEqual(path[0], start, 'the first waypoint must not snap back into roadblock collision');
+  assert.deepEqual(path.at(-1), goal);
+
+  const enemy = { position: { ...start } };
+  const cachedPath = await recomputeIfStale(enemy, goal, [roadblock], options);
+  assert.deepEqual(cachedPath[0], start);
+  assert.deepEqual(nextWaypoint(enemy), cachedPath[1], 'an enemy at the exact start must advance immediately');
+  clear(enemy);
+});
+
 test('nextWaypoint remains null on repeated ticks after the cached path is exhausted', async () => {
   const enemy = { position: { x: 0, z: 0 } };
   const player = { x: 5, z: 0 };

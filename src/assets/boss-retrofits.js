@@ -4,6 +4,12 @@ import { createAdZeppelinAsset, createInfluencerCaptainAsset } from './boss_capt
 import { createShardAvatarAsset } from './boss_shard_avatar.js';
 import { createHydracloneAsset } from './boss_hydraclone.js';
 import { createStrikeAdjudicatorAsset } from './boss_adjudicator.js';
+import { batchRigidAsset } from './rigid-batching.js';
+
+function finalizeBoss(THREE, built) {
+  batchRigidAsset({ THREE, built });
+  return built;
+}
 
 function material(THREE, color, emissiveIntensity = 0) {
   return new THREE.MeshLambertMaterial({
@@ -78,7 +84,7 @@ export function createEnhancedBroodmakerAsset({ THREE, mats, scale = 1, palette,
 
   root.userData.forwardAxis = '+Z';
   root.userData.retrofit = 'broodmaker-mk2';
-  return built;
+  return finalizeBoss(THREE, built);
 }
 
 export function createEnhancedSanitizerAsset({ THREE, mats, scale = 1, palette } = {}) {
@@ -116,7 +122,7 @@ export function createEnhancedSanitizerAsset({ THREE, mats, scale = 1, palette }
   root.userData.forwardAxis = '+Z';
   root.userData.axisFix = 'baton-tip -Z to +Z';
   root.userData.retrofit = 'sanitizer-mk2';
-  return built;
+  return finalizeBoss(THREE, built);
 }
 
 export function createEnhancedCaptainAsset({ THREE, mats, scale = 1.2, palette } = {}) {
@@ -169,7 +175,7 @@ export function createEnhancedCaptainAsset({ THREE, mats, scale = 1.2, palette }
   root.userData.forwardAxis = '+Z';
   root.userData.axisFix = 'gun/muzzle -Z to +Z';
   root.userData.retrofit = 'captain-mk2';
-  return built;
+  return finalizeBoss(THREE, built);
 }
 
 export function createEnhancedZeppelinAsset({ THREE, mats, scale = 2, podCount = 3, palette } = {}) {
@@ -252,6 +258,7 @@ export function createEnhancedZeppelinAsset({ THREE, mats, scale = 2, podCount =
   });
 
   refs.tailPlanes = tailPlanes;
+  refs.hullParts = hullParts;
   refs.hullStruts = hullStruts;
   refs.bombBay = bombBay;
   refs.podStruts = podStruts;
@@ -259,7 +266,7 @@ export function createEnhancedZeppelinAsset({ THREE, mats, scale = 2, podCount =
   root.userData.forwardAxis = '+X';
   root.userData.axisFix = 'longitudinal Z hull to runtime +X flight axis';
   root.userData.retrofit = 'zeppelin-mk4';
-  return built;
+  return finalizeBoss(THREE, built);
 }
 
 export function createEnhancedShardAvatarAsset({ THREE, mats, scale = 1.2, palette } = {}) {
@@ -291,7 +298,7 @@ export function createEnhancedShardAvatarAsset({ THREE, mats, scale = 1.2, palet
 
   root.userData.forwardAxis = 'radial';
   root.userData.retrofit = 'shard-avatar-mk2';
-  return built;
+  return finalizeBoss(THREE, built);
 }
 
 export function createEnhancedHydracloneAsset({ THREE, mats, generation = 0, scale, palette } = {}) {
@@ -322,7 +329,7 @@ export function createEnhancedHydracloneAsset({ THREE, mats, generation = 0, sca
 
   root.userData.forwardAxis = '+Z';
   root.userData.retrofit = 'hydraclone-mk2';
-  return built;
+  return finalizeBoss(THREE, built);
 }
 
 export function createEnhancedAdjudicatorAsset({ THREE, mats, scale = 1, palette } = {}) {
@@ -362,5 +369,5 @@ export function createEnhancedAdjudicatorAsset({ THREE, mats, scale = 1, palette
   root.userData.forwardAxis = '+Z';
   root.userData.axisFix = 'gavel/impact -Z to +Z';
   root.userData.retrofit = 'adjudicator-mk2';
-  return built;
+  return finalizeBoss(THREE, built);
 }

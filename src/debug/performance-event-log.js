@@ -162,6 +162,7 @@ export class PerformanceEventLog {
   constructor({
     enabled = false,
     maxEvents = 1000,
+    persistenceEnabled = true,
     storage,
     storageKey = DEFAULT_STORAGE_KEY,
     now,
@@ -179,6 +180,7 @@ export class PerformanceEventLog {
     this.enabled = enabled === true;
     if (!this.enabled) return;
     this.maxEvents = Math.max(1, Math.floor(maxEvents));
+    this.persistenceEnabled = persistenceEnabled !== false;
     this.phaseTimingKeys = [
       'playerSimulationMs', 'enemyAiMs', 'effectsPickupsMs',
       'weatherAudioMs', 'housekeepingMs', 'renderMs',
@@ -222,7 +224,7 @@ export class PerformanceEventLog {
     this._frameWindow = createFrameWindow(this._pageStartedAt, this.phaseTimingKeys);
     this._boundPageHide = () => this.flush();
 
-    const restored = this._restore();
+    const restored = this.persistenceEnabled ? this._restore() : null;
     this.pageId = randomId('page');
     this.sessionId = restored?.sessionId || randomId('session');
     this.sessionStartedAt = finiteNumber(restored?.sessionStartedAt, this.wallNow());
@@ -671,7 +673,9 @@ export class PerformanceEventLog {
     this.nextSeq = 1;
     this._dirty = false;
     this._cancelPersist();
-    try { this.storage?.removeItem?.(this.storageKey); } catch {}
+    if (this.persistenceEnabled) {
+      try { this.storage?.removeItem?.(this.storageKey); } catch {}
+    }
     for (const subscriber of this.subscribers) {
       try { subscriber(null); } catch {}
     }
@@ -684,7 +688,7 @@ export class PerformanceEventLog {
   }
 
   _schedulePersist() {
-    if (!this.enabled || this._persistTimer != null || typeof this.setTimeoutFn !== 'function') return;
+    if (!this.enabled || !this.persistenceEnabled || this._persistTimer != null || typeof this.setTimeoutFn !== 'function') return;
     this._persistTimer = this.setTimeoutFn(() => {
       this._persistTimer = null;
       if (typeof this.requestIdleCallbackFn === 'function') {
@@ -706,7 +710,7 @@ export class PerformanceEventLog {
   }
 
   flush() {
-    if (!this.enabled || !this._dirty) return false;
+    if (!this.enabled || !this.persistenceEnabled || !this._dirty) return false;
     this._cancelPersist();
     const startedAt = this.now();
     try {

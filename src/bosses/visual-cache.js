@@ -81,6 +81,42 @@ export function createCaptainZoneVisual({ THREE }) {
   return { root: built.root, refs: built.refs };
 }
 
+export function createZeppelinBombMarkerVisual({ THREE }) {
+  const built = clone(THREE, 'zeppelin-bomb-marker:warning:3.2', () => {
+    const asset = createAdZoneMarkerAsset({
+      THREE,
+      radius: 3.2,
+      palette: { ring: 0xffd166, fill: 0xff6b35 }
+    });
+    return { root: asset.root, head: null, refs: asset.refs };
+  });
+  cloneNodeMaterial(built.refs?.ring);
+  cloneNodeMaterial(built.refs?.disk);
+  return { root: built.root, refs: built.refs };
+}
+
+export function createZeppelinBombVisual({ THREE }) {
+  const built = clone(THREE, 'zeppelin-bomb:1', () => {
+    const root = new THREE.Group();
+    const material = new THREE.MeshLambertMaterial({ color: 0x273449, emissive: 0x4a2508 });
+    const body = new THREE.Mesh(
+      getBossSharedGeometry(THREE, 'zeppelin-bomb-body', () => new THREE.CylinderGeometry(0.14, 0.22, 0.72, 8)),
+      material
+    );
+    const nose = new THREE.Mesh(
+      getBossSharedGeometry(THREE, 'zeppelin-bomb-nose', () => new THREE.ConeGeometry(0.22, 0.32, 8)),
+      material
+    );
+    nose.position.y = -0.5;
+    nose.rotation.z = Math.PI;
+    root.add(body, nose);
+    return { root, head: null, refs: { body, nose } };
+  });
+  const material = cloneSharedMaterial([built.refs?.body, built.refs?.nose]);
+  if (material) material.emissive?.setHex?.(0x4a2508);
+  return { root: built.root, refs: built.refs };
+}
+
 function captainBoltTemplate(THREE) {
   return template(THREE, 'captain-volley-bolt:1', () => {
     const root = new THREE.Group();

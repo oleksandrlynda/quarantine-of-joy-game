@@ -63,7 +63,8 @@ export class HealerEnemy {
     this._lastCtx = ctx;
     const playerPos = ctx.player.position.clone();
 
-    if (!this._bombArmed && ctx.enemyManager?.isLastWaveEnemy?.(root)) {
+    const supportOnlyLeader = ctx.enemyManager?.isSupportOnlyWaveLeader?.(root) === true;
+    if (!this._bombArmed && (ctx.enemyManager?.isLastWaveEnemy?.(root) || supportOnlyLeader)) {
       this._armLastSurvivorBomb(ctx);
     }
     if (this._bombArmed) {
@@ -150,6 +151,7 @@ export class HealerEnemy {
       if (material.emissiveIntensity != null) material.emissiveIntensity = 1.5;
     }
     ctx.emitAIEvent?.(this.root, 'healer_bomb_armed', {
+      supportOnlyWave: ctx.enemyManager?.isSupportOnlyWaveLeader?.(this.root) === true,
       currentHpFraction: HEALER_LAST_SURVIVOR_BOMB.currentHpFraction,
       radius: HEALER_LAST_SURVIVOR_BOMB.radius
     });
@@ -188,6 +190,10 @@ export class HealerEnemy {
     if (this._bombExploded) return;
     this._bombExploded = true;
     const root = this.root;
+    // EnemyManager removes the Healer at its current HP after this production
+    // ability. Mark the intentional elimination before remove() so QA and
+    // progression can distinguish it from wave/reset cleanup.
+    root.userData.productionSelfDestruct = true;
     const pos = root.position.clone();
     const currentHp = Number(
       ctx?.player?.userData?.combatHp

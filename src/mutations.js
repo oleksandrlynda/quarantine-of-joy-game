@@ -1,38 +1,58 @@
 import { getJSON, setJSON } from './util/storage.js';
-import { ABILITY_BY_ID, normalizeAbilityId } from './abilities/definitions.js';
+import { ABILITY_BY_ID, normalizeAbilityId } from './abilities/definitions.js?v=1.0.3-dynamite-grade2';
 
 export const ARCHIVE_STORAGE_KEY = 'qoj_archive_v1';
-export const ARCHIVE_SCHEMA_VERSION = 9;
+export const ARCHIVE_SCHEMA_VERSION = 11;
+export const SURVIVAL_EARLY_UNLOCK_WAVE = 5;
 export const SURVIVAL_UNLOCK_WAVE = 10;
+export const ARCHIVE_MILESTONE_WAVES = Object.freeze([15, 30, 45, 60]);
 export const MUTATION_OFFER_WAVES = Object.freeze([1, 7, 9, 13, 15, 17, 19, 21, 23]);
 export const MAX_RUN_MUTATION_POINTS = 10;
 export const CROWD_HECKLER_REFUND = 7;
 export const CALLBACK_ELIMINATION_CADENCE = 8;
+export const AMMO_REGEN_INTERVAL_SECONDS = 10;
+export const AMMO_REGEN_BASE_RESERVE_RATE = 0.05;
+export const RESERVE_EXPANSION_PER_GRADE = 0.30;
+export const STANDARD_MUTATION_RANK_CAPS = Object.freeze([2, 4, 6, 8, 10]);
+export const STANDARD_MUTATION_RANK_UPGRADE_COSTS = Object.freeze([2, 2, 3, 3]);
+
+export function resolveDebugShopCredits(params) {
+  if (!params?.get) return null;
+  const raw = params.get('credits') ?? params.get('fragments');
+  if (raw != null && raw !== '') {
+    const requested = Math.floor(Number(raw));
+    if (Number.isFinite(requested)) return Math.max(200, Math.min(400, requested));
+  }
+  return params.get('shop') === '1' || params.get('archive') === '1' ? 300 : null;
+}
 
 export const CLASSIFIED_WEAPON_DEFINITIONS = Object.freeze([
-  Object.freeze({ id: 'rifle', cost: 10, revealType: 'wave', revealWave: 6, revealKey: 'classified.rifle.reveal', nameKey: 'classified.rifle.name', descriptionKey: 'classified.rifle.desc' }),
-  Object.freeze({ id: 'dmr', cost: 18, revealType: 'boss', revealWave: 10, revealKey: 'classified.dmr.reveal', nameKey: 'classified.dmr.name', descriptionKey: 'classified.dmr.desc' }),
-  Object.freeze({ id: 'grenade', cost: 50, revealType: 'boss', revealWave: 15, revealKey: 'classified.grenade.reveal', grantsThirdSlot: true, tacticalSlot: true, nameKey: 'classified.grenade.name', descriptionKey: 'classified.grenade.desc' })
+  Object.freeze({ id: 'rifle', cost: 10, revealType: 'wave', revealWave: 6, revealKey: 'classified.rifle.reveal', revealedKey: 'classified.rifle.revealed', nameKey: 'classified.rifle.name', descriptionKey: 'classified.rifle.desc' }),
+  Object.freeze({ id: 'dmr', cost: 18, revealType: 'boss', revealWave: 10, revealKey: 'classified.dmr.reveal', revealedKey: 'classified.dmr.revealed', nameKey: 'classified.dmr.name', descriptionKey: 'classified.dmr.desc' }),
+  Object.freeze({ id: 'grenade', cost: 50, revealType: 'boss', revealWave: 15, revealKey: 'classified.grenade.reveal', revealedKey: 'classified.grenade.revealed', grantsThirdSlot: true, tacticalSlot: true, nameKey: 'classified.grenade.name', descriptionKey: 'classified.grenade.desc' })
 ]);
 
 export const MUTATION_DEFINITIONS = Object.freeze([
-  Object.freeze({ id: 'irony_armor', category: 'survival', cost: 4, unlockWave: SURVIVAL_UNLOCK_WAVE, nameKey: 'mutation.armor.name', descriptionKey: 'mutation.armor.desc', maxRank: 10 }),
-  Object.freeze({ id: 'extended_bit', category: 'survival', cost: 5, unlockWave: SURVIVAL_UNLOCK_WAVE, nameKey: 'mutation.stamina.name', descriptionKey: 'mutation.stamina.desc', maxRank: 10 }),
-  Object.freeze({ id: 'main_character_energy', category: 'survival', cost: 6, unlockWave: SURVIVAL_UNLOCK_WAVE, nameKey: 'mutation.health.name', descriptionKey: 'mutation.health.desc', maxRank: 10 }),
-  Object.freeze({ id: 'callback', category: 'survival', cost: 20, unlockWave: SURVIVAL_UNLOCK_WAVE, nameKey: 'mutation.callback.name', descriptionKey: 'mutation.callback.desc', maxRank: 10 }),
-  Object.freeze({ id: 'overkill_confetti', category: 'spectacle', cost: 3, costs: Object.freeze([3, 7]), nameKey: 'mutation.confetti.name', descriptionKey: 'mutation.confetti.desc', maxRank: 0, maxGrade: 2 }),
-  Object.freeze({ id: 'algorithm_roulette', category: 'spectacle', cost: 3, costs: Object.freeze([3, 7]), nameKey: 'mutation.roulette.name', descriptionKey: 'mutation.roulette.desc', maxRank: 0, maxGrade: 2 }),
-  Object.freeze({ id: 'opening_act', category: 'spectacle', cost: 3, costs: Object.freeze([3, 7]), nameKey: 'mutation.openingAct.name', descriptionKey: 'mutation.openingAct.desc', maxRank: 0, maxGrade: 2 }),
-  Object.freeze({ id: 'final_cut', category: 'spectacle', cost: 5, costs: Object.freeze([5, 10]), nameKey: 'mutation.finalCut.name', descriptionKey: 'mutation.finalCut.desc', maxRank: 0, maxGrade: 2 }),
-  Object.freeze({ id: 'rifle_focus', category: 'ability', weaponId: 'rifle', cost: 20, nameKey: 'mutation.rifleFocus.name', descriptionKey: 'mutation.rifleFocus.desc', maxRank: 0 }),
-  Object.freeze({ id: 'dmr_scope', category: 'ability', weaponId: 'dmr', cost: 30, nameKey: 'mutation.dmrScope.name', descriptionKey: 'mutation.dmrScope.desc', maxRank: 0 })
+  Object.freeze({ id: 'irony_armor', category: 'survival', cost: 4, rankCaps: STANDARD_MUTATION_RANK_CAPS, rankUpgradeCosts: STANDARD_MUTATION_RANK_UPGRADE_COSTS, unlockWave: SURVIVAL_EARLY_UNLOCK_WAVE, nameKey: 'mutation.armor.name', descriptionKey: 'mutation.armor.desc', maxRank: 10, maxGrade: 4 }),
+  Object.freeze({ id: 'extended_bit', category: 'survival', cost: 5, rankCaps: STANDARD_MUTATION_RANK_CAPS, rankUpgradeCosts: STANDARD_MUTATION_RANK_UPGRADE_COSTS, unlockWave: SURVIVAL_EARLY_UNLOCK_WAVE, nameKey: 'mutation.stamina.name', descriptionKey: 'mutation.stamina.desc', maxRank: 10, maxGrade: 4 }),
+  Object.freeze({ id: 'smg_sidearm', category: 'survival', cost: 4, unlockWave: SURVIVAL_EARLY_UNLOCK_WAVE, nameKey: 'mutation.smgSidearm.name', descriptionKey: 'mutation.smgSidearm.desc', maxRank: 1 }),
+  Object.freeze({ id: 'main_character_energy', category: 'survival', cost: 6, rankCaps: STANDARD_MUTATION_RANK_CAPS, rankUpgradeCosts: STANDARD_MUTATION_RANK_UPGRADE_COSTS, unlockWave: SURVIVAL_UNLOCK_WAVE, nameKey: 'mutation.health.name', descriptionKey: 'mutation.health.desc', maxRank: 10, maxGrade: 4 }),
+  Object.freeze({ id: 'callback', category: 'survival', cost: 15, rankCaps: STANDARD_MUTATION_RANK_CAPS, rankUpgradeCosts: STANDARD_MUTATION_RANK_UPGRADE_COSTS, unlockWave: SURVIVAL_UNLOCK_WAVE, nameKey: 'mutation.callback.name', descriptionKey: 'mutation.callback.desc', maxRank: 10, maxGrade: 4 }),
+  Object.freeze({ id: 'overkill_confetti', category: 'spectacle', cost: 2, costs: Object.freeze([2, 4, 7]), nameKey: 'mutation.confetti.name', descriptionKey: 'mutation.confetti.desc', maxRank: 0, maxGrade: 3 }),
+  Object.freeze({ id: 'algorithm_roulette', category: 'spectacle', cost: 2, costs: Object.freeze([2, 4, 7]), nameKey: 'mutation.roulette.name', descriptionKey: 'mutation.roulette.desc', maxRank: 0, maxGrade: 3 }),
+  Object.freeze({ id: 'opening_act', category: 'spectacle', cost: 2, costs: Object.freeze([2, 4, 7]), nameKey: 'mutation.openingAct.name', descriptionKey: 'mutation.openingAct.desc', maxRank: 0, maxGrade: 3 }),
+  Object.freeze({ id: 'final_cut', category: 'spectacle', cost: 3, costs: Object.freeze([3, 5, 7]), nameKey: 'mutation.finalCut.name', descriptionKey: 'mutation.finalCut.desc', maxRank: 0, maxGrade: 3 }),
+  Object.freeze({ id: 'rifle_focus', category: 'ability', weaponId: 'rifle', cost: 15, nameKey: 'mutation.rifleFocus.name', descriptionKey: 'mutation.rifleFocus.desc', maxRank: 0 }),
+  Object.freeze({ id: 'dmr_scope', category: 'ability', weaponId: 'dmr', cost: 18, nameKey: 'mutation.dmrScope.name', descriptionKey: 'mutation.dmrScope.desc', maxRank: 0 }),
+  Object.freeze({ id: 'background_sync', category: 'survival', cost: 6, unlockWave: SURVIVAL_UNLOCK_WAVE, nameKey: 'mutation.backgroundSync.name', descriptionKey: 'mutation.backgroundSync.desc', maxRank: 1 }),
+  Object.freeze({ id: 'deep_reserves', category: 'survival', cost: 3, rankCaps: Object.freeze([2, 4]), rankUpgradeCosts: Object.freeze([3]), unlockWave: SURVIVAL_UNLOCK_WAVE, nameKey: 'mutation.deepReserves.name', descriptionKey: 'mutation.deepReserves.desc', maxRank: 4, maxGrade: 1 })
 ]);
 
 export const WEAPON_MASTERY_DEFINITIONS = Object.freeze([
   Object.freeze({ id: 'smg_capacity', weaponId: 'smg', costs: Object.freeze([4, 6, 8]), nameKey: 'mastery.smg.name', descriptionKey: 'mastery.smg.desc', maxGrade: 3 }),
-  Object.freeze({ id: 'smg_damage', weaponId: 'smg', gradeKey: 'smg_damage', costs: Object.freeze([10, 20, 32]), nameKey: 'mastery.smgDamage.name', descriptionKey: 'mastery.smgDamage.desc', maxGrade: 3 }),
+  Object.freeze({ id: 'smg_damage', weaponId: 'smg', gradeKey: 'smg_damage', costs: Object.freeze([8, 14, 20]), nameKey: 'mastery.smgDamage.name', descriptionKey: 'mastery.smgDamage.desc', maxGrade: 3 }),
   Object.freeze({ id: 'rifle_capacity', weaponId: 'rifle', costs: Object.freeze([4, 6, 8]), nameKey: 'mastery.rifle.name', descriptionKey: 'mastery.rifle.desc', maxGrade: 3 }),
-  Object.freeze({ id: 'rifle_damage', weaponId: 'rifle', gradeKey: 'rifle_damage', costs: Object.freeze([10, 20, 32]), nameKey: 'mastery.rifleDamage.name', descriptionKey: 'mastery.rifleDamage.desc', maxGrade: 3 }),
+  Object.freeze({ id: 'rifle_damage', weaponId: 'rifle', gradeKey: 'rifle_damage', costs: Object.freeze([8, 14, 20]), nameKey: 'mastery.rifleDamage.name', descriptionKey: 'mastery.rifleDamage.desc', maxGrade: 3 }),
   Object.freeze({ id: 'pistol_caliber', weaponId: 'pistol', costs: Object.freeze([4, 5, 6]), nameKey: 'mastery.pistol.name', descriptionKey: 'mastery.pistol.desc', maxGrade: 3 }),
   Object.freeze({ id: 'dmr_capacity', weaponId: 'dmr', costs: Object.freeze([4, 5, 6]), nameKey: 'mastery.dmr.name', descriptionKey: 'mastery.dmr.desc', maxGrade: 3 }),
   Object.freeze({ id: 'shotgun_payload', weaponId: 'shotgun', costs: Object.freeze([4, 5, 6]), nameKey: 'mastery.shotgun.name', descriptionKey: 'mastery.shotgun.desc', maxGrade: 3 }),
@@ -54,7 +74,11 @@ function defaultWeaponGrades() {
 }
 
 function defaultMutationGrades() {
-  return Object.fromEntries(MUTATION_DEFINITIONS.filter(def => Array.isArray(def.costs)).map(def => [def.id, 0]));
+  return Object.fromEntries(MUTATION_DEFINITIONS.filter(def => (def.maxGrade || 0) > 0).map(def => [def.id, 0]));
+}
+
+function defaultAbilityGrades() {
+  return Object.fromEntries([...ABILITY_BY_ID.keys()].map(id => [id, 0]));
 }
 
 function defaultPersistentState() {
@@ -70,9 +94,10 @@ function defaultPersistentState() {
     ownedWeapons: [],
     equippedTactical: null,
     ownedAbilities: [],
+    abilityGrades: defaultAbilityGrades(),
     equippedAbility: null,
-    survivalMutationsRevealed: false,
-    classifiedDossierClaimed: false
+    survivalUnlockWave: 0,
+    archiveMilestonesClaimed: []
   };
 }
 
@@ -86,8 +111,12 @@ function sanitizePersistentState(raw) {
   const mutationGrades = defaultMutationGrades();
   for (const id of Object.keys(mutationGrades)) {
     const def = MUTATION_BY_ID.get(id);
-    const migratedGrade = rawUnlocked.includes(id) ? 1 : 0;
-    mutationGrades[id] = Math.min(def?.maxGrade || 0, Math.max(migratedGrade, Math.floor(Number(raw?.mutationGrades?.[id]) || 0)));
+    const migratedGrade = Array.isArray(def?.costs) && rawUnlocked.includes(id) ? 1 : 0;
+    const legacyFullRankGrade = Number(raw?.schemaVersion) < 11 && Array.isArray(def?.rankCaps) && def.maxRank === 10 && rawUnlocked.includes(id)
+      ? def.maxGrade
+      : 0;
+    const storedGrade = Math.max(migratedGrade, legacyFullRankGrade, Math.floor(Number(raw?.mutationGrades?.[id]) || 0));
+    mutationGrades[id] = Math.min(def?.maxGrade || 0, storedGrade);
   }
   const weaponGrades = { ...base.weaponGrades };
   for (const weaponId of Object.keys(weaponGrades)) {
@@ -121,14 +150,34 @@ function sanitizePersistentState(raw) {
   const legacyAbilities = [];
   if (rawUnlocked.includes('punchline_rush')) legacyAbilities.push('punchline_rush');
   if (Array.isArray(raw?.ownedWeapons) && raw.ownedWeapons.map(normalizeWeaponId).includes('dynamite')) legacyAbilities.push('dynamite');
+  const gradedAbilities = Object.entries(raw?.abilityGrades || {})
+    .filter(([, grade]) => Number(grade) > 0)
+    .map(([id]) => id);
   const ownedAbilities = [...new Set([
     ...(Array.isArray(raw?.ownedAbilities) ? raw.ownedAbilities : []),
+    ...gradedAbilities,
     ...legacyAbilities
   ].map(normalizeAbilityId).filter(id => ABILITY_BY_ID.has(id)))];
+  const abilityGrades = defaultAbilityGrades();
+  for (const id of ownedAbilities) {
+    const definition = ABILITY_BY_ID.get(id);
+    abilityGrades[id] = Math.min(definition?.maxGrade || 1, Math.max(1, Math.floor(Number(raw?.abilityGrades?.[id]) || 1)));
+  }
   const requestedAbility = normalizeAbilityId(raw?.equippedAbility);
   const equippedAbility = ownedAbilities.includes(requestedAbility)
     ? requestedAbility
     : (ownedAbilities.includes('punchline_rush') ? 'punchline_rush' : (ownedAbilities[0] || null));
+  const ownedSurvivalWave = unlocked.reduce((highest, id) => {
+    const def = MUTATION_BY_ID.get(id);
+    return def?.category === 'survival' ? Math.max(highest, def.unlockWave || 0) : highest;
+  }, 0);
+  const survivalUnlockWave = Math.max(
+    ownedSurvivalWave,
+    Math.max(0, Math.floor(Number(raw?.survivalUnlockWave) || 0))
+  );
+  const archiveMilestonesClaimed = [...new Set([
+    ...(Array.isArray(raw?.archiveMilestonesClaimed) ? raw.archiveMilestonesClaimed : [])
+  ].map(Number).filter(wave => ARCHIVE_MILESTONE_WAVES.includes(wave)))].sort((a, b) => a - b);
   return {
     schemaVersion: ARCHIVE_SCHEMA_VERSION,
     revealed: raw?.revealed === true,
@@ -141,9 +190,10 @@ function sanitizePersistentState(raw) {
     ownedWeapons,
     equippedTactical,
     ownedAbilities,
+    abilityGrades,
     equippedAbility,
-    survivalMutationsRevealed: raw?.survivalMutationsRevealed === true || ownedSurvivalMutation,
-    classifiedDossierClaimed: raw?.classifiedDossierClaimed === true
+    survivalUnlockWave: Math.max(survivalUnlockWave, ownedSurvivalMutation ? SURVIVAL_EARLY_UNLOCK_WAVE : 0),
+    archiveMilestonesClaimed
   };
 }
 
@@ -164,24 +214,37 @@ function callbackProfileForRank(rank) {
 }
 
 export class ArchiveMutations {
-  constructor({ storage, rng = Math.random, onPersistentChange = null, onRunChange = null } = {}) {
+  constructor({ storage, rng = Math.random, onPersistentChange = null, onRunChange = null, onFragmentsAwarded = null } = {}) {
     this.storage = storage;
     this.rng = rng;
     this.onPersistentChange = onPersistentChange;
     this.onRunChange = onRunChange;
+    this.onFragmentsAwarded = onFragmentsAwarded;
+    this.debugShop = false;
     const raw = getJSON(ARCHIVE_STORAGE_KEY, defaultPersistentState(), storage);
     this.state = sanitizePersistentState(raw);
     const priorProgression = getJSON('bs3d_unlocks', {}, storage);
-    if (!this.state.survivalMutationsRevealed && Number(priorProgression?.bestWave) > SURVIVAL_UNLOCK_WAVE) {
-      this.state.survivalMutationsRevealed = true;
-    }
+    const priorBestWave = Math.max(0, Math.floor(Number(priorProgression?.bestWave) || 0));
+    const priorSurvivalWave = priorBestWave > SURVIVAL_UNLOCK_WAVE
+      ? SURVIVAL_UNLOCK_WAVE
+      : priorBestWave > SURVIVAL_EARLY_UNLOCK_WAVE ? SURVIVAL_EARLY_UNLOCK_WAVE : 0;
+    if (priorSurvivalWave > this.state.survivalUnlockWave) this.state.survivalUnlockWave = priorSurvivalWave;
     if (JSON.stringify(raw) !== JSON.stringify(this.state)) setJSON(ARCHIVE_STORAGE_KEY, this.state, this.storage);
     this.resetRun({ tutorial: false });
   }
 
   _save() {
-    setJSON(ARCHIVE_STORAGE_KEY, this.state, this.storage);
+    if (!this.debugShop) setJSON(ARCHIVE_STORAGE_KEY, this.state, this.storage);
     this.onPersistentChange?.(this.getPersistentState());
+  }
+
+  enableDebugShop(fragments = 300) {
+    const balance = Math.max(200, Math.min(400, Math.floor(Number(fragments) || 300)));
+    this.debugShop = true;
+    this.state.revealed = true;
+    this.state.fragments = balance;
+    this.onPersistentChange?.(this.getPersistentState());
+    return balance;
   }
 
   getPersistentState() {
@@ -193,7 +256,9 @@ export class ArchiveMutations {
       discoveredWeapons: [...this.state.discoveredWeapons],
       revealedWeapons: [...this.state.revealedWeapons],
       ownedWeapons: [...this.state.ownedWeapons],
-      ownedAbilities: [...this.state.ownedAbilities]
+      ownedAbilities: [...this.state.ownedAbilities],
+      abilityGrades: { ...this.state.abilityGrades },
+      archiveMilestonesClaimed: [...this.state.archiveMilestonesClaimed]
     };
   }
 
@@ -241,6 +306,22 @@ export class ArchiveMutations {
     return this.state.ownedAbilities.includes(normalizeAbilityId(id));
   }
 
+  getAbilityGrade(id) {
+    const abilityId = normalizeAbilityId(id);
+    if (!this.isAbilityOwned(abilityId)) return 0;
+    return Math.min(ABILITY_BY_ID.get(abilityId)?.maxGrade || 1, Math.max(1, Math.floor(Number(this.state.abilityGrades?.[abilityId]) || 1)));
+  }
+
+  getAbilityCost(id) {
+    const abilityId = normalizeAbilityId(id);
+    const definition = ABILITY_BY_ID.get(abilityId);
+    if (!definition) return null;
+    const grade = this.getAbilityGrade(abilityId);
+    const maxGrade = definition.maxGrade || 1;
+    if (grade >= maxGrade) return null;
+    return Array.isArray(definition.costs) ? definition.costs[grade] : definition.cost;
+  }
+
   getEquippedAbility() {
     return this.state.equippedAbility || null;
   }
@@ -259,23 +340,40 @@ export class ArchiveMutations {
     const abilityId = normalizeAbilityId(id);
     const definition = ABILITY_BY_ID.get(abilityId);
     if (!definition) return { ok: false, reason: 'unknown' };
-    if (this.isAbilityOwned(abilityId)) return { ok: false, reason: 'owned' };
-    if (this.state.fragments < definition.cost) return { ok: false, reason: 'insufficient' };
-    this.state.fragments -= definition.cost;
-    this.state.ownedAbilities.push(abilityId);
+    const grade = this.getAbilityGrade(abilityId);
+    const maxGrade = definition.maxGrade || 1;
+    if (grade >= maxGrade) return { ok: false, reason: maxGrade > 1 ? 'maxed' : 'owned' };
+    const cost = this.getAbilityCost(abilityId);
+    if (this.state.fragments < cost) return { ok: false, reason: 'insufficient' };
+    this.state.fragments -= cost;
+    const nextGrade = grade + 1;
+    if (!this.isAbilityOwned(abilityId)) this.state.ownedAbilities.push(abilityId);
+    this.state.abilityGrades[abilityId] = nextGrade;
     this.state.equippedAbility = abilityId;
     this._save();
-    return { ok: true, id: abilityId, equippedAbility: abilityId, fragments: this.state.fragments };
+    return { ok: true, id: abilityId, grade: nextGrade, equippedAbility: abilityId, fragments: this.state.fragments };
   }
 
   areSurvivalMutationsRevealed() {
-    return this.state.survivalMutationsRevealed === true;
+    return this.state.survivalUnlockWave >= SURVIVAL_UNLOCK_WAVE;
+  }
+
+  getSurvivalUnlockWave() {
+    return Math.max(0, Math.floor(Number(this.state.survivalUnlockWave) || 0));
+  }
+
+  isSurvivalMutationRevealed(id) {
+    const def = MUTATION_BY_ID.get(id);
+    return def?.category === 'survival' && this.getSurvivalUnlockWave() >= (def.unlockWave || SURVIVAL_UNLOCK_WAVE);
   }
 
   revealSurvivalMutations(wave) {
     const clearedWave = Math.max(0, Math.floor(Number(wave) || 0));
-    if (this.run.tutorial || this.run.debug || clearedWave < SURVIVAL_UNLOCK_WAVE || this.areSurvivalMutationsRevealed()) return false;
-    this.state.survivalMutationsRevealed = true;
+    const milestone = clearedWave >= SURVIVAL_UNLOCK_WAVE
+      ? SURVIVAL_UNLOCK_WAVE
+      : clearedWave >= SURVIVAL_EARLY_UNLOCK_WAVE ? SURVIVAL_EARLY_UNLOCK_WAVE : 0;
+    if (this.run.tutorial || this.run.debug || milestone <= this.getSurvivalUnlockWave()) return false;
+    this.state.survivalUnlockWave = milestone;
     this._save();
     return true;
   }
@@ -336,6 +434,20 @@ export class ArchiveMutations {
     return result;
   }
 
+  grantClassifiedWeapon(weapon) {
+    const weaponId = normalizeWeaponId(weapon);
+    const def = CLASSIFIED_BY_ID.get(weaponId);
+    if (!def) return { ok: false, reason: 'unknown' };
+    if (this.state.ownedWeapons.includes(weaponId)) return { ok: false, reason: 'owned' };
+    if (!this.state.revealedWeapons.includes(weaponId)) this.state.revealedWeapons.push(weaponId);
+    this.state.ownedWeapons.push(weaponId);
+    if (def.tacticalSlot) this.state.equippedTactical = weaponId;
+    this._save();
+    const result = { ok: true, id: weaponId, fragments: this.state.fragments, grantsThirdSlot: def.grantsThirdSlot === true };
+    if (def.tacticalSlot) result.equippedTactical = weaponId;
+    return result;
+  }
+
   grantWeaponTrial(weapon) {
     const weaponId = normalizeWeaponId(weapon);
     if (!CLASSIFIED_BY_ID.has(weaponId) || !this.isWeaponRevealed(weaponId) || this.isWeaponOwned(weaponId) || this.run.trialWeapons.has(weaponId)) return false;
@@ -358,7 +470,25 @@ export class ArchiveMutations {
     const def = MUTATION_BY_ID.get(id);
     if (!def) return { ok: false, reason: 'unknown' };
     if (def.weaponId && !this.isWeaponProgressionAvailable(def.weaponId)) return { ok: false, reason: 'undiscovered' };
-    if (def.category === 'survival' && !this.areSurvivalMutationsRevealed()) return { ok: false, reason: 'milestone' };
+    if (def.category === 'survival' && !this.isSurvivalMutationRevealed(id)) return { ok: false, reason: 'milestone' };
+    if (Array.isArray(def.rankCaps)) {
+      if (!this.isUnlocked(id)) {
+        if (this.state.fragments < def.cost) return { ok: false, reason: 'insufficient' };
+        this.state.fragments -= def.cost;
+        this.state.unlocked.push(id);
+        this.state.mutationGrades[id] = 0;
+        this._save();
+        return { ok: true, id, grade: 0, rankCap: def.rankCaps[0], fragments: this.state.fragments };
+      }
+      const grade = this.getMutationGrade(id);
+      if (grade >= def.maxGrade) return { ok: false, reason: 'capped' };
+      const cost = def.rankUpgradeCosts[grade];
+      if (this.state.fragments < cost) return { ok: false, reason: 'insufficient' };
+      this.state.fragments -= cost;
+      this.state.mutationGrades[id] = grade + 1;
+      this._save();
+      return { ok: true, id, grade: grade + 1, rankCap: def.rankCaps[grade + 1], fragments: this.state.fragments };
+    }
     if (Array.isArray(def.costs)) {
       const grade = this.getMutationGrade(id);
       if (grade >= def.maxGrade) return { ok: false, reason: 'capped' };
@@ -385,15 +515,35 @@ export class ArchiveMutations {
 
   getMutationCost(id) {
     const def = MUTATION_BY_ID.get(id);
-    if (!def || !Array.isArray(def.costs)) return def?.cost ?? null;
+    if (Array.isArray(def?.rankCaps)) {
+      if (!this.isUnlocked(id)) return def.cost;
+      const grade = this.getMutationGrade(id);
+      return grade >= def.maxGrade ? null : def.rankUpgradeCosts[grade];
+    }
+    if (!def || !Array.isArray(def.costs)) return def?.category === 'survival' && this.isUnlocked(id) ? null : (def?.cost ?? null);
     const grade = this.getMutationGrade(id);
     return grade >= def.maxGrade ? null : def.costs[grade];
+  }
+
+  getReserveExpansionGrade() {
+    return this.getRank('deep_reserves');
+  }
+
+  getReserveLimit(baseReserve, weaponSpecificReserve = baseReserve) {
+    const base = Math.max(0, Math.floor(Number(baseReserve) || 0));
+    const specific = Math.max(base, Math.floor(Number(weaponSpecificReserve) || 0));
+    const expansion = Math.floor(base * this.getReserveExpansionGrade() * RESERVE_EXPANSION_PER_GRADE);
+    return specific + expansion;
   }
 
   getMutationRankCap(id) {
     const def = MUTATION_BY_ID.get(id);
     if (!def) return 0;
-    if (def.category === 'survival') return this.isUnlocked(id) ? def.maxRank : 0;
+    if (def.category === 'survival') {
+      if (!this.isUnlocked(id)) return 0;
+      if (Array.isArray(def.rankCaps)) return def.rankCaps[this.getMutationGrade(id)] || def.rankCaps[0];
+      return def.maxRank;
+    }
     return def.maxRank || 0;
   }
 
@@ -475,7 +625,7 @@ export class ArchiveMutations {
   }
 
   getMinigunReserveSize() {
-    return [300, 360, 440, 540][this.getWeaponGrade('minigun')];
+    return [360, 440, 540, 660][this.getWeaponGrade('minigun')];
   }
 
   getBeamSaberComboProfile() {
@@ -514,14 +664,16 @@ export class ArchiveMutations {
     this.state.fragments += gain;
     this.run.fragmentsEarned += gain;
     this._save();
+    this.onFragmentsAwarded?.(gain);
     this.onRunChange?.(this.getRunState());
     return gain;
   }
 
-  claimClassifiedDossier() {
-    if (this.run.tutorial || this.run.debug || this.state.classifiedDossierClaimed) return 0;
-    this.state.classifiedDossierClaimed = true;
-    this._save();
+  claimArchiveMilestone(wave) {
+    const milestone = Math.max(0, Math.floor(Number(wave) || 0));
+    if (this.run.tutorial || this.run.debug || !ARCHIVE_MILESTONE_WAVES.includes(milestone) || this.state.archiveMilestonesClaimed.includes(milestone)) return 0;
+    this.state.archiveMilestonesClaimed.push(milestone);
+    this.state.archiveMilestonesClaimed.sort((a, b) => a - b);
     return this._awardFragments(5);
   }
 
@@ -576,7 +728,7 @@ export class ArchiveMutations {
     return picks;
   }
 
-  applyRank(id, { session, player } = {}) {
+  applyRank(id, { session, player, weaponSystem } = {}) {
     const def = MUTATION_BY_ID.get(id);
     if (!def || !this.isUnlocked(id)) return { ok: false, reason: 'locked' };
     const before = this.getRank(id);
@@ -584,8 +736,12 @@ export class ArchiveMutations {
     this.run.ranks[id] = before + 1;
     this.run.points += 1;
     if (id === 'irony_armor') session?.addArmorCapacity?.(2, { fill: true });
-    if (id === 'main_character_energy') session?.addMaxHp?.(2, { heal: false });
+    if (id === 'main_character_energy') {
+      session?.addMaxHp?.(2, { heal: false });
+      session?.heal?.(1);
+    }
     if (id === 'extended_bit') player?.addStaminaCapacity?.(3, { fill: true });
+    if (id === 'smg_sidearm') weaponSystem?.replaceSecondaryWithSMG?.();
     this.onRunChange?.(this.getRunState());
     return { ok: true, id, rank: before + 1, points: this.run.points };
   }
@@ -596,6 +752,9 @@ export function describeMutationRank(id, rank) {
   if (id === 'irony_armor') return { current: `${rank * 2}`, next: `${next * 2}`, unit: 'mutation.unit.armor' };
   if (id === 'main_character_energy') return { current: `${100 + rank * 2}`, next: `${100 + next * 2}`, unit: 'mutation.unit.hp' };
   if (id === 'extended_bit') return { current: `${100 + rank * 3}`, next: `${100 + next * 3}`, unit: 'mutation.unit.stamina' };
+  if (id === 'background_sync') return { current: rank > 0 ? '5% / 10 s' : '0%', next: '5% / 10 s', unit: 'mutation.unit.baseReserveRegen' };
+  if (id === 'deep_reserves') return { current: `${100 + rank * 30}%`, next: `${100 + next * 30}%`, unit: 'mutation.unit.reserveLimit' };
+  if (id === 'smg_sidearm') return { current: rank > 0 ? 'SMG' : 'Pistol', next: 'SMG', unit: 'mutation.unit.secondarySlot' };
   if (id === 'callback') {
     const current = callbackProfileForRank(rank);
     const upcoming = callbackProfileForRank(next);
@@ -613,19 +772,19 @@ export function describeSpectacleGrade(id, grade) {
   const currentGrade = Math.min(maxGrade, Math.max(0, Math.floor(Number(grade) || 0)));
   const nextGrade = Math.min(maxGrade, currentGrade + 1);
   if (id === 'overkill_confetti') {
-    const values = ['mutation.confetti.value.locked', 'mutation.confetti.value.visual', 'mutation.confetti.value.heal'];
+    const values = ['mutation.confetti.value.locked', 'mutation.confetti.value.visual', 'mutation.confetti.value.grade2', 'mutation.confetti.value.grade3'];
     return { current: values[currentGrade], next: values[nextGrade], localized: true };
   }
   if (id === 'algorithm_roulette') {
-    const values = ['mutation.roulette.value.locked', 'mutation.roulette.value.grade1', 'mutation.roulette.value.grade2'];
+    const values = ['mutation.roulette.value.locked', 'mutation.roulette.value.grade1', 'mutation.roulette.value.grade2', 'mutation.roulette.value.grade3'];
     return { current: values[currentGrade], next: values[nextGrade], localized: true };
   }
   if (id === 'opening_act') {
-    const values = ['mutation.openingAct.value.locked', 'mutation.openingAct.value.grade1', 'mutation.openingAct.value.grade2'];
+    const values = ['mutation.openingAct.value.locked', 'mutation.openingAct.value.grade1', 'mutation.openingAct.value.grade2', 'mutation.openingAct.value.grade3'];
     return { current: values[currentGrade], next: values[nextGrade], localized: true };
   }
   if (id === 'final_cut') {
-    const values = ['mutation.finalCut.value.locked', 'mutation.finalCut.value.grade1', 'mutation.finalCut.value.grade2'];
+    const values = ['mutation.finalCut.value.locked', 'mutation.finalCut.value.grade1', 'mutation.finalCut.value.grade2', 'mutation.finalCut.value.grade3'];
     return { current: values[currentGrade], next: values[nextGrade], localized: true };
   }
   return { current: '', next: '', localized: false };
@@ -643,7 +802,7 @@ export function describeWeaponMastery(id, grade) {
   if (id === 'shotgun_payload') return { current: [12, 12.5, 13, 13.5][currentGrade].toFixed(1), next: [12, 12.5, 13, 13.5][nextGrade].toFixed(1), unit: 'mastery.unit.pelletDamage' };
   if (id === 'minigun_overdrive') {
     const magazines = [200, 240, 280, 320];
-    const reserves = [300, 360, 440, 540];
+    const reserves = [360, 440, 540, 660];
     const damage = [100, 110, 120, 130];
     const spread = [100, 90, 80, 70];
     return {

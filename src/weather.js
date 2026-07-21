@@ -48,6 +48,9 @@ export class WeatherSystem {
       fogFar: this.scene.fog.far,
       skyTop: this.skyMat.uniforms.top.value.clone(),
       skyBottom: this.skyMat.uniforms.bottom.value.clone(),
+      hemiColor: this.hemi.color.clone(),
+      hemiGroundColor: this.hemi.groundColor.clone(),
+      dirColor: this.dir.color.clone(),
       hemiIntensity: this.hemi.intensity,
       dirIntensity: this.dir.intensity,
     };
@@ -58,6 +61,9 @@ export class WeatherSystem {
       fogFar: this.scene.fog.far,
       skyTop: this.skyMat.uniforms.top.value.clone(),
       skyBottom: this.skyMat.uniforms.bottom.value.clone(),
+      hemiColor: this.hemi.color.clone(),
+      hemiGroundColor: this.hemi.groundColor.clone(),
+      dirColor: this.dir.color.clone(),
       hemiIntensity: this.hemi.intensity,
       dirIntensity: this.dir.intensity,
     };
@@ -67,6 +73,9 @@ export class WeatherSystem {
       fogFar: this.scene.fog.far,
       skyTop: this.skyMat.uniforms.top.value.clone(),
       skyBottom: this.skyMat.uniforms.bottom.value.clone(),
+      hemiColor: this.hemi.color.clone(),
+      hemiGroundColor: this.hemi.groundColor.clone(),
+      dirColor: this.dir.color.clone(),
       hemiIntensity: this.hemi.intensity,
       dirIntensity: this.dir.intensity,
     };
@@ -94,7 +103,7 @@ export class WeatherSystem {
   }
 
   // ---- Public API ----
-  setMode(mode){
+  setMode(mode, options = {}){
     this.mode = mode || 'clear';
     const m = (''+this.mode).toLowerCase();
     const hasRain = m.includes('rain');
@@ -107,6 +116,37 @@ export class WeatherSystem {
     const isRelayRain = m.includes('relay-rain');
     const isRelaySignalStorm = m.includes('relay-signalstorm');
     const isRelayInfestationStorm = m.includes('relay-infestationstorm');
+    const isSanitizerSterile = m.includes('sanitizer-sterile');
+    const isSanitizerLockdown = m.includes('sanitizer-lockdown');
+    const isSanitizerPurge = m.includes('sanitizer-purge');
+    const isSanitizerBoss = m.includes('sanitizer-boss');
+    const isSanitizer = isSanitizerSterile || isSanitizerLockdown || isSanitizerPurge || isSanitizerBoss;
+    const isAdZoneOpen = m.includes('adzone-open');
+    const isAdZoneNeon = m.includes('adzone-neon');
+    const isAdZoneSponsored = m.includes('adzone-sponsored');
+    const isAdZoneLockdown = m.includes('adzone-lockdown');
+    const isAdZoneBoss = m.includes('adzone-boss');
+    const isAdZone = isAdZoneOpen || isAdZoneNeon || isAdZoneSponsored || isAdZoneLockdown || isAdZoneBoss;
+    const isWastes = m.includes('wastes-');
+    const isWastesBoss = m.includes('wastes-boss');
+    const isFreight = m.includes('freight-');
+    const isFreightBoss = m.includes('freight-boss');
+    const isMirror = m.includes('mirror-');
+    const isMirrorBoss = m.includes('mirror-boss');
+    const isCourt = m.includes('court-');
+    const isCourtBoss = m.includes('court-boss');
+    const isCathedral = m.includes('cathedral-');
+    const isCathedralBoss = m.includes('cathedral-boss');
+    const isExpanse = m.includes('expanse-');
+    const isExpanseHeavy = m.includes('expanse-heavy');
+    const isExpanseCleared = m.includes('expanse-cleared');
+    const isLastOrder = m.includes('last-order-');
+    const isLastOrderHeavy = m.includes('last-order-heavy');
+    const isFloodgate = m.includes('floodgate-');
+    const isFloodgateGallery = m.includes('floodgate-gallery');
+    const isFloodgateVault = m.includes('floodgate-vault');
+    const isFloodgateDeluge = m.includes('floodgate-deluge');
+    const isFloodgateCleared = m.includes('floodgate-cleared');
     const relayRain = isRelayRain || isRelaySignalStorm || isRelayInfestationStorm;
     this.precip = (hasRain || relayRain) ? 'rain' : (hasSnow ? 'snow' : 'none');
 
@@ -114,9 +154,29 @@ export class WeatherSystem {
     this._mixStart = { rain: this._mix.rain, snow: this._mix.snow, fog: this._mix.fog, sand: this._mix.sand, wind: this._mix.wind };
     this._mixTarget.rain = (hasRain || relayRain) ? 1 : 0;
     this._mixTarget.snow = hasSnow ? 1 : 0;
-    this._mixTarget.fog  = hasFog  ? 1 : 0;
-    this._mixTarget.sand = hasSand ? 1 : 0;
+    // Mirror Garden already uses scene-depth fog for its layered reflections.
+    // A lighter particle veil preserves atmosphere without bleaching the
+    // cardinal routes and generation colors during the Hydraclone encounter.
+    this._mixTarget.fog  = hasFog
+      ? (isLastOrder ? (isLastOrderHeavy ? 1 : .46) : isMirror ? .32 : isCourt ? .1 : isCathedral ? .12 : isFloodgate ? .42 : 1)
+      : 0;
+    // Trend Wastes keeps the storm readable at combat distance. Dense weather
+    // still closes long sightlines, but no longer fills the near camera with a
+    // uniform beige veil that merges enemies, ground, and sky.
+    const wastesSandMix = isExpanse
+      ? (isExpanseHeavy ? 1 : isExpanseCleared ? .7 : .9)
+      : isWastes
+      ? (isWastesBoss ? .84 : m.includes('sandstorm') ? .92 : m.includes('crosswind') ? .82 : .74)
+      : 1;
+    this._mixTarget.sand = hasSand ? wastesSandMix : 0;
     this._mixTarget.wind = hasWind ? 1 : 0;
+    if (this.sand?.material?.uniforms?.uColor) {
+      this.sand.material.uniforms.uColor.value.setHex(isLastOrder
+        ? 0x806a45
+        : isExpanse
+          ? (isExpanseHeavy ? 0x5f5b4c : isExpanseCleared ? 0x77705b : 0x6c6855)
+          : 0xc7b38c);
+    }
 
     // Environment targets (fog/sky/light). Also capture current as start
     this._envStart = {
@@ -125,35 +185,180 @@ export class WeatherSystem {
       fogFar: this.scene.fog.far,
       skyTop: this.skyMat.uniforms.top.value.clone(),
       skyBottom: this.skyMat.uniforms.bottom.value.clone(),
+      hemiColor: this.hemi.color.clone(),
+      hemiGroundColor: this.hemi.groundColor.clone(),
+      dirColor: this.dir.color.clone(),
       hemiIntensity: this.hemi.intensity,
       dirIntensity: this.dir.intensity,
     };
     const C = this.THREE.Color;
-    if (isRelayInfestationStorm) {
+    if (isLastOrder) {
+      // Wave 41 begins with a cold industrial haze, then collapses into a
+      // near-camera ochre whiteout at the terminal. The 2.1 m heavy envelope
+      // is deliberately much shorter than the reusable Expanse combat storm.
+      const palette = isLastOrderHeavy
+        ? { fog: 0x806a45, top: '#332e25', bottom: '#8c7047', near: .05, far: 2.1, hemi: .34, dir: .37 }
+        : { fog: 0x34474a, top: '#172326', bottom: '#3e5150', near: 8, far: 62, hemi: .5, dir: .58 };
+      this._envTarget.fogColor = new C(palette.fog);
+      this._envTarget.fogNear = palette.near; this._envTarget.fogFar = palette.far;
+      this._envTarget.skyTop = new C(palette.top); this._envTarget.skyBottom = new C(palette.bottom);
+      this._envTarget.hemiColor = new C(isLastOrderHeavy ? 0x927c58 : 0x8da9a6);
+      this._envTarget.hemiGroundColor = new C(isLastOrderHeavy ? 0x3e3020 : 0x172224);
+      this._envTarget.dirColor = new C(isLastOrderHeavy ? 0xb48650 : 0xa8d6cf);
+      this._envTarget.hemiIntensity = palette.hemi; this._envTarget.dirIntensity = palette.dir;
+    } else if (isFloodgate) {
+      // Preserve the authored fog distances while lowering the bright fog wall
+      // that previously silhouetted every near-field actor in the vault. Local
+      // floodgate, mast, seed, and core sources now provide the readable values.
+      const palette = isFloodgateDeluge
+        ? { fog: 0x30484e, top: '#17272e', bottom: '#415a59', near: 8, far: 58, hemi: .5, dir: .62 }
+        : isFloodgateVault
+          ? { fog: 0x3d5154, top: '#1f3037', bottom: '#4e6460', near: 12, far: 78, hemi: .54, dir: .68 }
+          : isFloodgateGallery
+            ? { fog: 0x4f6265, top: '#293e46', bottom: '#607672', near: 15, far: 94, hemi: .62, dir: .76 }
+            : isFloodgateCleared
+              ? { fog: 0x607e79, top: '#3e5961', bottom: '#789488', near: 22, far: 132, hemi: .78, dir: .94 }
+              : { fog: 0x5a6b6d, top: '#30474e', bottom: '#6e7978', near: 18, far: 110, hemi: .68, dir: .82 };
+      this._envTarget.fogColor = new C(palette.fog);
+      this._envTarget.fogNear = palette.near; this._envTarget.fogFar = palette.far;
+      this._envTarget.skyTop = new C(palette.top); this._envTarget.skyBottom = new C(palette.bottom);
+      this._envTarget.hemiColor = new C(isFloodgateVault || isFloodgateDeluge ? 0x9bb5b2 : 0xb6c9c5);
+      this._envTarget.hemiGroundColor = new C(0x263435);
+      this._envTarget.dirColor = new C(isFloodgateDeluge ? 0x9fcfd0 : 0xc3ddd5);
+      this._envTarget.hemiIntensity = palette.hemi; this._envTarget.dirIntensity = palette.dir;
+    } else if (isExpanse) {
+      // Keep the authored 12-24 m visibility envelope, but retain enough cool
+      // ambient and warm directional separation to model combat bodies between
+      // local beacons. The previous values collapsed near-field forms to black.
+      const palette = isExpanseHeavy
+        ? { fog: 0x57594e, top: '#293235', bottom: '#625c49', near: 2.5, far: 15, hemi: .54, dir: .64 }
+        : isExpanseCleared
+          ? { fog: 0x77715f, top: '#414c4d', bottom: '#897a5b', near: 7, far: 30, hemi: .72, dir: .84 }
+          : { fog: 0x626357, top: '#313b3e', bottom: '#716950', near: 4.5, far: 24, hemi: .62, dir: .74 };
+      this._envTarget.fogColor = new C(palette.fog);
+      this._envTarget.fogNear = palette.near; this._envTarget.fogFar = palette.far;
+      this._envTarget.skyTop = new C(palette.top); this._envTarget.skyBottom = new C(palette.bottom);
+      this._envTarget.hemiColor = new C(isExpanseHeavy ? 0x8a846d : 0x9a967b);
+      this._envTarget.hemiGroundColor = new C(0x373328);
+      this._envTarget.dirColor = new C(isExpanseHeavy ? 0xc19c64 : 0xd8b477);
+      this._envTarget.hemiIntensity = palette.hemi; this._envTarget.dirIntensity = palette.dir;
+    } else if (isCathedral) {
+      const palette = isCathedralBoss
+        ? { fog: 0x5d6678, top: '#29364b', bottom: '#766981', near: 17, far: 108, hemi: .66, dir: .82 }
+        : m.includes('choir')
+          ? { fog: 0x6e7187, top: '#354258', bottom: '#85748f', near: 19, far: 116, hemi: .7, dir: .86 }
+          : m.includes('root')
+            ? { fog: 0x716b78, top: '#3a4354', bottom: '#91756c', near: 19, far: 120, hemi: .72, dir: .88 }
+            : m.includes('liberated')
+              ? { fog: 0x91a7a5, top: '#5b7280', bottom: '#b9d4c2', near: 24, far: 148, hemi: .88, dir: 1.04 }
+              : m.includes('logic')
+                ? { fog: 0x747e8d, top: '#3f5063', bottom: '#8b8494', near: 21, far: 126, hemi: .76, dir: .92 }
+                : { fog: 0x7b8792, top: '#46596b', bottom: '#9296a3', near: 22, far: 134, hemi: .8, dir: .96 };
+      this._envTarget.fogColor = new C(palette.fog);
+      this._envTarget.fogNear = palette.near; this._envTarget.fogFar = palette.far;
+      this._envTarget.skyTop = new C(palette.top); this._envTarget.skyBottom = new C(palette.bottom);
+      this._envTarget.hemiIntensity = palette.hemi; this._envTarget.dirIntensity = palette.dir;
+    } else if (isCourt) {
+      const palette = isCourtBoss
+        ? { fog: 0x66636a, top: '#343944', bottom: '#806864', near: 18, far: 112, hemi: .62, dir: .76 }
+        : m.includes('verdict')
+          ? { fog: 0x747279, top: '#404752', bottom: '#8a746c', near: 20, far: 120, hemi: .67, dir: .82 }
+          : m.includes('purge')
+            ? { fog: 0x7a7d83, top: '#47515b', bottom: '#827b82', near: 21, far: 126, hemi: .7, dir: .86 }
+            : m.includes('liberated')
+              ? { fog: 0x9aa89b, top: '#66777a', bottom: '#c0cbb0', near: 24, far: 146, hemi: .86, dir: 1.02 }
+              : { fog: 0x82878a, top: '#4d5962', bottom: '#96877b', near: 23, far: 136, hemi: .75, dir: .92 };
+      this._envTarget.fogColor = new C(palette.fog);
+      this._envTarget.fogNear = palette.near; this._envTarget.fogFar = palette.far;
+      this._envTarget.skyTop = new C(palette.top); this._envTarget.skyBottom = new C(palette.bottom);
+      this._envTarget.hemiIntensity = palette.hemi; this._envTarget.dirIntensity = palette.dir;
+    } else if (isMirror) {
+      const palette = isMirrorBoss
+        ? { fog: 0x666a75, top: '#2f3847', bottom: '#7e6e86', near: 18, far: 112, hemi: .58, dir: .72 }
+        : m.includes('fracture')
+          ? { fog: 0x747985, top: '#3e4b5c', bottom: '#887b91', near: 20, far: 120, hemi: .66, dir: .82 }
+          : m.includes('echo')
+            ? { fog: 0x7b898e, top: '#465865', bottom: '#8c9999', near: 20, far: 126, hemi: .7, dir: .87 }
+            : m.includes('liberated')
+              ? { fog: 0x91a79d, top: '#62777c', bottom: '#c0d5bd', near: 22, far: 142, hemi: .84, dir: 1.0 }
+              : { fog: 0x819091, top: '#4e6068', bottom: '#9aa4a1', near: 22, far: 134, hemi: .74, dir: .9 };
+      this._envTarget.fogColor = new C(palette.fog);
+      this._envTarget.fogNear = palette.near; this._envTarget.fogFar = palette.far;
+      this._envTarget.skyTop = new C(palette.top); this._envTarget.skyBottom = new C(palette.bottom);
+      this._envTarget.hemiIntensity = palette.hemi; this._envTarget.dirIntensity = palette.dir;
+    } else if (isFreight) {
+      const palette = isFreightBoss
+        ? { fog: 0x5b574d, top: '#374345', bottom: '#816747', near: 13, far: 90, hemi: .6, dir: .72 }
+        : m.includes('infection')
+          ? { fog: 0x656957, top: '#414d50', bottom: '#876f50', near: 15, far: 100, hemi: .63, dir: .76 }
+          : m.includes('smog')
+            ? { fog: 0x686861, top: '#424e52', bottom: '#8d7659', near: 17, far: 108, hemi: .66, dir: .8 }
+            : { fog: 0x70716a, top: '#47545a', bottom: '#9b8263', near: 18, far: 118, hemi: .68, dir: .84 };
+      this._envTarget.fogColor = new C(palette.fog);
+      this._envTarget.fogNear = palette.near; this._envTarget.fogFar = palette.far;
+      this._envTarget.skyTop = new C(palette.top); this._envTarget.skyBottom = new C(palette.bottom);
+      this._envTarget.hemiIntensity = palette.hemi; this._envTarget.dirIntensity = palette.dir;
+    } else if (isWastes) {
+      const palette = isWastesBoss
+        ? { fog: 0x887a68, top: '#4d5c62', bottom: '#b89666', near: 12, far: 84, hemi: .72, dir: .84 }
+        : hasSand
+          ? { fog: 0x97886c, top: '#5a6c70', bottom: '#c6a86f', near: 14, far: m.includes('sandstorm') ? 82 : 104, hemi: .76, dir: .9 }
+          : { fog: 0x9da18e, top: '#667676', bottom: '#c8bd91', near: 18, far: 128, hemi: .8, dir: .92 };
+      this._envTarget.fogColor = new C(palette.fog);
+      this._envTarget.fogNear = palette.near; this._envTarget.fogFar = palette.far;
+      this._envTarget.skyTop = new C(palette.top); this._envTarget.skyBottom = new C(palette.bottom);
+      this._envTarget.hemiIntensity = palette.hemi; this._envTarget.dirIntensity = palette.dir;
+    } else if (isAdZone) {
+      const palette = isAdZoneBoss
+        ? { fog: 0x697078, top: '#3c4652', bottom: '#b56c62', near: 16, far: 105, hemi: .64, dir: .82 }
+        : isAdZoneLockdown
+          ? { fog: 0x73757b, top: '#45515d', bottom: '#b97975', near: 17, far: 112, hemi: .68, dir: .86 }
+          : isAdZoneSponsored
+            ? { fog: 0x7e7779, top: '#4a5863', bottom: '#c58a70', near: 18, far: 120, hemi: .72, dir: .92 }
+            : isAdZoneNeon
+              ? { fog: 0x7a7d82, top: '#4b5c68', bottom: '#b78694', near: 18, far: 122, hemi: .72, dir: .94 }
+              : { fog: 0x8d8b87, top: '#596a74', bottom: '#d0a486', near: 20, far: 132, hemi: .78, dir: 1.0 };
+      this._envTarget.fogColor = new C(palette.fog);
+      this._envTarget.fogNear = palette.near; this._envTarget.fogFar = palette.far;
+      this._envTarget.skyTop = new C(palette.top); this._envTarget.skyBottom = new C(palette.bottom);
+      this._envTarget.hemiIntensity = palette.hemi; this._envTarget.dirIntensity = palette.dir;
+    } else if (isSanitizer) {
+      const palette = isSanitizerBoss
+        ? { fog: 0x687679, top: '#4b5d64', bottom: '#aebbb8', near: 15, far: 92, hemi: .62, dir: .82 }
+        : isSanitizerPurge
+          ? { fog: 0x879597, top: '#64767b', bottom: '#c4ceca', near: 18, far: 108, hemi: .7, dir: .92 }
+          : isSanitizerLockdown
+            ? { fog: 0x768487, top: '#586a70', bottom: '#b7c3c0', near: 16, far: 98, hemi: .65, dir: .86 }
+            : { fog: 0x929e9d, top: '#6c7d81', bottom: '#cbd2cd', near: 20, far: 116, hemi: .76, dir: 1.0 };
+      this._envTarget.fogColor = new C(palette.fog);
+      this._envTarget.fogNear = palette.near; this._envTarget.fogFar = palette.far;
+      this._envTarget.skyTop = new C(palette.top); this._envTarget.skyBottom = new C(palette.bottom);
+      this._envTarget.hemiIntensity = palette.hemi; this._envTarget.dirIntensity = palette.dir;
+    } else if (isRelayInfestationStorm) {
       this._envTarget.fogColor = new C(0x586a70);
       this._envTarget.fogNear = 11; this._envTarget.fogFar = 82;
       this._envTarget.skyTop = new C('#334653'); this._envTarget.skyBottom = new C('#957875');
-      this._envTarget.hemiIntensity = .38; this._envTarget.dirIntensity = .58;
+      this._envTarget.hemiIntensity = .52; this._envTarget.dirIntensity = .78;
     } else if (isRelaySignalStorm) {
       this._envTarget.fogColor = new C(0x6e8790);
       this._envTarget.fogNear = 13; this._envTarget.fogFar = 92;
       this._envTarget.skyTop = new C('#435e6d'); this._envTarget.skyBottom = new C('#a3b5b2');
-      this._envTarget.hemiIntensity = .44; this._envTarget.dirIntensity = .68;
+      this._envTarget.hemiIntensity = .58; this._envTarget.dirIntensity = .9;
     } else if (isRelayRain) {
       this._envTarget.fogColor = new C(0x81979c);
       this._envTarget.fogNear = 16; this._envTarget.fogFar = 105;
       this._envTarget.skyTop = new C('#566f7d'); this._envTarget.skyBottom = new C('#b3c0bd');
-      this._envTarget.hemiIntensity = .5; this._envTarget.dirIntensity = .72;
+      this._envTarget.hemiIntensity = .62; this._envTarget.dirIntensity = .92;
     } else if (isRelayAlarm) {
       this._envTarget.fogColor = new C(0x8b9895);
       this._envTarget.fogNear = 17; this._envTarget.fogFar = 112;
       this._envTarget.skyTop = new C('#536a75'); this._envTarget.skyBottom = new C('#bbc1b7');
-      this._envTarget.hemiIntensity = .5; this._envTarget.dirIntensity = .82;
+      this._envTarget.hemiIntensity = .68; this._envTarget.dirIntensity = 1.05;
     } else if (isRelayCordon) {
       this._envTarget.fogColor = new C(0x929e9b);
       this._envTarget.fogNear = 18; this._envTarget.fogFar = 118;
       this._envTarget.skyTop = new C('#617683'); this._envTarget.skyBottom = new C('#c4c8bd');
-      this._envTarget.hemiIntensity = .54; this._envTarget.dirIntensity = .86;
+      this._envTarget.hemiIntensity = .74; this._envTarget.dirIntensity = 1.1;
     } else if (hasRain && hasFog){
       this._envTarget.fogColor = new C(0xa8c2d8);
       this._envTarget.fogNear = 14; this._envTarget.fogFar = 95;
@@ -192,6 +397,39 @@ export class WeatherSystem {
       this._envTarget.hemiIntensity = 0.9; this._envTarget.dirIntensity = 0.8;
     }
 
+    // Relay District uses a cool ambient base and a warm directional key.
+    // Color separation supplies form even when realtime shadows are disabled.
+    const relayPalette = isLastOrder
+      ? { hemi: isLastOrderHeavy ? 0x927c58 : 0x8da9a6, ground: isLastOrderHeavy ? 0x3e3020 : 0x172224, dir: isLastOrderHeavy ? 0xb48650 : 0xa8d6cf }
+      : isFloodgate
+      ? { hemi: isFloodgateVault || isFloodgateDeluge ? 0x9bb5b2 : 0xb6c9c5, ground: 0x263435, dir: isFloodgateDeluge ? 0x9fcfd0 : 0xc3ddd5 }
+      : isExpanse
+      ? { hemi: isExpanseHeavy ? 0x8a846d : 0x9a967b, ground: 0x373328, dir: isExpanseHeavy ? 0xc19c64 : 0xd8b477 }
+      : isCourt
+      ? { hemi: 0xd4d0c5, ground: 0x34333a, dir: isCourtBoss ? 0xff9a8c : 0xffd092 }
+      : isMirror
+      ? { hemi: 0xcadbd7, ground: 0x303a37, dir: isMirrorBoss ? 0xf6a8eb : 0xb9f7ee }
+      : isFreight
+      ? { hemi: 0xc3bfa8, ground: 0x2d302b, dir: isFreightBoss ? 0xff8b63 : 0xffc37f }
+      : isWastes
+      ? { hemi: 0xd4c9a4, ground: 0x51452f, dir: isWastesBoss ? 0x9ee8f5 : 0xffd18a }
+      : isSanitizer
+      ? { hemi: 0xd2e1df, ground: 0x283436, dir: isSanitizerBoss ? 0xff9b8e : 0xbff9ef }
+      : isRelayInfestationStorm
+      ? { hemi: 0xa8c0c3, ground: 0x332a32, dir: 0xff9d84 }
+      : isRelaySignalStorm
+        ? { hemi: 0xb9d9d7, ground: 0x293a3d, dir: 0xe2ffa9 }
+        : isRelayRain
+          ? { hemi: 0xc3dadd, ground: 0x304046, dir: 0xffd0a3 }
+          : isRelayAlarm
+            ? { hemi: 0xccdedb, ground: 0x394544, dir: 0xffbd8a }
+            : isRelayCordon
+              ? { hemi: 0xd6e3df, ground: 0x41504e, dir: 0xffd3a1 }
+              : { hemi: 0xffffff, ground: 0x4488aa, dir: 0xffffff };
+    this._envTarget.hemiColor = new C(relayPalette.hemi);
+    this._envTarget.hemiGroundColor = new C(relayPalette.ground);
+    this._envTarget.dirColor = new C(relayPalette.dir);
+
     // Feed ambient weather loops
     try {
       const windMix = Math.max(this._mixTarget.fog, this._mixTarget.sand, this._mixTarget.wind);
@@ -204,6 +442,10 @@ export class WeatherSystem {
 
     // Mark transition start
     this._transitionStartTime = this.uTime.value || 0;
+    if (options.immediate === true) {
+      this._transitionStartTime -= this._transitionTime;
+      this._updateTransition(0);
+    }
   }
 
   update(elapsedSeconds, camera){
@@ -270,10 +512,14 @@ export class WeatherSystem {
     this.scene.fog.color.copy(this._envStart.fogColor).lerp(this._envTarget.fogColor, s);
     this.skyMat.uniforms.top.value.copy(this._envStart.skyTop).lerp(this._envTarget.skyTop, s);
     this.skyMat.uniforms.bottom.value.copy(this._envStart.skyBottom).lerp(this._envTarget.skyBottom, s);
+    this.hemi.color.copy(this._envStart.hemiColor).lerp(this._envTarget.hemiColor, s);
+    this.hemi.groundColor.copy(this._envStart.hemiGroundColor).lerp(this._envTarget.hemiGroundColor, s);
+    this.dir.color.copy(this._envStart.dirColor).lerp(this._envTarget.dirColor, s);
     this.scene.fog.near = lerp01(this._envStart.fogNear, this._envTarget.fogNear, s);
     this.scene.fog.far  = lerp01(this._envStart.fogFar,  this._envTarget.fogFar,  s);
     this.hemi.intensity = lerp01(this._envStart.hemiIntensity, this._envTarget.hemiIntensity, s);
     this.dir.intensity  = lerp01(this._envStart.dirIntensity,  this._envTarget.dirIntensity,  s);
+    if (this._flash <= 0) this.baseDirColor.copy(this.dir.color);
     if (this.mats && this.mats.weather){
       this.mats.weather.wetness.value = this._mix.rain;
       this.mats.weather.snow.value = this._mix.snow;
@@ -393,10 +639,10 @@ export class WeatherSystem {
     const THREE = this.THREE; const g = this.createBaseGeometry(count);
     const speeds = g.getAttribute('aSpeed'); for (let i=0;i<speeds.count;i++) speeds.setX(i, 38 + Math.random()*36); speeds.needsUpdate = true;
     const material = new THREE.ShaderMaterial({
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
-      uniforms:{ uTime:this.uTime, uSize:{value:0.6}, uHeight:{value:this.height}, uWind:{value:this.wind}, uArea:{value:this.areaSize}, uAlpha:{value:0.0} },
-      vertexShader:`uniform float uTime; uniform float uHeight; uniform vec3 uWind; uniform float uSize; uniform float uArea; attribute float aSpeed; attribute float aSeed; varying float vAlpha; void main(){ vec3 pos=position; float halfA=0.5*uArea; float fx=position.x+uWind.x*uTime+sin(uTime*8.0+aSeed*6.283)*0.08; float fz=position.z+uWind.z*uTime+cos(uTime*6.0+aSeed*6.283)*0.08; pos.x=-halfA+mod(fx+halfA,uArea); pos.z=-halfA+mod(fz+halfA,uArea); pos.y=mod(position.y-uTime*aSpeed,uHeight); vec4 mv=modelViewMatrix*vec4(pos,1.0); gl_Position=projectionMatrix*mv; float dist=-mv.z; gl_PointSize=uSize*clamp(180.0/dist,2.0,14.0); vAlpha=clamp((aSpeed-20.0)/40.0,0.2,1.0); }`,
-      fragmentShader:`precision mediump float; varying float vAlpha; uniform float uAlpha; void main(){ vec2 pc=gl_PointCoord; float x=abs(pc.x-0.5); float core=smoothstep(0.48,0.45,x); float soft=smoothstep(0.5,0.2,x); float tail=smoothstep(1.0,0.0,pc.y); float a=mix(soft,core,0.85)*tail*vAlpha; a*=uAlpha; if(a<0.02) discard; vec3 col=mix(vec3(0.55,0.75,1.0), vec3(0.9,0.97,1.0), 0.7); gl_FragColor=vec4(col,a);} `
+      transparent: true, depthWrite: false, depthTest: true, blending: THREE.NormalBlending,
+      uniforms:{ uTime:this.uTime, uSize:{value:1.7}, uHeight:{value:this.height}, uWind:{value:this.wind}, uArea:{value:this.areaSize}, uAlpha:{value:0.0}, uOpacity:{value:.34} },
+      vertexShader:`uniform float uTime; uniform float uHeight; uniform vec3 uWind; uniform float uSize; uniform float uArea; attribute float aSpeed; attribute float aSeed; varying float vAlpha; void main(){ vec3 pos=position; float halfA=0.5*uArea; float fx=position.x+uWind.x*uTime+sin(uTime*8.0+aSeed*6.283)*0.08; float fz=position.z+uWind.z*uTime+cos(uTime*6.0+aSeed*6.283)*0.08; pos.x=-halfA+mod(fx+halfA,uArea); pos.z=-halfA+mod(fz+halfA,uArea); pos.y=mod(position.y-uTime*aSpeed,uHeight); vec4 mv=modelViewMatrix*vec4(pos,1.0); gl_Position=projectionMatrix*mv; float dist=max(0.1,-mv.z); gl_PointSize=uSize*clamp(220.0/dist,1.8,8.0); float nearFade=smoothstep(3.0,10.0,dist); float farFade=1.0-smoothstep(48.0,92.0,dist); float speedFade=clamp((aSpeed-28.0)/46.0,.32,1.0); vAlpha=nearFade*farFade*speedFade; }`,
+      fragmentShader:`precision mediump float; varying float vAlpha; uniform float uAlpha; uniform float uOpacity; void main(){ vec2 pc=gl_PointCoord; float x=abs(pc.x-.5); float streak=smoothstep(.16,.035,x); float head=smoothstep(.98,.72,pc.y); float tail=smoothstep(0.0,.22,pc.y); float a=streak*head*tail*vAlpha*uAlpha*uOpacity; if(a<.012) discard; vec3 col=mix(vec3(.36,.50,.58),vec3(.66,.76,.80),pc.y); gl_FragColor=vec4(col,a);}`
     });
     const points = new THREE.Points(g, material); this.group.add(points); return points;
   }
@@ -445,9 +691,9 @@ export class WeatherSystem {
     const speeds = g.getAttribute('aSpeed'); for(let i=0;i<speeds.count;i++) speeds.setX(i, 1.5 + Math.random()*2.0); speeds.needsUpdate = true;
     const material = new THREE.ShaderMaterial({
       transparent: true, depthWrite: false, depthTest: true,
-      uniforms:{ uTime:this.uTime, uSize:{value:42.0}, uHeight:{value:Math.min(60, this.height)}, uArea:{value:this.areaSize}, uAlpha:{value:0.0} },
+      uniforms:{ uTime:this.uTime, uSize:{value:42.0}, uHeight:{value:Math.min(60, this.height)}, uArea:{value:this.areaSize}, uAlpha:{value:0.0}, uColor:{value:new THREE.Color(0xc7b38c)} },
       vertexShader:`uniform float uTime; uniform float uHeight; uniform float uSize; uniform float uArea; attribute float aSpeed; attribute float aSeed; varying float vAlpha; void main(){ vec3 pos=position; float s=aSeed*6.283; float halfA=0.5*uArea; float fx=position.x + sin(uTime*0.15 + s)*2.0 + sin(uTime*0.32 + s*1.1)*1.5; float fz=position.z + cos(uTime*0.12 + s)*2.1 + cos(uTime*0.27 + s*0.9)*1.4; pos.x=-halfA+mod(fx+halfA,uArea); pos.z=-halfA+mod(fz+halfA,uArea); pos.y=mod(position.y + sin(uTime*0.18 + s)*0.4, uHeight); vec4 mv=modelViewMatrix*vec4(pos,1.0); gl_Position=projectionMatrix*mv; float dist=max(0.001,-mv.z); gl_PointSize=uSize*clamp(180.0/dist,10.0,95.0); float base=clamp(0.2 + fract(aSeed*53.0)*0.3,0.2,0.5); float nearFade=clamp((dist-2.0)/8.0,0.0,1.0); vAlpha=base*nearFade; }`,
-      fragmentShader:`precision mediump float; varying float vAlpha; uniform float uAlpha; void main(){ vec2 pc=gl_PointCoord-0.5; float d2=dot(pc,pc); float soft=exp(-4.5*d2); float a=soft*vAlpha*uAlpha; if(a<0.01) discard; vec3 col=vec3(0.78,0.70,0.55); gl_FragColor=vec4(col,a); }`
+      fragmentShader:`precision mediump float; varying float vAlpha; uniform float uAlpha; uniform vec3 uColor; void main(){ vec2 pc=gl_PointCoord-0.5; float d2=dot(pc,pc); float soft=exp(-4.5*d2); float a=soft*vAlpha*uAlpha; if(a<0.01) discard; gl_FragColor=vec4(uColor,a); }`
     });
     const points = new THREE.Points(g, material); this.group.add(points); return points;
   }

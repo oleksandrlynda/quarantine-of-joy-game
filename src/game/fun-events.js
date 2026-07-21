@@ -2,8 +2,9 @@ export const CONFETTI_ELIMINATION_CADENCE = 10;
 export const ALGORITHM_ROULETTE_UPWARD_Y = 0.82;
 export const ALGORITHM_ROULETTE_SHOT_CADENCE = 7;
 export const ALGORITHM_ROULETTE_PROFILES = Object.freeze({
-  1: Object.freeze({ winChance: 0.51, winHealth: 5, lossHealth: 7 }),
-  2: Object.freeze({ winChance: 0.52, winHealth: 6, lossHealth: 6 })
+  1: Object.freeze({ winChance: 0.5, winHealth: 5, lossHealth: 5 }),
+  2: Object.freeze({ winChance: 0.52, winHealth: 6, lossHealth: 6 }),
+  3: Object.freeze({ winChance: 0.52, winHealth: 6, lossHealth: 6 })
 });
 export const OPENING_ACT_COMBO_HOLD_SECONDS = 3;
 export const FINAL_CUT_STAMINA_RESTORE = 10;
@@ -28,8 +29,8 @@ export class StagecraftDeaths {
     tutorial = false
   } = {}) {
     const currentWave = Math.max(0, Math.floor(Number(wave) || 0));
-    const opening = Math.min(2, Math.max(0, Math.floor(Number(openingGrade) || 0)));
-    const final = Math.min(2, Math.max(0, Math.floor(Number(finalGrade) || 0)));
+    const opening = Math.min(3, Math.max(0, Math.floor(Number(openingGrade) || 0)));
+    const final = Math.min(3, Math.max(0, Math.floor(Number(finalGrade) || 0)));
     if (!regularWave || boss || tutorial || currentWave <= 0 || (opening <= 0 && final <= 0)) {
       return { triggered: false, style: null, wave: currentWave };
     }
@@ -48,8 +49,8 @@ export class StagecraftDeaths {
         grade: final,
         wave: currentWave,
         elimination: this.eliminations,
-        staminaRestore: final >= 2 ? FINAL_CUT_STAMINA_RESTORE : 0,
-        comboHoldSeconds: 0
+        staminaRestore: final >= 3 ? FINAL_CUT_STAMINA_RESTORE : 0,
+        comboHoldSeconds: final >= 3 ? OPENING_ACT_COMBO_HOLD_SECONDS : 0
       };
     }
     if (this.eliminations === 1 && opening > 0) {
@@ -60,7 +61,7 @@ export class StagecraftDeaths {
         wave: currentWave,
         elimination: this.eliminations,
         staminaRestore: 0,
-        comboHoldSeconds: opening >= 2 ? OPENING_ACT_COMBO_HOLD_SECONDS : 0
+        comboHoldSeconds: opening >= 3 ? OPENING_ACT_COMBO_HOLD_SECONDS : 0
       };
     }
     return { triggered: false, style: null, wave: currentWave, elimination: this.eliminations };
@@ -103,13 +104,14 @@ export class AlgorithmRoulette {
     this.usedWave = null;
     this.progressWave = null;
     this.eligibleShots = 0;
+    this.neutralizedBossCycles = new Set();
   }
 
   tryShot({ wave, directionY, hp, maxHp, weapon, grade = 0, tutorial = false, gameOver = false } = {}) {
     const currentWave = Math.max(0, Math.floor(Number(wave) || 0));
     const currentHp = Number(hp) || 0;
     const capacity = Math.max(0, Number(maxHp) || 0);
-    const currentGrade = Math.min(2, Math.max(0, Math.floor(Number(grade) || 0)));
+    const currentGrade = Math.min(3, Math.max(0, Math.floor(Number(grade) || 0)));
     const excludedWeapon = weapon === 'BeamSaber';
     const eligible = currentGrade > 0 && !tutorial && !gameOver && !excludedWeapon && currentWave > 0 &&
       this.usedWave !== currentWave && Number(directionY) >= this.upwardY &&
@@ -135,13 +137,17 @@ export class AlgorithmRoulette {
     this.usedWave = currentWave;
     const profile = ALGORITHM_ROULETTE_PROFILES[currentGrade];
     const won = this.rng() < profile.winChance;
+    const bossCycle = Math.floor((currentWave - 1) / 5);
+    const neutralized = !won && currentGrade >= 3 && !this.neutralizedBossCycles.has(bossCycle);
+    if (neutralized) this.neutralizedBossCycles.add(bossCycle);
     return {
       triggered: true,
       counted: true,
       won,
       grade: currentGrade,
       wave: currentWave,
-      delta: won ? profile.winHealth : -profile.lossHealth,
+      neutralized,
+      delta: won ? profile.winHealth : neutralized ? 0 : -profile.lossHealth,
       progress: this.eligibleShots,
       remaining: 0
     };

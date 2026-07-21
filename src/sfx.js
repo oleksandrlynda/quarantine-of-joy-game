@@ -371,9 +371,9 @@ export class SFX {
     for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
     const src = a.createBufferSource(); src.buffer = nb; src.playbackRate.value = this._rv(0.96, 1.04);
     const bp = a.createBiquadFilter(); bp.type = 'bandpass';
-    bp.frequency.value = ({ grunt: 320, rusher: 380, tank: 220, shooter: 340, flyer: 520, healer: 300, sniper: 260 }[type] || 320);
+    bp.frequency.value = ({ grunt: 320, rusher: 380, tank: 220, shooter: 340, flyer: 520, pelican: 280, healer: 300, sniper: 260 }[type] || 320);
     bp.Q.value = 0.8;
-    const e = this._env({ a: 0.004, d: ({ tank: 0.14, grunt: 0.12, shooter: 0.12, rusher: 0.12, sniper: 0.12, flyer: 0.1, healer: 0.12 }[type] || 0.12), g: ({ tank: 0.34, grunt: 0.3, shooter: 0.28, rusher: 0.28, sniper: 0.26, flyer: 0.22, healer: 0.26 }[type] || 0.28), t0 });
+    const e = this._env({ a: 0.004, d: ({ tank: 0.14, grunt: 0.12, shooter: 0.12, rusher: 0.12, sniper: 0.12, flyer: 0.1, pelican: 0.15, healer: 0.12 }[type] || 0.12), g: ({ tank: 0.34, grunt: 0.3, shooter: 0.28, rusher: 0.28, sniper: 0.26, flyer: 0.22, pelican: 0.31, healer: 0.26 }[type] || 0.28), t0 });
     src.connect(bp).connect(e.node).connect(pan).connect(this.master);
     this._tapFx(e.node, 0.05);
     src.start(t0); src.stop(e.endTime + 0.01);
@@ -387,10 +387,10 @@ export class SFX {
     for (let i = 0; i < ch.length; i++) ch[i] = Math.random() * 2 - 1;
     const src = a.createBufferSource(); src.buffer = nb; src.playbackRate.value = this._rv(0.95, 1.02);
     const lp = a.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1400;
-    const e = this._env({ a: 0.004, d: ({ tank: 0.7, grunt: 0.55, shooter: 0.5, rusher: 0.5, sniper: 0.45, flyer: 0.38, healer: 0.45 }[type] || 0.5), g: ({ tank: 0.6, grunt: 0.48, shooter: 0.46, rusher: 0.46, sniper: 0.4, flyer: 0.34, healer: 0.4 }[type] || 0.46), t0 });
+    const e = this._env({ a: 0.004, d: ({ tank: 0.7, grunt: 0.55, shooter: 0.5, rusher: 0.5, sniper: 0.45, flyer: 0.38, pelican: 0.58, healer: 0.45 }[type] || 0.5), g: ({ tank: 0.6, grunt: 0.48, shooter: 0.46, rusher: 0.46, sniper: 0.4, flyer: 0.34, pelican: 0.5, healer: 0.4 }[type] || 0.46), t0 });
     src.connect(lp).connect(e.node).connect(pan).connect(this.master); this._tapFx(e.node, 0.22);
     // Sub layer for weight
-    const o = a.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(({ tank: 90, grunt: 110, shooter: 100, rusher: 110, sniper: 100, flyer: 140, healer: 100 }[type] || 110), t0);
+    const o = a.createOscillator(); o.type = 'sine'; o.frequency.setValueAtTime(({ tank: 90, grunt: 110, shooter: 100, rusher: 110, sniper: 100, flyer: 140, pelican: 82, healer: 100 }[type] || 110), t0);
     const eSub = this._env({ a: 0.002, d: 0.28, g: 0.2, t0 }); o.connect(eSub.node).connect(pan).connect(this.master);
     src.start(t0); src.stop(e.endTime + 0.02); o.start(t0); o.stop(eSub.endTime + 0.02);
   }
@@ -404,8 +404,8 @@ export class SFX {
     // Breath/rasp for melee; chirp for flyers; bark for shooter
     const pan = this._makePan(); const t0 = now + 0.001;
     const o = a.createOscillator();
-    o.type = (type === 'flyer') ? 'triangle' : 'square';
-    const base = ({ grunt: 200, rusher: 260, tank: 120, shooter: 240, flyer: 500, healer: 220, sniper: 200 }[type] || 220) * this._rv(0.95, 1.05);
+    o.type = (type === 'flyer' || type === 'pelican') ? 'triangle' : 'square';
+    const base = ({ grunt: 200, rusher: 260, tank: 120, shooter: 240, flyer: 500, pelican: 190, healer: 220, sniper: 200 }[type] || 220) * this._rv(0.95, 1.05);
     o.frequency.setValueAtTime(base, t0);
     const e = this._env({ a: 0.012, d: 0.2, g: 0.12, t0 });
     o.connect(e.node).connect(pan).connect(this.master); this._tapFx(e.node, 0.08);

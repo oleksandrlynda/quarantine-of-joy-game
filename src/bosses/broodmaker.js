@@ -27,6 +27,13 @@ export class Broodmaker {
     this.preferredRange = Object.freeze([15, 22]);
     this._yaw = built.root.rotation.y || 0;
     this._strafeSign = this.rng() < 0.5 ? -1 : 1;
+    this._routeAnchor = null;
+    this._routeAnchorSubject = null;
+    this._routeAnchorRefresh = 0;
+    this._forcedRouteSeconds = 0;
+    this._worldBlockedSeconds = 0;
+    this._stuckEscapeArmed = false;
+    this._routingToRange = false;
 
     // Phases
     this.maxHp = this.root.userData.hp;
@@ -43,6 +50,7 @@ export class Broodmaker {
     this._burrowCooldown = (this.enablePhase2 ? 10 : 12) + this.rng() * 4;
     this._burrowPhase = null;   // 'sink' | 'move' | 'rise' | null
     this._burrowTimer = 0;
+    this._burrowReason = null;
 
     // Phase 2: Flyers + Goo + weakpoint exposure
     this._flyerCooldown = 4 + this.rng() * 2;
@@ -53,6 +61,13 @@ export class Broodmaker {
     this._goo = [];
     this._gooCap = 4;
     this._lastPlayerPos = null;
+
+    // Light-mode direct pressure. Adds remain the encounter's main threat;
+    // resin merely forces movement and gives the boss one attributable hit.
+    this._resinCooldown = 4.8 + this.rng() * 1.2;
+    this._resinSpit = null;
+    this._resinPuddles = [];
+    this._resinLastPlayerPos = null;
 
     // Weakpoint exposure window (Phase 2 lay cycle)
     this._weakpointTimer = 0;
@@ -89,6 +104,7 @@ export class Broodmaker {
 
     const desired = new this.THREE.Vector3();
     const [minimumRange, maximumRange] = this.preferredRange;
+    const idealRange = (minimumRange + maximumRange) * 0.5;
     const side = new this.THREE.Vector3(-toPlayer.z, 0, toPlayer.x).multiplyScalar(this._strafeSign);
     if (dist < minimumRange) {
       desired.addScaledVector(toPlayer, -1.35).addScaledVector(side, 0.38);
@@ -97,25 +113,75 @@ export class Broodmaker {
       desired.add(toPlayer).addScaledVector(side, 0.18);
     } else {
       desired.add(side);
-      const center = (minimumRange + maximumRange) * 0.5;
-      desired.addScaledVector(toPlayer, (dist - center) * 0.08);
+      desired.addScaledVector(toPlayer, (dist - idealRange) * 0.08);
     }
     const hasLOS = this._hasLineOfSight(e.position, playerPos, ctx.objects);
-    if (!hasLOS && ctx.pathfind) {
-      ctx.pathfind.recomputeIfStale(this, playerPos);
+    const locomotionClear = ctx.locomotionClear?.(e, playerPos) ?? true;
+    this._routeAnchorRefresh = Math.max(0, this._routeAnchorRefresh - dt);
+    this._forcedRouteSeconds = Math.max(0, this._forcedRouteSeconds - dt);
+    const needsRangeChange = dist < minimumRange || dist > maximumRange;
+    const needsRoute = !hasLOS || (!locomotionClear && needsRangeChange) || this._forcedRouteSeconds > 0;
+    if (needsRoute && ctx.pathfind) {
+      const playerMoved = !this._routeAnchorSubject
+        || this._routeAnchorSubject.distanceToSquared(playerPos) > 4;
+      if (!this._routeAnchor || this._routeAnchorRefresh <= 0 || playerMoved) {
+        const awayFromPlayer = e.position.clone().sub(playerPos).setY(0);
+        if (awayFromPlayer.lengthSq() <= 0.0001) awayFromPlayer.set(0, 0, 1);
+        awayFromPlayer.normalize();
+        this._routeAnchor = playerPos.clone().addScaledVector(awayFromPlayer, idealRange);
+        this._routeAnchor.y = e.position.y;
+        this._routeAnchorSubject = playerPos.clone();
+        this._routeAnchorRefresh = 0.8;
+      }
+      ctx.pathfind.recomputeIfStale(this, this._routeAnchor, { cacheFor: 1.2 });
       const wp = ctx.pathfind.nextWaypoint(this);
       if (wp) {
         const dir = new this.THREE.Vector3(wp.x - e.position.x, 0, wp.z - e.position.z);
         if (dir.lengthSq() > 0) desired.copy(dir.normalize());
       }
-    } else if (hasLOS && ctx.pathfind) {
+      if (!this._routingToRange) {
+        ctx.emitAIEvent?.(e, 'broodmaker_route_started', {
+          reason: !hasLOS ? 'lost_los' : (!locomotionClear ? 'body_corridor_blocked' : 'movement_blocked')
+        });
+      }
+      this._routingToRange = true;
+      ctx.setAIState?.(e, 'routing_to_range');
+    } else if (ctx.pathfind) {
       ctx.pathfind.clear(this);
+      if (this._routingToRange) ctx.emitAIEvent?.(e, 'broodmaker_route_completed');
+      this._routingToRange = false;
     }
 
     if (desired.lengthSq() > 0) {
       desired.normalize();
       const step = desired.multiplyScalar(this.speed * dt);
-      ctx.moveWithCollisions(e, step);
+      const movement = ctx.moveWithCollisions(e, step) || {};
+      const worldConstrained = movement.blockedBy === 'world';
+      if (worldConstrained) {
+        this._worldBlockedSeconds += dt;
+        if (this._worldBlockedSeconds >= 0.12) {
+          this._forcedRouteSeconds = Math.max(this._forcedRouteSeconds, 1.5);
+          this._routeAnchorRefresh = 0;
+        }
+        if (this._worldBlockedSeconds >= 1.5 && !this._stuckEscapeArmed) {
+          this._stuckEscapeArmed = true;
+          this._burrowReason = 'world_blocked';
+          this._burrowCooldown = 0;
+          if (this._resinSpit) {
+            this._disposeResinMesh(ctx.scene, this._resinSpit.mesh);
+            this._resinSpit = null;
+            ctx.emitAIEvent?.(this.root, 'ability_cancelled', {
+              ability: 'broodmaker_resin_spit', reason: 'stuck_escape'
+            });
+          }
+          ctx.emitAIEvent?.(e, 'broodmaker_stuck_escape_armed', {
+            blockedSeconds: this._worldBlockedSeconds
+          });
+        }
+      } else {
+        this._worldBlockedSeconds = Math.max(0, this._worldBlockedSeconds - dt * 2);
+        if (this._worldBlockedSeconds <= 0.25) this._stuckEscapeArmed = false;
+      }
     }
 
     // Phase gate
@@ -147,6 +213,8 @@ export class Broodmaker {
       // Even in Phase 2, occasional burrow keeps the arena dynamic
       this._maybeStartBurrow(dt, ctx, playerPos, 0.65);
     }
+
+    if (!this.enablePhase2 && !this._burrowPhase) this._updateResinSpit(dt, ctx);
 
     this._tickVisuals(dt);
   }
@@ -190,6 +258,10 @@ export class Broodmaker {
       this._phaseTelegraphRing.material?.dispose?.();
       this._phaseTelegraphRing = null;
     }
+    if (this._resinSpit?.mesh) this._disposeResinMesh(scene, this._resinSpit.mesh);
+    this._resinSpit = null;
+    for (const puddle of this._resinPuddles) this._disposeResinMesh(scene, puddle.mesh);
+    this._resinPuddles.length = 0;
   }
 
   // ---------------- Phase 1: Broodlings ----------------
@@ -219,6 +291,9 @@ export class Broodmaker {
     const count = Math.min(canSpawn, 3 + (this.rng() < 0.35 ? 1 : 0));
     const near = this._computeSpawnWallBetweenBossAndPlayer(ctx, count);
     let spawned = 0;
+    ctx.emitAIEvent?.(this.root, 'ability_started', {
+      ability: 'brood_wall', telegraphSeconds: 0, requestedCount: count
+    });
 
     for (const p of near) {
       const root = this.enemyManager.spawnAt('gruntling', p, { countsTowardAlive: true });
@@ -244,12 +319,17 @@ export class Broodmaker {
       }
     }
 
+    ctx.emitAIEvent?.(this.root, 'ability_released', {
+      ability: 'brood_wall', spawnedCount: spawned, requestedCount: count
+    });
+
     // Next drip: faster if few spawned (keeps pressure), slower if many
     this._broodCooldown = (spawned >= 2 ? 3.4 : 2.2) + this.rng() * 0.9;
   }
 
   // ---------------- Burrow / Relocate (both phases) ----------------
   _maybeStartBurrow(dt, ctx, playerPos, rarityMul = 1.0) {
+    if (this._resinSpit) return;
     if (this._burrowCooldown > 0) this._burrowCooldown -= dt;
     if (this._burrowCooldown > 0) return;
 
@@ -263,7 +343,14 @@ export class Broodmaker {
     // Visual: hide outline while underground
     if (this.refs.outlineGroup) this.refs.outlineGroup.visible = false;
     // Juicy FX
-    try { window?._EFFECTS?.ring?.(this.root.position.clone(), 1.6, 0xff88aa); } catch (e) { logError(e); }
+    try { globalThis.window?._EFFECTS?.ring?.(this.root.position.clone(), 1.6, 0xff88aa); } catch (e) { logError(e); }
+    ctx.emitAIEvent?.(this.root, 'ability_started', {
+      ability: 'broodmaker_burrow', telegraphSeconds: 0.6,
+      reason: this._burrowReason || 'cadence'
+    });
+    this._burrowReason = null;
+    this._worldBlockedSeconds = 0;
+    this._stuckEscapeArmed = false;
     // Next time (rarityMul makes it rarer in P2 if desired)
     this._burrowCooldown = ((this.enablePhase2 ? 9 : 12) + this.rng() * 5) * rarityMul;
   }
@@ -277,10 +364,13 @@ export class Broodmaker {
         this._burrowPhase = 'move';
         this._burrowTimer = 0.1;
         // Teleport root while "underground"
-        const target = this._pickRelocatePos(playerPos);
+        const target = this._pickRelocatePos(playerPos, ctx);
         this.root.position.copy(target);
         // optional FX at emerge point
-        try { window?._EFFECTS?.ring?.(target.clone(), 1.6, 0xff88aa); } catch (e) { logError(e); }
+        try { globalThis.window?._EFFECTS?.ring?.(target.clone(), 1.6, 0xff88aa); } catch (e) { logError(e); }
+        ctx.emitAIEvent?.(this.root, 'ability_released', {
+          ability: 'broodmaker_burrow', destination: target.clone()
+        });
       }
       return;
     }
@@ -305,17 +395,25 @@ export class Broodmaker {
     }
   }
 
-  _pickRelocatePos(playerPos) {
+  _pickRelocatePos(playerPos, ctx = null) {
     const THREE = this.THREE;
-    const a = this.rng() * Math.PI * 2;
-    const r = 17 + this.rng() * 5; // re-establish the ranged-controller band
-    const pos = new THREE.Vector3(playerPos.x + Math.cos(a) * r, this.root.position.y, playerPos.z + Math.sin(a) * r);
-    // clamp to arena
-    pos.x = Math.max(-39, Math.min(39, pos.x));
-    pos.z = Math.max(-39, Math.min(39, pos.z));
-    // nudge off obstacles if helper exists
-    if (typeof this.enemyManager?._nudgeClear === 'function') this.enemyManager._nudgeClear(pos, 0.8);
-    return pos;
+    const bodyRadius = this.enablePhase2 ? 2.45 : 2.15;
+    const margin = bodyRadius + .35;
+    const bounds = this._arenaBounds(margin);
+    const baseAngle = this.rng() * Math.PI * 2;
+    const radius = 17 + this.rng() * 5; // re-establish the ranged-controller band
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      const angle = baseAngle + attempt * 2.3999632297;
+      const pos = new THREE.Vector3(
+        Math.max(bounds.minX, Math.min(bounds.maxX, playerPos.x + Math.cos(angle) * radius)),
+        this.root.position.y,
+        Math.max(bounds.minZ, Math.min(bounds.maxZ, playerPos.z + Math.sin(angle) * radius))
+      );
+      if (!ctx?.positionClear || ctx.positionClear(this.root, pos)) return pos;
+    }
+    // A failed relocation must keep the boss at a known-valid position rather
+    // than teleport it into a facade or beyond the authored collision walls.
+    return this.root.position.clone();
   }
 
   // ---------------- Phase 2: Telegraph ----------------
@@ -468,13 +566,123 @@ export class Broodmaker {
       positions.push(...this._computeSpawnAroundPlayer(ctx, toSpawn, 3, 6));
     }
 
+    ctx.emitAIEvent?.(this.root, 'ability_started', {
+      ability: 'broodmaker_toxic_goo', telegraphSeconds: 0.4,
+      requestedCount: positions.length, radius: 3.2,
+      damagePerSecond: 6, slowMultiplier: 0.58
+    });
+
     for (const p of positions) {
-      const g = new GooPuddle({ THREE: this.THREE, mats: this.mats, position: p, enemyManager: this.enemyManager });
+      const g = new GooPuddle({
+        THREE: this.THREE, mats: this.mats, position: p,
+        enemyManager: this.enemyManager, radius: 3.2,
+        playerSlowMultiplier: 0.58, damagePerSecond: 6,
+        damageTickSeconds: 0.75, sourceRoot: this.root,
+        sourceKind: 'broodmaker_toxic_goo', toxic: true
+      });
       ctx.scene.add(g.root);
       this._goo.push(g);
       if (this._goo.length >= this._gooCap) break;
     }
+    ctx.emitAIEvent?.(this.root, 'ability_released', {
+      ability: 'broodmaker_toxic_goo', puddleCount: positions.length,
+      radius: 3.2, damagePerSecond: 6
+    });
     this._gooCooldown = 10 + this.rng() * 4;
+  }
+
+  // ---------------- Light mode: Resin Spit ----------------
+  _updateResinSpit(dt, ctx) {
+    const playerPos = ctx.player.position;
+    ctx.blackboard = ctx.blackboard || {};
+
+    for (let i = this._resinPuddles.length - 1; i >= 0; i--) {
+      const puddle = this._resinPuddles[i];
+      puddle.life -= dt;
+      puddle.mesh.material.opacity = Math.max(0, Math.min(0.52, puddle.life * 0.16));
+      if (Math.hypot(playerPos.x - puddle.position.x, playerPos.z - puddle.position.z) <= puddle.radius) {
+        ctx.blackboard.playerSlowMul = Math.min(ctx.blackboard.playerSlowMul || 1, 0.72);
+      }
+      if (puddle.life <= 0) {
+        this._disposeResinMesh(ctx.scene, puddle.mesh);
+        this._resinPuddles.splice(i, 1);
+      }
+    }
+
+    if (this._resinSpit) {
+      const spit = this._resinSpit;
+      spit.timer += dt;
+      const progress = Math.min(1, spit.timer / spit.windup);
+      spit.mesh.material.opacity = 0.25 + progress * 0.55;
+      spit.mesh.scale.setScalar(0.7 + progress * 0.3);
+      if (progress < 1) return;
+
+      const hitPlayer = Math.hypot(playerPos.x - spit.position.x, playerPos.z - spit.position.z) <= spit.radius;
+      if (hitPlayer) {
+        ctx.onPlayerDamage?.(12, 'resin', {
+          sourceRoot: this.root, ownerRoot: this.root,
+          sourceOrigin: spit.position.clone(), sourceKind: 'broodmaker_resin_spit'
+        });
+      }
+      this._disposeResinMesh(ctx.scene, spit.mesh);
+      const puddleMesh = new this.THREE.Mesh(
+        new this.THREE.CircleGeometry(spit.radius, 28),
+        new this.THREE.MeshBasicMaterial({ color: 0xb8f04a, transparent: true, opacity: 0.52, depthWrite: false, side: this.THREE.DoubleSide })
+      );
+      puddleMesh.rotation.x = -Math.PI / 2;
+      puddleMesh.position.copy(spit.position);
+      puddleMesh.position.y = 0.025;
+      ctx.scene.add(puddleMesh);
+      this._resinPuddles.push({ mesh: puddleMesh, position: spit.position.clone(), radius: spit.radius, life: 5 });
+      ctx.emitAIEvent?.(this.root, 'ability_released', {
+        ability: 'broodmaker_resin_spit', hitPlayer, radius: spit.radius
+      });
+      this._resinSpit = null;
+      this._resinCooldown = 6.5 + this.rng() * 1.5;
+      return;
+    }
+
+    this._resinCooldown -= dt;
+    if (this._resinCooldown > 0) {
+      this._resinLastPlayerPos = playerPos.clone();
+      return;
+    }
+    const distance = Math.hypot(playerPos.x - this.root.position.x, playerPos.z - this.root.position.z);
+    if (distance < 7 || distance > 30 || !this._hasLineOfSight(this.root.position, playerPos, ctx.objects || [])) {
+      this._resinCooldown = 0.25;
+      this._resinLastPlayerPos = playerPos.clone();
+      return;
+    }
+
+    const predicted = playerPos.clone();
+    if (this._resinLastPlayerPos && dt > 0) {
+      const velocity = playerPos.clone().sub(this._resinLastPlayerPos).multiplyScalar(1 / dt);
+      velocity.y = 0;
+      if (velocity.length() > 8) velocity.setLength(8);
+      predicted.addScaledVector(velocity, 0.55);
+    }
+    predicted.y = 0.04;
+    const radius = 2.25;
+    const mesh = new this.THREE.Mesh(
+      new this.THREE.RingGeometry(radius * 0.72, radius, 32),
+      new this.THREE.MeshBasicMaterial({ color: 0xd7ff3f, transparent: true, opacity: 0.28, depthWrite: false, side: this.THREE.DoubleSide })
+    );
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.copy(predicted);
+    ctx.scene.add(mesh);
+    this._resinSpit = { mesh, position: predicted, radius, timer: 0, windup: 0.75 };
+    this._resinLastPlayerPos = playerPos.clone();
+    ctx.emitAIEvent?.(this.root, 'ability_started', {
+      ability: 'broodmaker_resin_spit', telegraphSeconds: 0.75,
+      target: predicted.clone(), radius
+    });
+  }
+
+  _disposeResinMesh(scene, mesh) {
+    if (!mesh) return;
+    scene?.remove?.(mesh);
+    mesh.geometry?.dispose?.();
+    mesh.material?.dispose?.();
   }
 
   // ---------------- utils ----------------
@@ -482,12 +690,13 @@ export class Broodmaker {
     const THREE = this.THREE;
     const out = [];
     const playerPos = ctx.player.position;
+    const bounds = this._arenaBounds(.5);
     for (let i = 0; i < count; i++) {
       const a = this.rng() * Math.PI * 2;
       const r = minR + this.rng() * (maxR - minR);
       const pos = new THREE.Vector3(playerPos.x + Math.cos(a) * r, 1.2, playerPos.z + Math.sin(a) * r);
-      pos.x = Math.max(-39, Math.min(39, pos.x));
-      pos.z = Math.max(-39, Math.min(39, pos.z));
+      pos.x = Math.max(bounds.minX, Math.min(bounds.maxX, pos.x));
+      pos.z = Math.max(bounds.minZ, Math.min(bounds.maxZ, pos.z));
       if (typeof this.enemyManager?._isSpawnAreaClear === 'function') {
         if (!this.enemyManager._isSpawnAreaClear(pos, 0.4)) continue;
       }
@@ -512,6 +721,7 @@ export class Broodmaker {
     const anchorDistance = Math.min(8, Math.max(4.5, distance * 0.38));
     const anchor = bossPos.clone().addScaledVector(axis, anchorDistance);
     const spacing = 1.35;
+    const bounds = this._arenaBounds(.45);
 
     for (let i = 0; i < count; i++) {
       const offset = (i - (count - 1) * 0.5) * spacing;
@@ -521,8 +731,8 @@ export class Broodmaker {
       for (const candidate of candidates) {
         const pos = anchor.clone().addScaledVector(lateral, candidate);
         pos.y = 1.2;
-        pos.x = Math.max(-39, Math.min(39, pos.x));
-        pos.z = Math.max(-39, Math.min(39, pos.z));
+        pos.x = Math.max(bounds.minX, Math.min(bounds.maxX, pos.x));
+        pos.z = Math.max(bounds.minZ, Math.min(bounds.maxZ, pos.z));
         if (this.enemyManager?._isSpawnAreaClear && !this.enemyManager._isSpawnAreaClear(pos, 0.38)) continue;
         const crowded = out.some(existing => {
           const dx = existing.x - pos.x;
@@ -536,6 +746,17 @@ export class Broodmaker {
       if (selected) out.push(selected);
     }
     return out;
+  }
+
+  _arenaBounds(margin = 0) {
+    const authored = this.enemyManager?.encounterHooks?.getBossArenaBounds?.(5) || null;
+    const bounds = authored || { minX: -39, maxX: 39, minZ: -39, maxZ: 39 };
+    return {
+      minX: bounds.minX + margin,
+      maxX: bounds.maxX - margin,
+      minZ: bounds.minZ + margin,
+      maxZ: bounds.maxZ - margin
+    };
   }
 
   _computeSpawnBetweenBossAndPlayer(ctx, count, minDistFromPlayer = 3.5, maxDistFromBoss = 7.0, lateralJitterMul = 1.2) {

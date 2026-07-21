@@ -41,10 +41,8 @@ export class SwarmWarden {
     // remain shared with the cached template.
     cloneNodeMaterial(head);
     cloneNodeMaterial(this.refs.core);
-    cloneNodeMaterial(this.refs.recallEmitter?.children?.[0]);
-    for (const thruster of (this.refs.thrusters || [])) {
-      cloneNodeMaterial(thruster.children?.[1]);
-    }
+    cloneNodeMaterial(this.refs.recallRing);
+    for (const glow of (this.refs.thrusterGlows || [])) cloneNodeMaterial(glow);
 
     this.root.position.copy(spawnPos);
     const hp = (cfg && typeof cfg.hp === 'number') ? cfg.hp : 420;
@@ -59,7 +57,11 @@ export class SwarmWarden {
     this.root.position.y = this.cruiseAltitude - 0.3;
     this._lastPos = this.root.position.clone();
     this._lastMoveDistance = 0;
-    this._arenaClamp = Number.isFinite(arenaRadius) ? Math.max(8, arenaRadius - 1) : 39;
+    const authoredArenaRadius = enemyManager?.encounterHooks?.getArenaRadius?.();
+    const effectiveArenaRadius = Number.isFinite(authoredArenaRadius)
+      ? Math.min(authoredArenaRadius, Number.isFinite(arenaRadius) ? arenaRadius : authoredArenaRadius)
+      : arenaRadius;
+    this._arenaClamp = Number.isFinite(effectiveArenaRadius) ? Math.max(8, effectiveArenaRadius - 1) : 39;
     this._outerAnchor = null;
     this._anchorGrace = 0;
 
@@ -217,11 +219,11 @@ export class SwarmWarden {
   _updateThrusters(dt) {
     const speedNow = this._lastMoveDistance / Math.max(0.0001, dt);
     const pulse = Math.max(0.25, Math.min(1.0, speedNow * 0.08));
-    for (const t of (this.refs.thrusters || [])) {
-      const glow = t.children?.[1]?.material;
+    for (const node of (this.refs.thrusterGlows || [])) {
+      const glow = node?.material;
       if (glow && glow.opacity !== undefined) {
         glow.transparent = true;
-        glow.opacity = 0.35 + 0.45 * (0.4 + 0.6 * Math.sin(this._t * 8 + t.position.x * 3)) * pulse;
+        glow.opacity = 0.35 + 0.45 * (0.4 + 0.6 * Math.sin(this._t * 8 + node.position.x * 3)) * pulse;
       }
     }
   }
@@ -247,7 +249,7 @@ export class SwarmWarden {
     if (this._recallTime > 0) {
       this._recallTime = Math.max(0, this._recallTime - dt);
       const k = 1 - (this._recallTime / this._recallDur);
-      const ring = this.refs.recallEmitter?.children?.[0];
+      const ring = this.refs.recallRing;
       if (ring && ring.material) {
         const s = 1.0 + k * 0.4;
         ring.scale.set(s, s, s);
@@ -377,6 +379,22 @@ export class SwarmWarden {
     return a;
   }
 
+  _clampSpawnPosition(position) {
+    const limit = Math.max(0, this._arenaClamp - 0.6);
+    position.x = Math.max(-limit, Math.min(limit, position.x));
+    position.z = Math.max(-limit, Math.min(limit, position.z));
+    return position;
+  }
+
+  _spawnPositionClear(position, ctx) {
+    const player = ctx.player.position;
+    if (Math.hypot(position.x - player.x, position.z - player.z) < this.safeRadius) return false;
+    if (typeof this.enemyManager?._isSpawnAreaClear === 'function') {
+      return this.enemyManager._isSpawnAreaClear(position, 0.35);
+    }
+    return true;
+  }
+
   _pickSpawnFromBay(ctx) {
     const muzzles = this.refs.bayMuzzles || [];
     if (!muzzles.length) return null;
@@ -393,19 +411,8 @@ export class SwarmWarden {
       // initial spawn just outside bay, push forward a bit
       const p = worldPos.clone().add(forward.clone().multiplyScalar(0.7));
       p.y = Math.max(1.2, p.y);
-
-      // respect arena clamp
-      p.x = Math.max(-this._arenaClamp+0.6, Math.min(this._arenaClamp-0.6, p.x));
-      p.z = Math.max(-this._arenaClamp+0.6, Math.min(this._arenaClamp-0.6, p.z));
-
-      // keep away from player safe radius
-      const player = ctx.player.position;
-      if (Math.hypot(p.x - player.x, p.z - player.z) < this.safeRadius) continue;
-
-      // prefer clear area if helper exists
-      if (typeof this.enemyManager?._isSpawnAreaClear === 'function') {
-        if (!this.enemyManager._isSpawnAreaClear(p, 0.35)) continue;
-      }
+      this._clampSpawnPosition(p);
+      if (!this._spawnPositionClear(p, ctx)) continue;
 
       this._bayIndex = idx + 1;
       return p;
@@ -416,8 +423,7 @@ export class SwarmWarden {
     const r = 1.6 + this.rng() * 0.6;
     const center = this.root.position;
     const p = new this.THREE.Vector3(center.x + Math.cos(a) * r, Math.max(1.2, center.y - 0.2), center.z + Math.sin(a) * r);
-    const player = ctx.player.position;
-    if (Math.hypot(p.x - player.x, p.z - player.z) < this.safeRadius) return null;
-    return p;
+    this._clampSpawnPosition(p);
+    return this._spawnPositionClear(p, ctx) ? p : null;
   }
 }

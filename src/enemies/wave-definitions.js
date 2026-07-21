@@ -3,7 +3,7 @@ function freezeRoster(roster) {
 }
 
 export const WAVE72_ENCOUNTER = Object.freeze({
-  wave: 72,
+  wave: 73,
   id: 'last_light',
   name: 'Last Light',
   packageCount: 4,

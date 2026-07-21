@@ -7,7 +7,7 @@ import {
   getSpecialWaveDefinition
 } from '../src/enemies/wave-definitions.js';
 
-test('Wave 72 definition commits the documented 165 enemies across four packages', () => {
+test('Wave 73 definition commits the documented 165 enemies across four packages', () => {
   const initial = expandWaveRoster(WAVE72_ENCOUNTER.initialRoster);
   const reinforcement = expandWaveRoster(WAVE72_ENCOUNTER.reinforcementRoster);
 
@@ -22,8 +22,8 @@ test('Wave 72 definition commits the documented 165 enemies across four packages
   assert.deepEqual(WAVE72_ENCOUNTER.roleCaps, { tank: 6, flyer: 10, healer: 2 });
 });
 
-test('special wave lookup only selects the authored Wave 72 encounter', () => {
-  assert.equal(getSpecialWaveDefinition(71), null);
-  assert.equal(getSpecialWaveDefinition(72), WAVE72_ENCOUNTER);
-  assert.equal(getSpecialWaveDefinition(73), null);
+test('special wave lookup only selects the authored Wave 73 encounter', () => {
+  assert.equal(getSpecialWaveDefinition(72), null);
+  assert.equal(getSpecialWaveDefinition(73), WAVE72_ENCOUNTER);
+  assert.equal(getSpecialWaveDefinition(74), null);
 });

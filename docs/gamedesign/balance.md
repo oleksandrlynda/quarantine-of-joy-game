@@ -22,6 +22,7 @@ Purpose: define numeric targets and simple models to keep pacing, difficulty, an
 - Shooter 80 HP → 2 body (≈0.24–0.36s) if in LOS windows
 - Tank 220 HP → 6 body (≈0.9–1.2s practical)
 - Flyer 40 HP → 1 body (snap targets)
+- Propaganda Pelican 100 HP → 3 body; one headshot; large aerial priority target
  - Healer 90 HP → 3 body (≈0.36–0.48s); prioritize when ring active
  - Sniper 90 HP → 3 body; punish if ignored; ensure telegraph long enough to react
 
@@ -29,7 +30,7 @@ Notes: Above assume live fire windows and minor aim time; keep rushers lethal vi
 
 ## Wave pacing model
 - Size: `count = 3 + wave`
-- Composition unlocks: Rusher≥3, Shooter≥4, Flyer≥5, Tank≥6, Healer≥7, Sniper≥8 (see `enemies.md`)
+- Composition unlocks: Rusher≥3, Shooter≥4, Flyer≥5, Tank≥6, Healer≥7, Sniper≥8, Propaganda Pelican≥10 (see `enemies.md`)
 - Spawn cadence: trickle spawns chunked into 3–4 bursts per wave, 1–2 enemies every 6–10s in between
 - Target wave duration (Standard):
   - Waves 1–3: 45–75s (onboarding)
@@ -51,6 +52,7 @@ Recommended guardrails
 ## Health attrition
 - Contact damage target: ~15 DPS if pinned; design separation and flanks to create 0.5–1.5s contact windows
 - Shooter projectile: ~14 damage per hit; fire every 1.3–1.6s; dodgeable via strafes
+- Propaganda Pelican grenade: 22 centre / 6 edge damage in a 2.6-unit radius; 5–7-unit release band; 3.5–4.5s recharge after retreat
 - Sniper: 60 damage per hit; min 1.2s dwell; director ensures ≤1 shot resolves per 1s window early game
 - Healer: reduces attrition by uplifting enemy HP; cap concurrent healers to avoid stalemates; pulses don’t stack
 - Medkits: 8–10% chance per kill, +20–35 HP; chant success grants brief stun to help recover

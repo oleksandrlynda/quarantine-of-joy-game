@@ -103,7 +103,12 @@ export class SniperEnemy {
     }
     const toPlayer = behaviorTarget.clone().sub(e.position);
     const dist = toPlayer.length();
-    const hasLOS = sense.stableWorldLOS;
+    const visibilityRange = Number(ctx.combatVisibilityRange);
+    const actualPlayerDistance = e.position.distanceTo(playerPos);
+    const visibilityOccluded = sense.stableWorldLOS
+      && Number.isFinite(visibilityRange)
+      && actualPlayerDistance > visibilityRange;
+    const hasLOS = sense.stableWorldLOS && !visibilityOccluded;
     const tacticalFireClear = sense.tacticalFireClear;
     if (sense.stableWorldLOS && this._prevPlayerPos) {
       const velocity = playerPos.clone().sub(this._prevPlayerPos).multiplyScalar(1 / Math.max(0.001, dt));
@@ -179,6 +184,13 @@ export class SniperEnemy {
       if (tooClose) desired.add(flatToPlayer.clone().multiplyScalar(-1.2));
       this.windup = 0; this._setAimLine(null, ctx.scene); this._aimHeat = 0;
     }
+    else if (visibilityOccluded) {
+      desired.add(flatToPlayer);
+      this.windup = 0;
+      this._setAimLine(null, ctx.scene);
+      this._aimHeat = 0;
+      movementState = 'closing_through_storm';
+    }
     else if (!hasLOS) {
       // move to cover anchor keeping ring radius; else lateral ring relocate in open field
       if (!this.coverAnchor) this.coverAnchor = this._raycastToPlayer(e.position, behaviorTarget, ctx.objects);
@@ -242,7 +254,7 @@ export class SniperEnemy {
       }
     }
   
-    const needsRoute = !hasLOS || (!sense.locomotionClear && (tooClose || tooFar));
+    const needsRoute = (!hasLOS && !visibilityOccluded) || (!sense.locomotionClear && (tooClose || tooFar));
     if (needsRoute && ctx.pathfind) {
       const subjectMoved = !this._routeAnchorSubject
         || this._routeAnchorSubject.distanceToSquared(behaviorTarget) > 4;

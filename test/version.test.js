@@ -17,11 +17,11 @@ test('displayed app version matches package metadata', () => {
 
   assert.equal(APP_VERSION, pkg.version);
   assert.equal(APP_VERSION_LABEL, `v${pkg.version}`);
-  assert.match(index, new RegExp(`src="src/bootstrap\\.js\\?v=${version}"`));
-  assert.match(bootstrap, new RegExp(`import\\('./main\\.js\\?v=${version}'\\)`));
-  assert.match(index, new RegExp(`from './src/i18n/index\\.js\\?v=${version}'`));
-  assert.match(main, new RegExp(`from './i18n/index\\.js\\?v=${version}'`));
-  assert.match(main, new RegExp(`from './achievements\\.js\\?v=${version}'`));
+  assert.match(index, new RegExp(`src="src/bootstrap\\.js\\?v=${version}(?:&amp;rev=[a-z0-9-]+)?"`));
+  assert.match(bootstrap, new RegExp(`import\\('./main\\.js\\?v=${version}(?:&rev=[a-z0-9-]+)?'\\)`));
+  assert.match(index, new RegExp(`from './src/i18n/index\\.js\\?v=${version}(?:&rev=[a-z0-9-]+)?'`));
+  assert.match(main, new RegExp(`from './i18n/index\\.js\\?v=${version}(?:&rev=[a-z0-9-]+)?'`));
+  assert.match(main, new RegExp(`from './achievements\\.js\\?v=${version}(?:&rev=[a-z0-9-]+)?'`));
   assert.match(main, new RegExp(`from './version\\.js\\?v=${version}'`));
-  assert.match(achievements, new RegExp(`from './i18n/index\\.js\\?v=${version}'`));
+  assert.match(achievements, new RegExp(`from './i18n/index\\.js\\?v=${version}(?:&rev=[a-z0-9-]+)?'`));
 });

@@ -53,6 +53,17 @@ test('satellite designator paints a clamped ground target with one pending strik
   assert.equal(typeof satellite.hasAltFire, 'undefined');
 });
 
+test('satellite accepts an explicit support target and rejects overlapping pending strikes', () => {
+  const satellite = new SatelliteDesignator();
+  const ctx = makeContext();
+  ctx.abilityTargetPoint = new THREE.Vector3(7, 0.8, -9);
+
+  assert.equal(satellite.onFire(ctx), true);
+  assert.deepEqual(satellite.pendingStrikes[0].position.toArray(), [7, 0.06, -9]);
+  assert.equal(satellite.onFire(ctx), false);
+  assert.equal(satellite.pendingStrikes.length, 1);
+});
+
 test('satellite beam waits for its telegraph, damages once, then cleans itself up', () => {
   const satellite = new SatelliteDesignator();
   const ctx = makeContext();
@@ -77,6 +88,26 @@ test('satellite beam waits for its telegraph, damages once, then cleans itself u
   satellite.update(0.25, ctx);
   assert.equal(satellite.activeBeams.length, 0);
   assert.equal(ctx.obstacleManager.scene.children.length, 0);
+});
+
+test('satellite strike deals only half of its normal damage to the active boss', () => {
+  const satellite = new SatelliteDesignator();
+  const ctx = makeContext();
+  const boss = new THREE.Object3D();
+  const regular = new THREE.Object3D();
+  boss.position.set(0, 0.06, -24);
+  regular.position.copy(boss.position);
+  boss.userData = { hp: 500, type: 'boss_test' };
+  regular.userData = { hp: 500, type: 'tank' };
+  ctx.enemyManager.enemies.add(boss);
+  ctx.enemyManager.enemies.add(regular);
+  ctx.enemyManager.bossManager = { active: true, boss: { root: boss } };
+
+  satellite.onFire(ctx);
+  satellite.update(satellite.strikeDelay, ctx);
+
+  assert.equal(boss.userData.hp, 350);
+  assert.equal(regular.userData.hp, 200);
 });
 
 test('clearing the prototype removes pending warnings without triggering damage', () => {

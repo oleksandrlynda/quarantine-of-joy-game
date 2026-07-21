@@ -69,6 +69,33 @@ function makeCamera(){
 
 // Tests
 
+test('player collision keeps movement shells and ignores ballistic-only window proxies', () => {
+  const movementShell = { userData: { blocksShots: false } };
+  const ballisticSill = { userData: { blocksMovement: false } };
+  const player = new PlayerController(THREE, makeCamera(), document.body, [movementShell, ballisticSill], Infinity);
+
+  assert.equal(player.collisionObjects.includes(movementShell), true);
+  assert.equal(player.collisionObjects.includes(ballisticSill), false);
+  assert.equal(player.objectBBs.length, 1);
+  assert.equal(player.colliderHalf.x, .45);
+});
+
+test('upward movement stops at the underside of a solid ceiling', () => {
+  const player = new PlayerController(THREE, makeCamera(), document.body, [], Infinity);
+  player.controls.getObject().position.set(0, 1.7, 0);
+  const ceiling = new Box3();
+  ceiling.min.set(-9, 2.7, -9);
+  ceiling.max.set(9, 3, 9);
+  player.objectBBs = [ceiling];
+  player.canJump = true;
+  player.jump();
+
+  for (let i = 0; i < 4; i++) player.update(.05);
+
+  assert.ok(player.controls.getObject().position.y <= 2.6);
+  assert.equal(player.velocityY, 0);
+});
+
 test('stamina drains when sprinting and jumping then regenerates', () => {
   const player = new PlayerController(THREE, makeCamera(), document.body, [], Infinity);
   player.canJump = true;
@@ -149,6 +176,20 @@ test('Punchline Rush commits ten meters, grants temporary invulnerability, and d
   player.update(0.1);
   assert(player.getStamina() > 0);
   assert.equal(player.startRush(), false);
+});
+
+test('cooldown-driven Punchline Rush can start without spending stamina', () => {
+  const player = new PlayerController(THREE, makeCamera(), document.body, [], Infinity);
+  player.stamina = 37;
+
+  assert.equal(player.startRush({
+    distance: 10,
+    duration: 0.6,
+    regenDelay: 0,
+    requireFullStamina: false,
+    consumeStamina: false
+  }), true);
+  assert.equal(player.getStamina(), 37);
 });
 
 test('weapon zoom smoothly reaches and leaves the requested magnification', () => {

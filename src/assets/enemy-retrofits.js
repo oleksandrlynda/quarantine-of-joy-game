@@ -13,6 +13,7 @@ import { createHealerBot } from './healer_bot.js';
 import { createSniperBot } from './sniper_bot.js';
 import { createWingedDrone } from './winged_drone.js';
 import { createSwarmWarden } from './swarm_warden.js';
+import { batchRigidAsset } from './rigid-batching.js';
 
 export const ENEMY_RETROFIT_PALETTES = Object.freeze({
   grunt: { armor: 0x8f999d, accent: 0x4e5857, joints: 0x171c1b, visor: 0x111827, glow: 0xff4f46 },
@@ -105,14 +106,15 @@ function materialsFor(THREE, accentColor) {
   return {
     dark: createMaterial(THREE, 0x151b18),
     armor: createMaterial(THREE, 0x77837d),
-    accent: createMaterial(THREE, accentColor, 0.8),
+    accent: createMaterial(THREE, accentColor, 1.25),
     pale: createMaterial(THREE, 0xdce6dc)
   };
 }
 
-function markRetrofit(built, variant) {
+function markRetrofit(THREE, built, variant) {
   built.root.userData.assetRevision = 'enemy-retrofit-mk2';
   built.root.userData.enemyVariant = variant;
+  batchRigidAsset({ THREE, built });
   return built;
 }
 
@@ -122,37 +124,157 @@ function correctRunnerKnife(refs) {
   refs.knife.position.z = 0.10;
 }
 
-export function createEnhancedGruntBot(options = {}) {
-  const { THREE } = options;
-  const palette = paletteFor(ENEMY_RETROFIT_PALETTES.grunt, options.palette);
-  const built = createGruntBot({ ...options, palette });
-  const refs = deriveRigRefs(THREE, built);
-  const torso = findPart(built.root, 'torso');
-  const { dark, armor, accent } = materialsFor(THREE, palette.glow);
+function createMergedBoxGeometry(THREE, parts) {
+  const source = new THREE.BoxGeometry(1, 1, 1).toNonIndexed();
+  const sourcePositions = source.getAttribute('position');
+  const sourceNormals = source.getAttribute('normal');
+  const positions = [];
+  const normals = [];
+  const colors = [];
+  const position = new THREE.Vector3();
+  const normal = new THREE.Vector3();
+  const translation = new THREE.Vector3();
+  const scale = new THREE.Vector3();
+  const rotation = new THREE.Euler();
+  const quaternion = new THREE.Quaternion();
+  const matrix = new THREE.Matrix4();
+  const normalMatrix = new THREE.Matrix3();
+  const color = new THREE.Color();
 
-  const chestPanel = addPanel(
-    THREE,
-    torso,
-    [[-0.36, 0.27], [0.36, 0.27], [0.43, 0.03], [0.22, -0.27], [-0.22, -0.27], [-0.43, 0.03]],
-    0.09,
-    [0, 0.01, 0.43],
-    dark
-  );
-  addBox(THREE, chestPanel, [0.48, 0.10, 0.08], [0, 0.02, 0.08], accent);
-  addBox(THREE, built.head, [0.64, 0.15, 0.16], [0, 0.10, 0.29], dark, [-0.05, 0, 0]);
-  addBox(THREE, built.head, [0.48, 0.08, 0.08], [0, 0.08, 0.39], accent);
-  addBox(THREE, built.head, [0.54, 0.14, 0.18], [0, -0.15, 0.27], armor, [0.10, 0, 0]);
-
-  const shoulderPads = torso?.children.filter((child) => child.isMesh && Math.abs(child.position.x) > 0.5) || [];
-  for (const shoulder of shoulderPads) {
-    addBox(THREE, shoulder, [0.48, 0.07, 0.56], [0, 0.24, 0], dark);
-    addBox(THREE, shoulder, [0.20, 0.055, 0.38], [0, 0.285, 0.07], armor);
+  for (const part of parts) {
+    translation.fromArray(part.position || [0, 0, 0]);
+    scale.fromArray(part.size || [1, 1, 1]);
+    rotation.fromArray(part.rotation || [0, 0, 0]);
+    quaternion.setFromEuler(rotation);
+    matrix.compose(translation, quaternion, scale);
+    normalMatrix.getNormalMatrix(matrix);
+    color.set(part.color ?? 0xffffff);
+    for (let index = 0; index < sourcePositions.count; index += 1) {
+      position.fromBufferAttribute(sourcePositions, index).applyMatrix4(matrix);
+      normal.fromBufferAttribute(sourceNormals, index).applyNormalMatrix(normalMatrix);
+      positions.push(position.x, position.y, position.z);
+      normals.push(normal.x, normal.y, normal.z);
+      colors.push(color.r, color.g, color.b);
+    }
   }
-  addBox(THREE, refs.rightArm, [0.45, 0.34, 0.10], [0.02, -0.72, 0.26], dark);
-  addBox(THREE, refs.leftArm, [0.45, 0.34, 0.10], [-0.02, -0.72, 0.26], dark);
-  addBox(THREE, refs.rightArm, [0.08, 0.24, 0.06], [0.20, -0.72, 0.32], accent);
-  addBox(THREE, refs.leftArm, [0.08, 0.24, 0.06], [-0.20, -0.72, 0.32], accent);
-  return markRetrofit(built, 'grunt');
+  source.dispose();
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  geometry.userData.mergedPrimitiveCount = parts.length;
+  return geometry;
+}
+
+function addMergedBoxes(THREE, parent, parts, material, {
+  bodyPart = null,
+  name = '',
+  performanceDetail = false
+} = {}) {
+  const mesh = new THREE.Mesh(createMergedBoxGeometry(THREE, parts), material);
+  mesh.name = name;
+  if (bodyPart) mesh.userData.bodyPart = bodyPart;
+  if (performanceDetail) mesh.userData.performanceDetail = true;
+  parent.add(mesh);
+  return mesh;
+}
+
+export function createEnhancedGruntBot(options = {}) {
+  const { THREE, scale = 1 } = options;
+  const palette = paletteFor(ENEMY_RETROFIT_PALETTES.grunt, options.palette);
+  const root = new THREE.Group();
+  root.scale.setScalar(scale);
+  const bodyMaterial = new THREE.MeshLambertMaterial({
+    color: 0xffffff,
+    vertexColors: true,
+    flatShading: true
+  });
+  const glowMaterial = new THREE.MeshLambertMaterial({
+    color: palette.glow,
+    emissive: palette.glow,
+    emissiveIntensity: .8,
+    flatShading: true
+  });
+  const bodyPart = (size, position, color, rotation = [0, 0, 0]) => ({ size, position, color, rotation });
+
+  const torso = addMergedBoxes(THREE, root, [
+    bodyPart([.9, .86, .72], [0, 1.18, 0], palette.armor),
+    bodyPart([.58, .3, .28], [0, 1.18, -.49], palette.accent),
+    bodyPart([.54, .44, .64], [-.66, 1.34, 0], palette.accent),
+    bodyPart([.54, .44, .64], [.66, 1.34, 0], palette.accent),
+    bodyPart([.68, .3, .64], [0, .78, 0], palette.accent),
+    bodyPart([.8, .38, .68], [0, .45, 0], palette.armor),
+    bodyPart([.5, .18, .46], [0, 1.66, -.02], palette.joints)
+  ], bodyMaterial, { bodyPart: 'torso', name: 'grunt-merged-torso' });
+  const torsoDetail = addMergedBoxes(THREE, root, [
+    bodyPart([.72, .42, .09], [0, 1.23, .405], 0x151b18),
+    bodyPart([.22, .07, .42], [-.66, 1.57, .05], palette.armor),
+    bodyPart([.22, .07, .42], [.66, 1.57, .05], palette.armor)
+  ], bodyMaterial, {
+    bodyPart: 'torso',
+    name: 'grunt-merged-detail',
+    performanceDetail: true
+  });
+  addMergedBoxes(THREE, root, [
+    bodyPart([.5, .1, .07], [0, 1.28, .47], palette.glow)
+  ], glowMaterial, { bodyPart: 'torso', name: 'grunt-chest-signal' });
+
+  const head = new THREE.Group();
+  head.name = 'grunt-head-rig';
+  head.position.set(0, 1.82, 0);
+  head.userData.bodyPart = 'head';
+  root.add(head);
+  addMergedBoxes(THREE, head, [
+    bodyPart([.62, .46, .58], [0, 0, 0], 0x111827),
+    bodyPart([.66, .15, .18], [0, .11, .29], 0x151b18, [-.05, 0, 0]),
+    bodyPart([.56, .15, .2], [0, -.16, .27], palette.armor, [.1, 0, 0])
+  ], bodyMaterial, { bodyPart: 'head', name: 'grunt-merged-head' });
+  addMergedBoxes(THREE, head, [
+    bodyPart([.5, .1, .07], [0, .07, .39], palette.glow)
+  ], glowMaterial, { bodyPart: 'head', name: 'grunt-visor' });
+
+  const refs = { leftArm: null, rightArm: null, leftLeg: null, rightLeg: null };
+  const buildArm = side => {
+    const arm = new THREE.Group();
+    arm.position.set(.72 * side, 1.55, 0);
+    arm.userData.bodyPart = 'arm';
+    root.add(arm);
+    // Add glow first: the melee animation contract locates the first emissive
+    // child to pulse during its windup/recover beats.
+    addMergedBoxes(THREE, arm, [
+      bodyPart([.08, .3, .06], [.22 * side, -.84, .3], palette.glow)
+    ], glowMaterial, { bodyPart: 'arm', name: `grunt-${side < 0 ? 'left' : 'right'}-arm-signal` });
+    addMergedBoxes(THREE, arm, [
+      bodyPart([.54, .18, .62], [0, -.03, 0], 0x151b18),
+      bodyPart([.42, .5, .44], [0, -.46, 0], palette.joints),
+      bodyPart([.48, .58, .5], [0, -.96, .02], palette.armor),
+      bodyPart([.52, .3, .52], [0, -1.35, .05], palette.joints)
+    ], bodyMaterial, { bodyPart: 'arm', name: `grunt-${side < 0 ? 'left' : 'right'}-merged-arm` });
+    return arm;
+  };
+  refs.leftArm = buildArm(-1);
+  refs.rightArm = buildArm(1);
+
+  const buildLeg = side => {
+    const leg = new THREE.Group();
+    leg.position.set(.3 * side, .25, 0);
+    leg.userData.bodyPart = 'leg';
+    root.add(leg);
+    addMergedBoxes(THREE, leg, [
+      bodyPart([.46, .52, .54], [0, -.38, 0], palette.armor),
+      bodyPart([.42, .5, .5], [0, -.92, 0], palette.accent),
+      bodyPart([.7, .28, .8], [0, -1.3, .1], palette.joints)
+    ], bodyMaterial, { bodyPart: 'leg', name: `grunt-${side < 0 ? 'left' : 'right'}-merged-leg` });
+    return leg;
+  };
+  refs.leftLeg = buildLeg(-1);
+  refs.rightLeg = buildLeg(1);
+
+  const built = { root, head, refs, torso, torsoDetail };
+  return markRetrofit(THREE, built, 'grunt');
 }
 
 export function createEnhancedGruntlingBot(options = {}) {
@@ -171,7 +293,7 @@ export function createEnhancedGruntlingBot(options = {}) {
   addBox(THREE, torso, [0.30, 0.08, 0.06], [0, -0.05, 0.43], accent);
   addBox(THREE, refs.rightArm, [0.25, 0.12, 0.36], [0.02, -1.10, 0.17], accent, [0.14, 0, 0]);
   addBox(THREE, refs.leftArm, [0.25, 0.12, 0.36], [-0.02, -1.10, 0.17], accent, [0.14, 0, 0]);
-  return markRetrofit(built, 'gruntling');
+  return markRetrofit(THREE, built, 'gruntling');
 }
 
 export function createEnhancedShooterBot(options = {}) {
@@ -179,17 +301,39 @@ export function createEnhancedShooterBot(options = {}) {
   const palette = paletteFor(ENEMY_RETROFIT_PALETTES.shooter, options.palette);
   const built = createShooterBot({ ...options, palette });
   const refs = deriveRigRefs(THREE, built);
-  const { dark, armor, accent } = materialsFor(THREE, palette.glow);
+  const torso = findPart(built.root, 'torso');
+  const { dark, armor, accent, pale } = materialsFor(THREE, palette.glow);
 
   built.root.rotation.y = 0;
+  const chestPlate = addPanel(
+    THREE,
+    torso,
+    [[-0.34, 0.25], [0.34, 0.25], [0.42, 0.02], [0.24, -0.27], [-0.24, -0.27], [-0.42, 0.02]],
+    0.08,
+    [0, 0.01, 0.42],
+    dark
+  );
+  refs.chestTargetBar = addBox(THREE, chestPlate, [0.44, 0.09, 0.07], [0, 0.05, 0.08], accent);
+  addBox(THREE, chestPlate, [0.12, 0.20, 0.055], [-0.25, -0.02, 0.07], armor, [0, 0, -0.18]);
+  addBox(THREE, chestPlate, [0.12, 0.20, 0.055], [0.25, -0.02, 0.07], armor, [0, 0, 0.18]);
+
+  addBox(THREE, built.head, [0.66, 0.13, 0.18], [0, 0.15, 0.29], dark, [-0.05, 0, 0]);
+  addBox(THREE, built.head, [0.18, 0.28, 0.12], [-0.33, -0.03, 0.25], armor, [0, 0, -0.08]);
+  addBox(THREE, built.head, [0.18, 0.28, 0.12], [0.33, -0.03, 0.25], armor, [0, 0, 0.08]);
+  refs.visorFocus = addBox(THREE, built.head, [0.22, 0.07, 0.07], [0.19, -0.02, 0.405], pale);
+
   addBox(THREE, refs.gun, [0.35, 0.23, 0.62], [0, 0.06, -0.34], dark);
   addBox(THREE, refs.gun, [0.17, 0.32, 0.20], [0, -0.20, -0.30], armor, [-0.12, 0, 0]);
   addBox(THREE, refs.gun, [0.21, 0.17, 0.34], [0, 0.05, 0.24], armor);
-  addCylinder(THREE, refs.gun, [0.085, 0.115], 0.22, [0, 0.06, -1.20], accent, [Math.PI / 2, 0, 0]);
+  addBox(THREE, refs.gun, [0.09, 0.09, 0.66], [-0.16, 0.06, -0.82], armor);
+  addBox(THREE, refs.gun, [0.09, 0.09, 0.66], [0.16, 0.06, -0.82], armor);
+  refs.muzzleBrake = addCylinder(THREE, refs.gun, [0.10, 0.13], 0.24, [0, 0.06, -1.20], accent, [Math.PI / 2, 0, 0]);
+  addBox(THREE, refs.gun, [0.36, 0.055, 0.20], [0, 0.205, -0.43], pale);
   addBox(THREE, refs.rightArm, [0.48, 0.20, 0.58], [0.06, -0.17, 0.02], dark, [0, 0, -0.10]);
   addBox(THREE, refs.rightArm, [0.22, 0.09, 0.16], [0.20, -0.14, 0.31], accent);
+  addBox(THREE, refs.leftArm, [0.42, 0.18, 0.42], [-0.02, -0.17, 0.05], dark, [0, 0, 0.10]);
   addBox(THREE, built.head, [0.19, 0.14, 0.08], [0.27, 0.15, 0.38], accent);
-  return markRetrofit(built, 'shooter');
+  return markRetrofit(THREE, built, 'shooter');
 }
 
 function addRunnerCoreDetails(THREE, built, palette) {
@@ -209,7 +353,7 @@ export function createEnhancedRunnerBot(options = {}) {
   const palette = paletteFor(ENEMY_RETROFIT_PALETTES.runner, options.palette);
   const built = createRunnerBot({ ...options, palette });
   addRunnerCoreDetails(THREE, built, palette);
-  return markRetrofit(built, 'runner');
+  return markRetrofit(THREE, built, 'runner');
 }
 
 export function createEnhancedEliteRusherBot(options = {}) {
@@ -232,7 +376,7 @@ export function createEnhancedEliteRusherBot(options = {}) {
   addBox(THREE, refs.rightArm, [0.48, 0.54, 0.50], [0.04, -0.72, 0.04], dark, [0, 0, -0.10]);
   addBox(THREE, refs.rightArm, [0.08, 0.38, 0.06], [0.27, -0.72, 0.29], accent);
   addBox(THREE, built.head, [0.62, 0.11, 0.10], [0, 0.19, 0.32], accent, [-0.06, 0, 0]);
-  return markRetrofit(built, 'rusher_elite');
+  return markRetrofit(THREE, built, 'rusher_elite');
 }
 
 export function createEnhancedExplosiveRusherBot(options = {}) {
@@ -264,7 +408,7 @@ export function createEnhancedExplosiveRusherBot(options = {}) {
   addBox(THREE, built.head, [0.54, 0.09, 0.11], [0, 0.34, 0.26], accent, [-0.08, 0, 0]);
   addBox(THREE, refs.leftLeg, [0.08, 0.46, 0.06], [-0.20, -1.15, 0.23], accent);
   addBox(THREE, refs.rightLeg, [0.08, 0.46, 0.06], [0.20, -1.15, 0.23], accent);
-  return markRetrofit(built, 'rusher_explosive');
+  return markRetrofit(THREE, built, 'rusher_explosive');
 }
 
 export function createEnhancedBailiffBot(options = {}) {
@@ -296,7 +440,7 @@ export function createEnhancedBailiffBot(options = {}) {
   addBox(THREE, refs.rightArm, [0.54, 0.48, 0.50], [0.06, -0.68, 0.04], armor, [0, 0, -0.10]);
   addBox(THREE, refs.rightArm, [0.09, 0.34, 0.06], [0.29, -0.68, 0.29], accent);
   addBox(THREE, built.head, [0.60, 0.12, 0.11], [0, 0.18, 0.31], accent, [-0.05, 0, 0]);
-  return markRetrofit(built, 'bailiff');
+  return markRetrofit(THREE, built, 'bailiff');
 }
 
 export function createEnhancedBlockBot(options = {}) {
@@ -316,7 +460,7 @@ export function createEnhancedBlockBot(options = {}) {
   addBox(THREE, refs.rightArm, [0.66, 0.20, 0.68], [0.04, -0.40, 0.02], dark);
   addBox(THREE, built.head, [1.00, 0.15, 0.20], [0, 0.32, 0.34], pale, [-0.08, 0, 0]);
   refs.shield = shield;
-  return markRetrofit(built, 'blocker');
+  return markRetrofit(THREE, built, 'blocker');
 }
 
 export function createEnhancedHealerBot(options = {}) {
@@ -339,7 +483,7 @@ export function createEnhancedHealerBot(options = {}) {
   }
   addCylinder(THREE, built.head, [0.025, 0.025], 0.48, [0, 0.48, 0], dark);
   addBox(THREE, built.head, [0.17, 0.12, 0.17], [0, 0.74, 0], accent, [0, 0.25, 0]);
-  return markRetrofit(built, 'healer');
+  return markRetrofit(THREE, built, 'healer');
 }
 
 export function createEnhancedSniperBot(options = {}) {
@@ -360,7 +504,7 @@ export function createEnhancedSniperBot(options = {}) {
   addBox(THREE, built.head, [0.48, 0.18, 0.28], [0.22, 0.28, 0.15], armor, [0, 0, -0.12]);
   addCylinder(THREE, built.head, [0.08, 0.08], 0.18, [0.34, 0.28, 0.34], accent, [Math.PI / 2, 0, 0]);
   addBox(THREE, refs.rightArm, [0.50, 0.25, 0.64], [0.04, -0.12, 0.02], armor, [0, 0, -0.12]);
-  return markRetrofit(built, 'sniper');
+  return markRetrofit(THREE, built, 'sniper');
 }
 
 export function createEnhancedWingedDrone(options = {}) {
@@ -378,7 +522,7 @@ export function createEnhancedWingedDrone(options = {}) {
   addBox(THREE, refs.leftWing, [0.08, 0.05, 0.20], [0.12, 0.10, 0.17], accent);
   addBox(THREE, refs.rightWing, [0.08, 0.05, 0.20], [-0.12, 0.10, 0.17], accent);
   addBox(THREE, refs.thruster, [0.08, 0.28, 0.18], [0, 0.16, -0.06], accent);
-  return markRetrofit(built, 'flyer');
+  return markRetrofit(THREE, built, 'flyer');
 }
 
 export function createEnhancedSwarmWarden(options = {}) {
@@ -404,5 +548,7 @@ export function createEnhancedSwarmWarden(options = {}) {
       addBox(THREE, refs.recallEmitter, [0.10, 0.10, 0.10], [Math.cos(angle) * 1.1, 0, Math.sin(angle) * 1.1], accent, [0, angle, 0]);
     }
   }
-  return markRetrofit(built, 'warden');
+  refs.recallRing = refs.recallEmitter?.children?.[0] || null;
+  refs.thrusterGlows = (refs.thrusters || []).map(thruster => thruster.children?.[1]).filter(Boolean);
+  return markRetrofit(THREE, built, 'warden');
 }

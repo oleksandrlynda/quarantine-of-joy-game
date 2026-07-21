@@ -106,7 +106,12 @@
 - Key Location(s): Server Cathedral
 - Mechanics Featured: Choice consequences, adaptive boss
 - Enemy Palette: Shard echoes, defense routines, Hydraclone remnants
-- Setpieces: Mirror choir puzzle
+- Setpieces: Mirror choir puzzle; during the Algorithm fight, one unidentified
+  giant heavy frame leans both hands over the sealed east perimeter and watches
+  from outside the arena, with only its upper body visible. It has no HUD
+  label, dialogue, codex entry, collision, or combat response, and is absent
+  after the boss falls. Treat it only as future-generation foreshadowing until
+  the enemy-family rework gives it an authored reveal.
 - Optional: Dialogue branch with Glitchcat that affects epilogue line
 
 ## M07 – Omega Meme

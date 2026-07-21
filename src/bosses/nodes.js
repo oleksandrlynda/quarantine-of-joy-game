@@ -2,11 +2,12 @@
 // Creates 3 static pillars around a center, tracks their HP and simple pulse
 import { createSanitizerNodeVisual } from './visual-cache.js';
 export class SuppressionNodes {
-  constructor({ THREE, mats, center, enemyManager, rng = Math.random }) {
+  constructor({ THREE, mats, center, enemyManager, ownerRoot = null, rng = Math.random }) {
     this.THREE = THREE;
     this.mats = mats;
     this.center = center.clone();
     this.enemyManager = enemyManager;
+    this.ownerRoot = ownerRoot;
     this.rng = rng;
 
     this.roots = [];
@@ -27,7 +28,12 @@ export class SuppressionNodes {
       const asset = createSanitizerNodeVisual({ THREE });
       const root = asset.root;
       root.position.copy(pos);
-      root.userData = { type: 'boss_node', hp: 140 };
+      root.userData = {
+        type: 'boss_node', hp: 140,
+        summonerRoot: this.ownerRoot,
+        bossOwnerRoot: this.ownerRoot,
+        summonRole: 'suppression_node'
+      };
 
       this.roots.push(root);
       this._rings.push(asset.ring);

@@ -29,10 +29,10 @@ export function createEnvironmentAssetRegistry({ THREE } = {}) {
   if (!THREE) throw new TypeError('createEnvironmentAssetRegistry requires THREE.');
 
   const materials = {
-    charcoal: new THREE.MeshStandardMaterial({ color: 0x303a34, roughness: .9, flatShading: true }),
-    dark: new THREE.MeshStandardMaterial({ color: 0x18211c, roughness: .88, flatShading: true }),
-    concrete: new THREE.MeshStandardMaterial({ color: 0x7d877d, roughness: 1, flatShading: true }),
-    concreteLight: new THREE.MeshStandardMaterial({ color: 0x9aa198, roughness: 1, flatShading: true }),
+    charcoal: new THREE.MeshStandardMaterial({ color: 0x3a4740, roughness: .84, flatShading: true }),
+    dark: new THREE.MeshStandardMaterial({ color: 0x24302b, roughness: .9, flatShading: true }),
+    concrete: new THREE.MeshStandardMaterial({ color: 0x858f86, roughness: 1, flatShading: true }),
+    concreteLight: new THREE.MeshStandardMaterial({ color: 0xa3aaa1, roughness: 1, flatShading: true }),
     yellow: new THREE.MeshStandardMaterial({ color: 0xe0aa2e, roughness: .72, flatShading: true }),
     orange: new THREE.MeshStandardMaterial({ color: 0xd86437, roughness: .7, flatShading: true }),
     acid: new THREE.MeshStandardMaterial({ color: 0xd5ff3f, emissive: 0x425513, emissiveIntensity: .9, roughness: .55, flatShading: true }),
@@ -41,19 +41,68 @@ export function createEnvironmentAssetRegistry({ THREE } = {}) {
     blue: new THREE.MeshStandardMaterial({ color: 0x3d7482, roughness: .86, flatShading: true }),
     sand: new THREE.MeshStandardMaterial({ color: 0xa4936b, roughness: 1, flatShading: true }),
     plaster: new THREE.MeshStandardMaterial({ color: 0xb8b9aa, roughness: 1, flatShading: true }),
-    bark: new THREE.MeshStandardMaterial({ color: 0x574a36, roughness: 1, flatShading: true }),
-    leafA: new THREE.MeshStandardMaterial({ color: 0x516f35, roughness: 1, flatShading: true }),
-    leafB: new THREE.MeshStandardMaterial({ color: 0x738d3e, roughness: 1, flatShading: true }),
+    bark: new THREE.MeshStandardMaterial({ color: 0x63543e, roughness: 1, flatShading: true }),
+    leafA: new THREE.MeshStandardMaterial({ color: 0x5d7b3d, roughness: 1, flatShading: true }),
+    leafB: new THREE.MeshStandardMaterial({ color: 0x7f9948, roughness: 1, flatShading: true }),
     leafDry: new THREE.MeshStandardMaterial({ color: 0x887341, roughness: 1, flatShading: true }),
-    asphalt: new THREE.MeshStandardMaterial({ color: 0x353c3a, roughness: 1, flatShading: true }),
-    metal: new THREE.MeshStandardMaterial({ color: 0x59655f, roughness: .72, metalness: .18, flatShading: true }),
+    asphalt: new THREE.MeshStandardMaterial({ color: 0x3e4844, roughness: 1, flatShading: true }),
+    metal: new THREE.MeshStandardMaterial({ color: 0x718078, roughness: .6, metalness: .1, flatShading: true }),
     white: new THREE.MeshStandardMaterial({ color: 0xd9ddd2, roughness: .88, flatShading: true }),
-    glass: new THREE.MeshStandardMaterial({ color: 0x263d39, roughness: .32, metalness: .08, transparent: true, opacity: .82, flatShading: true }),
-    grass: new THREE.MeshStandardMaterial({ color: 0x617b32, roughness: 1, flatShading: true }),
-    rubber: new THREE.MeshStandardMaterial({ color: 0x151b18, roughness: 1, flatShading: true }),
+    glass: new THREE.MeshStandardMaterial({ color: 0x35534d, roughness: .24, metalness: .02, transparent: true, opacity: .74, flatShading: true }),
+    grass: new THREE.MeshStandardMaterial({ color: 0x6b8639, roughness: 1, flatShading: true }),
+    rubber: new THREE.MeshStandardMaterial({ color: 0x222b27, roughness: 1, flatShading: true }),
     rockA: new THREE.MeshStandardMaterial({ color: 0x747d74, roughness: 1, flatShading: true }),
     rockB: new THREE.MeshStandardMaterial({ color: 0x8e958b, roughness: 1, flatShading: true })
   };
+
+  // Keep the world subordinate to combat silhouettes: quieter surfaces carry
+  // the scene while cyan and warm hazard tones remain readable route cues.
+  // This grade is applied after cloning so the embedded Enforcer preview can
+  // retain its original enemy palette.
+  const environmentColorGrade = new Map([
+    [0x3a4740, 0x323d38], [0x24302b, 0x202824],
+    [0x858f86, 0x737c74], [0xa3aaa1, 0x8f968e],
+    [0xe0aa2e, 0xb68b2f], [0xd86437, 0xb95434],
+    [0xd5ff3f, 0xa6c844], [0x65d9d0, 0x4eaaa4],
+    [0xff554c, 0xd44b45], [0x3d7482, 0x35606b],
+    [0xa4936b, 0x8d8061], [0xb8b9aa, 0xa1a398],
+    [0x63543e, 0x574a38], [0x5d7b3d, 0x506a39],
+    [0x7f9948, 0x697f42], [0x887341, 0x75643d],
+    [0x3e4844, 0x343d39], [0x718078, 0x626e67],
+    [0xd9ddd2, 0xbec4ba], [0x35534d, 0x2f4944],
+    [0x6b8639, 0x587138], [0x222b27, 0x1d2421],
+    [0x747d74, 0x687068], [0x8e958b, 0x7d837c]
+  ]);
+  const environmentEmissiveGrade = new Map([
+    [0x425513, 0x28350f],
+    [0x174d49, 0x0d2f2d],
+    [0x75130f, 0x450e0b]
+  ]);
+  const environmentEmissiveIntensity = new Map([
+    [0xd5ff3f, .35],
+    [0x65d9d0, .32],
+    [0xff554c, .62]
+  ]);
+
+  function gradeEnvironmentMaterial(material) {
+    if (!material?.color) return;
+    const originalColor = material.color.getHex();
+    const gradedColor = environmentColorGrade.get(originalColor);
+    if (gradedColor !== undefined) material.color.setHex(gradedColor);
+    if (material.emissive) {
+      const gradedEmissive = environmentEmissiveGrade.get(material.emissive.getHex());
+      if (gradedEmissive !== undefined) material.emissive.setHex(gradedEmissive);
+    }
+    const gradedIntensity = environmentEmissiveIntensity.get(originalColor);
+    if (gradedIntensity !== undefined) material.emissiveIntensity = gradedIntensity;
+  }
+
+  const emissiveSignalCategories = new Set(['access', 'ground', 'objectives']);
+
+  function budgetDecorativeEmissive(material, maxIntensity) {
+    if (!material?.emissive || material.emissiveIntensity <= maxIntensity) return;
+    material.emissiveIntensity = maxIntensity;
+  }
   
   function finish(mesh) {
     mesh.castShadow = true;
@@ -483,8 +532,10 @@ export function createEnvironmentAssetRegistry({ THREE } = {}) {
   
   function buildCargoGate() {
     const group = new THREE.Group();
-    containerHalf(group, -2.15, materials.orange);
-    containerHalf(group, 2.15, materials.blue);
+    // Leave enough clear width for the widest ground body. The former opening
+    // accepted the player but made tanks clip both container shoulders.
+    containerHalf(group, -3.05, materials.orange);
+    containerHalf(group, 3.05, materials.blue);
     box(group, [2.0, .18, 1.05], [0, 2.72, 0], materials.concrete);
     box(group, [5.1, .22, .28], [0, 3.12, 0], materials.yellow, [0, 0, -.02]);
     box(group, [.18, 1.0, .18], [-.9, 2.68, 0], materials.charcoal);
@@ -1033,13 +1084,15 @@ export function createEnvironmentAssetRegistry({ THREE } = {}) {
   
   function buildBreachVent() {
     const group = new THREE.Group();
-    box(group, [5.2, 3.45, .72], [0, 1.72, 0], materials.concrete);
-    box(group, [2.45, 1.65, .3], [0, 1.55, .52], materials.dark);
-    box(group, [2.68, .22, .5], [0, .68, .48], materials.metal);
-    box(group, [2.68, .22, .5], [0, 2.42, .48], materials.metal);
-    box(group, [.22, 1.95, .5], [-1.35, 1.55, .48], materials.metal);
-    box(group, [.22, 1.95, .5], [1.35, 1.55, .48], materials.metal);
-    for (let i = 0; i < 7; i += 1) beamBetween(group, [-1.1 + i * .36, .78, .76], [-.68 + i * .36, 2.3, .76], .07, materials.charcoal, .08);
+    // Build an actual opening rather than painting a dark recess on a solid
+    // concrete box. Small-enemy entrances and player traversal now agree with
+    // the visible aperture.
+    box(group, [1.0, 3.45, .72], [-2.1, 1.72, 0], materials.concrete);
+    box(group, [1.0, 3.45, .72], [2.1, 1.72, 0], materials.concrete);
+    box(group, [3.2, .68, .72], [0, .34, 0], materials.concrete);
+    box(group, [3.2, .88, .72], [0, 3.01, 0], materials.concrete);
+    // The vent is an active spawn portal in Freight Annex. Keep the structural
+    // frame but leave its centre free of permanent grille geometry.
     box(group, [1.3, .14, .12], [1.75, 2.75, .52], materials.yellow, [0, 0, -.08]);
     box(group, [.68, .22, .58], [-1.65, .16, .52], materials.concreteLight, [0, .32, .12]);
     box(group, [.52, .18, .44], [1.58, .13, .65], materials.concrete, [0, -.25, -.08]);
@@ -1304,7 +1357,7 @@ export function createEnvironmentAssetRegistry({ THREE } = {}) {
     emergencysign: { title: 'Emergency navigation gantry', description: 'A lit overhead route marker with directional arrows, status lamps, supports, and a local emergency control box.', meshes: '17 pieces', role: 'Navigation signal', build: buildEmergencySign, lift: 0, scale: .88, targetY: 1.65 }
   };
 
-  function buildIsolatedAsset(build) {
+  function buildIsolatedAsset(build, { gradePalette = true, emissiveBudget = null } = {}) {
     const root = build();
     const materialClones = new Map();
     const cloneMaterial = (material) => {
@@ -1319,24 +1372,33 @@ export function createEnvironmentAssetRegistry({ THREE } = {}) {
         ? object.material.map(cloneMaterial)
         : cloneMaterial(object.material);
     });
+    if (gradePalette) materialClones.forEach(gradeEnvironmentMaterial);
+    if (Number.isFinite(emissiveBudget)) {
+      materialClones.forEach((material) => budgetDecorativeEmissive(material, emissiveBudget));
+    }
     return root;
   }
 
-  const assets = Object.entries(modelData).map(([id, data]) => ({
-    id,
-    label: data.title,
-    title: data.title,
-    description: data.description,
-    category: environmentCategoryFor(id),
-    factoryName: data.build.name,
-    role: data.role,
-    meshes: data.meshes,
-    lift: data.lift ?? 0,
-    scale: data.scale ?? 1,
-    targetY: data.targetY ?? 1.35,
-    source: 'environment',
-    build: () => buildIsolatedAsset(data.build)
-  }));
+  const assets = Object.entries(modelData).map(([id, data]) => {
+    const category = environmentCategoryFor(id);
+    const gradePalette = id !== 'enforcer';
+    const emissiveBudget = gradePalette && !emissiveSignalCategories.has(category) ? .08 : null;
+    return {
+      id,
+      label: data.title,
+      title: data.title,
+      description: data.description,
+      category,
+      factoryName: data.build.name,
+      role: data.role,
+      meshes: data.meshes,
+      lift: data.lift ?? 0,
+      scale: data.scale ?? 1,
+      targetY: data.targetY ?? 1.35,
+      source: 'environment',
+      build: () => buildIsolatedAsset(data.build, { gradePalette, emissiveBudget })
+    };
+  });
 
   if (assets.length !== CORE_ENVIRONMENT_ASSET_COUNT) {
     throw new Error(`Expected ${CORE_ENVIRONMENT_ASSET_COUNT} core environment assets, received ${assets.length}.`);

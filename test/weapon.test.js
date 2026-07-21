@@ -53,18 +53,37 @@ test('reload fills magazine from reserve', () => {
   assert.equal(w.reload(), false, 'cannot reload without reserve');
 });
 
-test('addReserve increases reserve and reset restores counts', () => {
+test('addReserve respects the hard reserve limit and reset restores counts', () => {
   const w = new Weapon({ mode: 'semi', fireDelayMs: 0, magSize: 5, reserve: 10 });
-  w.addReserve(5);
-  assert.equal(w.getReserve(), 15);
-  w.addReserve(-3);
-  assert.equal(w.getReserve(), 15, 'negative amounts ignored');
+  assert.equal(w.addReserve(5), 0, 'a full reserve cannot exceed its limit');
+  assert.equal(w.getReserve(), 10);
+  w.reserveAmmo = 7;
+  assert.equal(w.addReserve(5), 3);
+  assert.equal(w.getReserve(), 10);
+  assert.equal(w.addReserve(-3), 0);
+  assert.equal(w.getReserve(), 10, 'negative amounts are ignored');
 
   w.ammoInMag = 2;
   w.reserveAmmo = 7;
   w.reset();
   assert.equal(w.getAmmo(), 5);
   assert.equal(w.getReserve(), 10);
+});
+
+test('reserve regeneration keeps fractional rounds and is based on unupgraded reserve', () => {
+  const w = new Weapon({ mode: 'semi', fireDelayMs: 0, magSize: 5, reserve: 36 });
+  w.reserveAmmo = 0;
+
+  assert.equal(w.advanceReserveRegeneration(9.99), 0);
+  assert.equal(w.advanceReserveRegeneration(0.01), 1);
+  assert.equal(w.advanceReserveRegeneration(50), 9);
+  assert.equal(w.getReserve(), 10, 'six ticks regenerate floor(36 * 5% * 6) rounds');
+
+  w.setReserveLimitProvider((base, specific) => specific + Math.floor(base * 1.2));
+  assert.equal(w.getReserveCapacity(), 79);
+  w.resetReserveRegeneration();
+  w.reserveAmmo = 0;
+  assert.equal(w.advanceReserveRegeneration(60), 10, 'a larger cap does not accelerate regeneration');
 });
 
 test('reset resolves dynamic magazine and reserve capacities', () => {

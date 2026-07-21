@@ -54,6 +54,19 @@ const _rusherTemplates = new WeakMap();
 // Mild screen shake when a dash connects
 const IMPACT_SHAKE = { strength: 0.1, duration: 0.15 };
 
+export function shouldClearRusherChargeLane({
+  hasLOS = false,
+  locomotionClear = false,
+  isStuck = false,
+  chargeCorridor = null
+} = {}) {
+  return hasLOS
+    && locomotionClear
+    && !isStuck
+    && chargeCorridor?.clear === false
+    && !!chargeCorridor.blockerRoot;
+}
+
 export class RusherEnemy {
   constructor({ THREE, mats, cfg, spawnPos, rng = Math.random }) {
     this.THREE = THREE;
@@ -115,6 +128,7 @@ export class RusherEnemy {
     this._exploded = false;       // whether explosion has been triggered
     this._lastCtx = null;         // last update context for onRemoved
     this._stuckTime = 0;          // time spent moving negligibly
+    this._unstickSign = this.rng() < 0.5 ? -1 : 1;
 
     // Spawn delay: wander briefly before engaging the player
     this._spawnDelay = 3 + this.rng() * 2; // 3-5s
@@ -261,6 +275,14 @@ export class RusherEnemy {
       if (wp) {
         const dir = new THREE.Vector3(wp.x - e.position.x, 0, wp.z - e.position.z);
         if (dir.lengthSq() > 0) desired = dir.normalize();
+      } else if (isStuck && toNavigation.lengthSq() > 0) {
+        // Pathfinding is asynchronous. Move tangentially while a route is being
+        // prepared instead of repeatedly pressing into the same boundary.
+        desired = new THREE.Vector3(
+          -toNavigation.z * this._unstickSign,
+          0,
+          toNavigation.x * this._unstickSign
+        ).addScaledVector(toNavigation, 0.2).normalize();
       }
     } else if (hasLOS && !isStuck && ctx.pathfind) {
       ctx.pathfind.clear(this);
@@ -268,7 +290,12 @@ export class RusherEnemy {
     }
 
     const chargeCorridor = ctx.chargeCorridorClear?.(e, predicted, this.variant === 'explosive' ? 0.25 : 0.1) || { clear: true };
-    if (!this._charging && chargeCorridor.clear === false && chargeCorridor.blockerRoot) {
+    if (!this._charging && shouldClearRusherChargeLane({
+      hasLOS,
+      locomotionClear: sense.locomotionClear,
+      isStuck,
+      chargeCorridor
+    })) {
       const blockerDir = chargeCorridor.blockerRoot.position.clone().sub(e.position).setY(0);
       if (blockerDir.lengthSq() > 0) {
         blockerDir.normalize();
@@ -351,6 +378,11 @@ export class RusherEnemy {
     const movedVec = e.position.clone().sub(before); movedVec.y = 0;
     if (wasCharging && movedVec.lengthSq() + 1e-6 < step.lengthSq()) {
       if (this.cfg.explodesOnDeath && moveResult.blockedBy === 'world') {
+        // Colliding with the world is the explosive variant's intentional
+        // production detonation, even though its HP remains above zero. Mark
+        // that lifecycle before EnemyManager.remove() so campaign QA counts
+        // the authored self-destruction rather than reporting a roster leak.
+        e.userData.productionSelfDestruct = true;
         this._explode(ctx);
         ctx.enemyManager?.remove?.(e);
         return;

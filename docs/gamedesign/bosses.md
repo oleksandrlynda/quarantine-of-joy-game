@@ -19,26 +19,56 @@
    - Composition Rules: prefer complementary kits (e.g., Sanitizer + Broodmaker; Captain + Shard); avoid overlapping beam/volley spam.
    - Fail‑safe: if fight drags >120s, bosses synchronize a brief “phase break” to open DPS windows and clear some adds.
 
+## Automated Behavior Validation
+
+The latest full schema-v3 boss-reaction run (2026-07-19, deterministic seed `0xb055c0de`, 60 Hz simulation at 8x) completed 51 scenarios with **49 passes, 1 warning, 1 failure, no errors, and no interruptions**. A report is healthy only when every applicable scenario passes; warnings and unexercised opportunities must not be presented as healthy.
+
+Current behavior verdicts:
+
+| Boss | Status | Diagnostic evidence |
+|---|---|---|
+| Broodmaker | Healthy | Six brood bodies formed the intended screen, with a 1.0 between-boss-and-player placement ratio. |
+| Commissioner Sanitizer | Needs tuning | Two beam releases dealt no direct boss damage to the stationary target; summoned Tanks dealt all 116 damage. In the cover case, movement was blocked for 31.2% of samples, primarily by Suppression Nodes. |
+| Influencer Captain | Healthy | Range recovery, projectile obstruction, cover response, and phase behavior passed. |
+| Algorithm Shard Avatar | Needs fix | One `shard_barrage` projectile dealt 12 damage while world LOS was blocked. The boss was movement-blocked for 68.6% of the cover case, including 742 consecutive ticks. |
+| Broodmaker Prime | Healthy | Eight brood bodies formed a complete screen and ten auxiliaries remained within the encounter cap. |
+| Echo Hydraclone | Healthy | Sustained melee pressure produced no boss-player body penetration; collision-safe player correction remained active. |
+| Strike Adjudicator | Healthy | Three Citations created six mines, two Verdicts resolved, and no mine-owned movement block was recorded. |
+| The Algorithm | Healthy | Anchor positioning, objective gates, phase changes, cover response, and recovery passed. |
+
+Required follow-up for Shard:
+
+- Use a radius-aware swept projectile collision test and record projectile origin, previous position, impact position, and world-path result with damage attribution.
+- Mirages are deceptive visuals, not tactical body blockers. They must not trap their owner; either make them non-solid to Shard or exclude same-owner mirages from its movement solver.
+- When a direct corridor remains blocked, Shard must choose and commit to a flank or stable firing anchor instead of pressing into the obstruction.
+- The diagnostic must fail prolonged world/ally movement obstruction even when attack cadence continues. The 16 m-wide cover fixture exposed a 12.4-second navigation stall that the summary otherwise omitted.
+
+Required follow-up for Sanitizer:
+
+- Verify that a stationary target inside the 13–22 m working band can be hit by the beam sweep without relying on summoned units for all damage.
+- Attribute Suppression Nodes to their boss owner in blocker telemetry and warn on sustained node obstruction.
+- Preserve navigation clearance through the 12 m node ring; arena size or empty floor must not be used to hide a routing problem.
+
 ## Roster (aligned to Story)
 1) Commissioner Sanitizer (BoB Warden)
 - Theme: Censorship fields and cleanup beams.
 - Phase 1: Suppression Nodes (3) around arena reduce player FOV and regen; destroy nodes to drop armor.
-- Attack Set: Sweeping disinfectant beam (line telegraph), pulse knockback, elite Shooter calls.
+- Attack Set: Sweeping disinfectant beam (line telegraph), pulse knockback, target-reacquiring jump shockwave, elite Shooter calls.
 - Phase 2: Armor off; rapid beam bursts, turret pods spawn (limited). Weakpoint: head/core vents.
 - Hazards: Sanitizer tiles that intermittently sizzle; safe gaps clearly visible.
 
 2) Influencer Militia Captain + Ad Zeppelin Support
 - Theme: Monetized chaos; area denial and crowd control.
-- Phase 1: Captain strafes and marks red-orange ad zones with a 1.35s shrinking-ring fuse. The SMG uses an aim-line windup followed by visible traveling fan bolts; damage occurs only when a bolt visibly connects.
+- Phase 1: Captain strafes and marks red-orange ad zones with a 1.35s shrinking-ring fuse. The SMG uses an aim-line windup followed by visible traveling fan bolts; damage occurs only when a bolt visibly connects. After 10-20 completed volley cycles, Captain launches one heavy rocket that splits into eight telegraphed clusters across a 20 m radius.
 - Phase 2 (60% HP): Zeppelin arrives and the Captain gains a visible cyan shield locked at transition health. Three attached engine pods are the shield objective and their remaining count appears in the phase label.
 - Mechanics: Shoot down the three cyan engine-generator pods mounted directly into the Zeppelin belly to remove the shield; destroyed generators visibly detach and fall. While generators remain, the Zeppelin performs a one-second turnaround at each arena edge rather than snapping direction. Destroying the final generator makes it immediately climb toward the nearest exit and despawn; then DPS Captain. Spawns Influencer minions.
-- Hazards: The Captain's red-orange ad zones remain the encounter's only ground markers. The Zeppelin adds no duplicate floor bombs, keeping the shield objective readable.
+- Hazards: Ad zones and the rare eight-cluster rocket are Captain-owned ground markers. The rocket is suppressed whenever Zeppelin support is active, and the Zeppelin adds no duplicate floor bombs, keeping the shield objective readable.
 
 3) Broodmaker (Memetic Swarm Queen)
 - Theme: Spawns small adds and saturates space.
 - Phase 1: Broodlings periodically spawn near player but capped; Broodmaker relocates and burrows briefly.
 - Phase 2: Spawns Flyer Brood (low HP, fast); exposes dorsal weakpoint during lay cycle.
-- Hazards: Goo puddles (slow fields) that decay over time; shooting puddles splashes and clears faster.
+- Hazards: Heavy Broodmaker's Phase 2 goo becomes a toxic 3.2 m field (42% slow, 6 DPS) that decays over time; shooting puddles splashes and clears faster. Light Broodmaker remains unchanged.
 
 4) Algorithm Shard Avatar (Glitch Proxy)
 - Theme: Trendstorm logic; patterns and mirrors.
@@ -74,6 +104,8 @@ Notes
 - Phase 2 (Verdict): Alternating sector slams (pie slices) and frontal gavel smashes with clear floor decals.
   - Purge Nodes become Bailiffs (slow movers) that attempt to body‑block; destroying them still removes Strikes.
 - Stats: HP 1500 baseline; low add spawns (prefers Rushers). Weakpoint windows during post‑verdict recovery.
+
+- Adjudicator direct damage: Citation Mines deal 30 damage in Phase 1 and 44 in Phase 2; sector Verdicts deal 42/72 normal/heavy and gavel Verdicts deal 50/82. Bailiff damage is unchanged.
 
 ## Stats (initial targets)
 - HP baselines: Sanitizer 1600, Captain 1400 (+Zeppelin pods HP 250 each), Broodmaker 1500, Shard 1500.
@@ -111,7 +143,7 @@ Notes
 - Code
   - Add `BossManager` (or extend `EnemyManager`) to handle boss waves: spawn boss, pause normal spawns, track HP via `root.userData.hp`, route hits, and signal next wave on death.
   - Create base class `BaseBoss` with `update(dt, ctx)`, `onHit(dmg, isWeakpoint)`, `onPhaseChange()`, `onRemoved()`.
-  - Implement first boss: Commissioner Sanitizer (nodes + beam), minimal hazards to start.
+  - Initial boss prototype: Commissioner Sanitizer (nodes + beam), minimal hazards to start. The campaign's first boss is the light Broodmaker at Relay District Wave 5.
 - Hooks
   - UI: boss health bar, phase pips, boss name.
   - Effects: telegraph shaders (head/core emissive), ground decals.

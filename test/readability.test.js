@@ -40,17 +40,24 @@ test('combat HUD exposes enhanced HP and stamina capacities numerically', () => 
   assert.match(main, /setTextIfChanged\(staminaMaxValueEl, Math\.floor\(stats\.maxStamina\)\)/);
 });
 
+test('boss encounters move the combo beside the score to keep the boss name clear', () => {
+  assert.match(main, /hudRootEl\.classList\.toggle\('boss-active', bossActive\)/);
+  assert.match(ruleFor('#hud.boss-active .hud-tc'), /flex-direction\s*:\s*row/);
+});
+
 test('Archive separates classified ownership and hides mastery until permanent access', () => {
   assert.match(main, /appendSurvivalCard/);
-  assert.match(main, /areSurvivalMutationsRevealed/);
+  assert.match(main, /isSurvivalMutationRevealed/);
   assert.match(main, /archive\.unlockProgression/);
   assert.match(main, /mutation\.progress\.poolReady/);
   assert.match(main, /mutation\.progress\.archiveUnlocked/);
   assert.match(main, /appendSectionTitle\('archive\.category\.weapons'\)/);
   assert.match(main, /appendSectionTitle\('archive\.category\.classified'\)/);
-  assert.match(main, /CLASSIFIED_WEAPON_DEFINITIONS\.forEach\(appendClassifiedCard\)/);
+  assert.match(main, /revealed \? `\$\{def\.cost\} ◆`/);
+  assert.match(main, /revealed \? `\$\{t\('archive\.unlock'\)\} · \$\{def\.cost\} ◆`/);
+  assert.match(main, /sortArchiveItemsByCost\([\s\S]*CLASSIFIED_WEAPON_DEFINITIONS,[\s\S]*\)\.forEach\(appendClassifiedCard\)/);
   assert.match(main, /appendSectionTitle\('archive\.category\.spectacle'\)/);
-  assert.match(main, /spectacles\.forEach\(appendSpectacleCard\)/);
+  assert.match(main, /sortArchiveItemsByCost\(spectacles,[^\n]+\)\.forEach\(appendSpectacleCard\)/);
   assert.match(main, /describeSpectacleGrade\(def\.id, grade\)/);
   assert.match(main, /getMutationGrade\('algorithm_roulette'\)/);
   assert.match(main, /getMutationGrade\('opening_act'\)/);

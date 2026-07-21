@@ -9,9 +9,11 @@ import {
   buildEnemyReactionReport,
   evaluateEnemyReaction
 } from './enemy-reaction-diagnostic.js';
-import { isScenarioApplicable } from '../enemies/behavior-profiles.js';
+import { isScenarioApplicable, resolveBehaviorProfile } from '../enemies/behavior-profiles.js';
+import { verticalSpansOverlap } from '../enemies/spatial-index.js';
 
 const elements = {
+  panel: document.getElementById('panel'), panelToggle: document.getElementById('panelToggle'),
   enemy: document.getElementById('enemyFilter'), scenario: document.getElementById('scenarioFilter'),
   run: document.getElementById('run'), stop: document.getElementById('stop'), copy: document.getElementById('copyReport'),
   download: document.getElementById('downloadReport'), status: document.getElementById('status'),
@@ -38,6 +40,13 @@ let running = false;
 let stopRequested = false;
 let runStartedAt = 0;
 let hiddenAt = null;
+
+function setPanelCollapsed(collapsed) {
+  const isCollapsed = collapsed === true;
+  elements.panel.dataset.collapsed = String(isCollapsed);
+  elements.panelToggle.setAttribute('aria-expanded', String(!isCollapsed));
+  elements.panelToggle.textContent = isCollapsed ? 'Expand panel' : 'Collapse panel';
+}
 
 const seededRandom = (seed = 0x0ea7c0de) => {
   let state = seed >>> 0;
@@ -118,6 +127,18 @@ let groupActorSerial = 0;
 let currentDefinition = null;
 let resultRows = new Map();
 
+function updateDiagnosticCamera() {
+  if (currentDefinition?.archetype.id === 'warden' && targetRoot) {
+    // Keep the complete Warden exercise visible: player, obstacle, carrier,
+    // outer-ring movement, and diving swarm all fit in this fixed overview.
+    camera.position.set(42, 38, 54);
+    camera.lookAt(0, 12, 14);
+    return;
+  }
+  camera.position.set(16, 18, 22);
+  camera.lookAt(0, 0, 0);
+}
+
 const playerForward = new THREE.Vector3(1, 0, 0);
 const getPlayer = () => ({ position: player.position.clone(), forward: playerForward.clone() });
 const manager = new EnemyManager(THREE, scene, mats, objects, getPlayer, 40, null, seededRandom());
@@ -151,7 +172,7 @@ manager.onAIEvent = event => {
     && targetInstance?._children?.has?.(event.root);
   if (!sourceIsScenarioMember && !sourceIsWardenChild) return;
   if (event.type === 'projectile_fired') {
-    recordActorShot(event.root, event.kind || event.root?.userData?.behaviorId || 'unknown');
+    recordActorShot(event.root, event.kind || event.root?.userData?.behaviorId || 'unknown', event);
     return;
   }
   metrics.recordAIEvent(scenarioElapsed * 1000, event, {
@@ -179,7 +200,12 @@ function addObstacle(kind, centerZ, archetype, centerX = 0, rotationY = 0) {
   } else {
     const isFullOccluder = kind === 'full_wall' || kind === 'search_wall';
     const isWallEdge = kind === 'wall_edge';
-    const height = (isFullOccluder || isWallEdge) ? (archetype.id === 'warden' ? 36 : 3.5) : 0.9;
+    const needsAirOcclusion = (isFullOccluder || isWallEdge) && archetype.movementLayer === 'air';
+    const height = (isFullOccluder || isWallEdge)
+      // Pelican sight starts above the wall, but its body must retain enough
+      // clearance to demonstrate the intended fly-over response.
+      ? (archetype.id === 'warden' ? 36 : (archetype.id === 'pelican' ? 5.1 : (needsAirOcclusion ? 12 : 3.5)))
+      : 0.9;
     const width = isWallEdge ? 3.2 : (kind === 'search_wall' ? 96 : (isFullOccluder ? 10 : 4.5));
     activeObstacle = new THREE.Mesh(new THREE.BoxGeometry(width, height, isFullOccluder ? 0.8 : 1.0), mats.wall);
     activeObstacle.position.set(centerX, height / 2, centerZ);
@@ -225,9 +251,19 @@ function tacticalLineOfSight(instance, sourceRoot = targetRoot) {
   };
 }
 
-function recordActorShot(sourceRoot, kind) {
+function recordActorShot(sourceRoot, kind, shotEvent = null) {
   if (!metrics || !sourceRoot) return;
-  const sight = tacticalLineOfSight(manager.instanceByRoot.get(sourceRoot), sourceRoot);
+  let sight;
+  if (shotEvent?.origin?.isVector3 && shotEvent?.target?.isVector3) {
+    const line = manager._tacticalLineClear(sourceRoot, shotEvent.origin, shotEvent.target, 0.18);
+    sight = {
+      worldVisible: line.worldClear,
+      tacticalVisible: line.clear,
+      blockingAlly: line.blockerRoot
+    };
+  } else {
+    sight = tacticalLineOfSight(manager.instanceByRoot.get(sourceRoot), sourceRoot);
+  }
   metrics.recordShot(scenarioElapsed * 1000, {
     ...sight,
     kind,
@@ -304,11 +340,13 @@ function clearActors() {
   scenarioGroupRoots = new Set();
   groupActorSerial = 0;
   manager._ctx = null;
+  updateDiagnosticCamera();
 }
 
 function mixedCompanionTypes(archetype) {
   if (archetype.id === 'healer') return ['tank', 'shooter', 'grunt'];
   if (archetype.id === 'flyer') return ['flyer', 'shooter', 'tank'];
+  if (archetype.id === 'pelican') return ['flyer', 'shooter', 'tank'];
   if (archetype.role === 'ranged' || archetype.role === 'sniper') return ['tank', 'grunt', 'healer'];
   return ['grunt', 'shooter', 'healer'];
 }
@@ -327,7 +365,8 @@ function setupScenario(definition) {
   player.userData.combatMaxHp = 100;
   playerForward.set(1, 0, 0);
   const targetZ = player.position.z + definition.archetype.spawnDistance;
-  targetRoot = manager.spawnAt(definition.archetype.id, new THREE.Vector3(0, 0.8, targetZ), { countsTowardAlive: true });
+  const targetY = definition.archetype.id === 'pelican' ? 7 : 0.8;
+  targetRoot = manager.spawnAt(definition.archetype.id, new THREE.Vector3(0, targetY, targetZ), { countsTowardAlive: true });
   targetRoot.userData.hp = 1e9;
   targetRoot.userData.maxHp = 1e9;
   targetRoot.userData.diagnosticActorId = 'primary';
@@ -384,7 +423,9 @@ function setupScenario(definition) {
     blockerRoot = spawnFixtureAlly('tank', new THREE.Vector3(0, 1.1, targetZ - 8));
     blockerRoot.userData.diagnosticActorId = 'mobile_cover_tank';
   } else if (definition.scenario.id === 'aerial_congestion') {
-    blockerRoot = spawnFixtureAlly('flyer', new THREE.Vector3(0.35, targetRoot.position.y, targetZ - 1.0));
+    const flyerProfile = resolveBehaviorProfile('flyer');
+    const startingClearance = definition.archetype.collisionRadius + flyerProfile.collisionRadius + 0.2;
+    blockerRoot = spawnFixtureAlly('flyer', new THREE.Vector3(0.35, targetRoot.position.y, targetZ - startingClearance));
   } else if (definition.scenario.id === 'dive_corridor') {
     blockerRoot = spawnFixtureAlly('flyer', new THREE.Vector3(0, Math.max(3, targetRoot.position.y - 1.5), (player.position.z + targetZ) * 0.5));
   }
@@ -424,7 +465,7 @@ function setupScenario(definition) {
     const offsets = definition.scenario.groupSetup === 'same_type' ? sameTypeOffsets : mixedOffsets;
     for (let index = 0; index < types.length; index++) {
       const offset = offsets[index];
-      const isAir = types[index] === 'flyer';
+      const isAir = types[index] === 'flyer' || types[index] === 'pelican' || types[index] === 'warden';
       const root = spawnGroupEnemy(types[index], new THREE.Vector3(
         offset.x,
         isAir ? targetRoot.position.y + offset.y : 0.8,
@@ -448,6 +489,7 @@ function setupScenario(definition) {
     expectedGroupSize: definition.scenario.groupSize || 1
   });
   metrics.addEvent(0, 'scenario_started', { enemy: definition.archetype.id, scenario: definition.scenario.id, initialPlayerDistance: round(distance) });
+  updateDiagnosticCamera();
 }
 
 function updateScenario(dt) {
@@ -524,9 +566,7 @@ function updateScenario(dt) {
     const distanceToAlly = horizontalDistance(targetRoot.position, ally.position);
     allyDistance = Math.min(allyDistance, distanceToAlly);
     const allyProfile = manager._profileForRoot(ally);
-    const verticalOverlap = Math.abs(targetRoot.position.y - ally.position.y)
-      < (targetProfile.collisionHeight + allyProfile.collisionHeight) * 0.5;
-    bodyPenetrating ||= verticalOverlap
+    bodyPenetrating ||= verticalSpansOverlap(targetRoot, targetProfile, ally, allyProfile)
       && distanceToAlly < targetProfile.collisionRadius + allyProfile.collisionRadius - 0.02;
   }
   if (currentDefinition.archetype.id === 'warden' && instance?._children?.size > 1) {
@@ -537,9 +577,7 @@ function updateScenario(dt) {
         const childDistance = horizontalDistance(children[i].position, children[j].position);
         const childProfileA = manager._profileForRoot(children[i]);
         const childProfileB = manager._profileForRoot(children[j]);
-        const verticalOverlap = Math.abs(children[i].position.y - children[j].position.y)
-          < (childProfileA.collisionHeight + childProfileB.collisionHeight) * 0.5;
-        bodyPenetrating ||= verticalOverlap
+        bodyPenetrating ||= verticalSpansOverlap(children[i], childProfileA, children[j], childProfileB)
           && childDistance < childProfileA.collisionRadius + childProfileB.collisionRadius - 0.02;
       }
     }
@@ -554,9 +592,7 @@ function updateScenario(dt) {
         allyDistance = Math.min(allyDistance, distance);
         const firstProfile = manager._profileForRoot(first);
         const secondProfile = manager._profileForRoot(second);
-        const verticalOverlap = Math.abs(first.position.y - second.position.y)
-          < (firstProfile.collisionHeight + secondProfile.collisionHeight) * 0.5;
-        bodyPenetrating ||= verticalOverlap
+        bodyPenetrating ||= verticalSpansOverlap(first, firstProfile, second, secondProfile)
           && distance < firstProfile.collisionRadius + secondProfile.collisionRadius - 0.02;
       }
     }
@@ -578,6 +614,8 @@ function updateScenario(dt) {
       || member?.inBurst
       || member?.state === 'dive'
       || member?.state === 'windup'
+      || member?.state === 'approach'
+      || member?.grenades?.some?.(grenade => grenade.phase === 'falling')
       || (member?._windUpTimer || 0) > 0
       || (member?.windupTime || 0) > 0
       || (member?.windup || 0) > 0
@@ -629,6 +667,7 @@ function sampleScenario() {
   const toPlayer = player.position.clone().sub(targetRoot.position).setY(0);
   const facing = new THREE.Vector3(0, 0, 1).applyQuaternion(targetRoot.quaternion).setY(0);
   const tracking = toPlayer.lengthSq() > 1e-5 && facing.lengthSq() > 1e-5 && facing.normalize().dot(toPlayer.normalize()) > 0.35;
+  const trackingEligible = currentDefinition.archetype.id !== 'pelican' || instance?.state === 'approach';
   metrics.observe({
     atMs: scenarioElapsed * 1000,
     position: targetRoot.position,
@@ -643,6 +682,7 @@ function sampleScenario() {
       || instance?.selectedCoverRoot?.userData?.behaviorId
       || (instance?._outerAnchor ? `${round(instance._outerAnchor.x)},${round(instance._outerAnchor.z)}` : null),
     tracking,
+    trackingEligible,
     attemptedMove: attemptedMoveSinceSample,
     allyDistance: blockerRoot ? horizontalDistance(targetRoot.position, blockerRoot.position) : Infinity,
     state,
@@ -746,6 +786,7 @@ async function runDiagnostic() {
   elements.copy.disabled = true;
   elements.download.disabled = true;
   elements.output.classList.remove('ready');
+  setPanelCollapsed(true);
   const matrix = buildEnemyReactionMatrix({ enemy: elements.enemy.value || null, scenario: elements.scenario.value || null });
   renderRows(matrix);
   const results = [];
@@ -784,6 +825,7 @@ async function runDiagnostic() {
           sampleScenario();
           lastSampleAt = scenarioElapsed;
         }
+        updateDiagnosticCamera();
         renderer.render(scene, camera);
         elements.elapsed.textContent = `${((now - runStartedAt) / 1000).toFixed(1)}s`;
         elements.progress.style.width = `${((index + scenarioElapsed / definition.scenario.durationSeconds) / matrix.length) * 100}%`;
@@ -837,6 +879,7 @@ async function runDiagnostic() {
     elements.stop.disabled = true;
     elements.enemy.disabled = false;
     elements.scenario.disabled = false;
+    setPanelCollapsed(false);
     if (!stopRequested) elements.progress.style.width = '100%';
     elements.status.textContent = stopRequested
       ? 'Stopped — partial report ready'
@@ -850,6 +893,7 @@ async function runDiagnostic() {
 }
 
 elements.run.addEventListener('click', runDiagnostic);
+elements.panelToggle.addEventListener('click', () => setPanelCollapsed(elements.panel.dataset.collapsed !== 'true'));
 elements.stop.addEventListener('click', () => {
   if (!running) return;
   stopRequested = true;

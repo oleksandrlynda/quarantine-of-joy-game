@@ -2,10 +2,22 @@ export function createWave72Visuals({ THREE, scene, hemi, dir, skyMat }) {
   let active = false;
   let group = null;
   let snapshot = null;
+  let locatorRing = null;
+  let wardenFill = null;
+  let searchLight = null;
+  let searchTarget = null;
+  let core = null;
+  let halo = null;
+  let locatorAge = Infinity;
+  let finalSearchlight = false;
+  let completed = false;
 
   function start() {
     if (active) return;
     active = true;
+    completed = false;
+    finalSearchlight = false;
+    locatorAge = Infinity;
     snapshot = {
       hemiIntensity: hemi.intensity,
       dirIntensity: dir.intensity,
@@ -75,7 +87,8 @@ export function createWave72Visuals({ THREE, scene, hemi, dir, skyMat }) {
     group.add(beam);
 
     const coreMaterial = new THREE.MeshBasicMaterial({ color: 0xfff1a8 });
-    const core = new THREE.Mesh(new THREE.SphereGeometry(0.42, 12, 8), coreMaterial);
+    core = new THREE.Mesh(new THREE.SphereGeometry(0.42, 12, 8), coreMaterial);
+    core.name = 'last-light-core';
     core.position.set(0, 5, 0);
     group.add(core);
 
@@ -86,7 +99,8 @@ export function createWave72Visuals({ THREE, scene, hemi, dir, skyMat }) {
       depthWrite: false,
       blending: THREE.AdditiveBlending
     });
-    const halo = new THREE.Mesh(new THREE.SphereGeometry(0.9, 12, 8), haloMaterial);
+    halo = new THREE.Mesh(new THREE.SphereGeometry(0.9, 12, 8), haloMaterial);
+    halo.name = 'last-light-halo';
     halo.position.set(0, 5, 0);
     group.add(halo);
 
@@ -106,20 +120,113 @@ export function createWave72Visuals({ THREE, scene, hemi, dir, skyMat }) {
       ring.position.y = 0.09;
       group.add(ring);
     }
+
+    const locatorMaterial = new THREE.MeshBasicMaterial({
+      color: 0x42e6dc,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending
+    });
+    locatorRing = new THREE.Mesh(new THREE.TorusGeometry(1.1, .08, 6, 48), locatorMaterial);
+    locatorRing.name = 'warden-locator-pulse';
+    locatorRing.rotation.x = Math.PI / 2;
+    locatorRing.position.y = .16;
+    locatorRing.visible = false;
+    group.add(locatorRing);
+
+    // Keep the carrier readable throughout the encounter, not only during the
+    // final searchlight phase. This follows just below the airborne Warden and
+    // catches its underside without illuminating a large part of the arena.
+    wardenFill = new THREE.PointLight(0x8ffff6, 0, 26, 1.55);
+    wardenFill.name = 'warden-tracking-fill';
+    wardenFill.castShadow = false;
+    group.add(wardenFill);
+
+    searchTarget = new THREE.Object3D();
+    searchTarget.name = 'warden-searchlight-target';
+    group.add(searchTarget);
+    searchLight = new THREE.SpotLight(0x75fff4, 0, 42, Math.PI / 9, .42, 1.4);
+    searchLight.name = 'warden-final-searchlight';
+    searchLight.position.set(0, 6.4, 0);
+    searchLight.target = searchTarget;
+    searchLight.castShadow = false;
+    group.add(searchLight);
     scene.add(group);
+    update();
   }
 
-  function update() {
+  function locatorPulse(position) {
+    if (!active || !locatorRing || !Array.isArray(position)) return;
+    locatorRing.position.set(position[0], .16, position[2]);
+    locatorRing.scale.setScalar(1);
+    locatorRing.material.opacity = .92;
+    locatorRing.visible = true;
+    locatorAge = 0;
+  }
+
+  function setFinalSearchlight(enabled = true) {
+    finalSearchlight = !!enabled;
+    if (searchLight && !finalSearchlight) searchLight.intensity = 0;
+  }
+
+  function complete() {
     if (!active) return;
-    hemi.intensity = 0.012;
-    dir.intensity = 0.02;
-    if (scene.fog) {
-      scene.fog.color.setHex(0x010706);
-      scene.fog.near = 5;
-      scene.fog.far = 42;
+    completed = true;
+    finalSearchlight = false;
+    if (searchLight) searchLight.intensity = 0;
+    if (core?.material?.color?.setHex) core.material.color.setHex(0xc7ff73);
+    if (halo?.material?.color?.setHex) halo.material.color.setHex(0x8dff6a);
+    update();
+  }
+
+  function update({ wardenPosition = null, dt = 1 / 60 } = {}) {
+    if (!active) return;
+    if (completed) {
+      hemi.intensity = .34;
+      dir.intensity = .28;
+      if (scene.fog) {
+        scene.fog.color.setHex(0x233b35);
+        scene.fog.near = 18;
+        scene.fog.far = 96;
+      }
+      skyMat?.uniforms?.top?.value?.setHex?.(0x162d2d);
+      skyMat?.uniforms?.bottom?.value?.setHex?.(0x48635a);
+      return;
     }
-    skyMat?.uniforms?.top?.value?.setHex?.(0x000203);
-    skyMat?.uniforms?.bottom?.value?.setHex?.(0x010605);
+    hemi.intensity = 0.035;
+    dir.intensity = 0.045;
+    if (scene.fog) {
+      scene.fog.color.setHex(0x02100e);
+      scene.fog.near = 8;
+      scene.fog.far = 52;
+    }
+    skyMat?.uniforms?.top?.value?.setHex?.(0x010707);
+    skyMat?.uniforms?.bottom?.value?.setHex?.(0x03100d);
+
+    if (locatorRing?.visible) {
+      locatorAge += Math.max(0, dt);
+      const progress = Math.min(1, locatorAge / 1.35);
+      locatorRing.scale.setScalar(1 + progress * 7.5);
+      locatorRing.material.opacity = (1 - progress) * .92;
+      if (progress >= 1) locatorRing.visible = false;
+    }
+    const hasWarden = !!wardenPosition;
+    if (wardenFill) {
+      wardenFill.intensity = hasWarden ? 28 : 0;
+      if (hasWarden) {
+        wardenFill.position.set(
+          wardenPosition.x,
+          Math.max(1.5, (wardenPosition.y || 1.5) - 2.2),
+          wardenPosition.z
+        );
+      }
+    }
+    if (searchLight) {
+      const tracking = finalSearchlight && hasWarden;
+      searchLight.intensity = tracking ? 42 : 0;
+      if (tracking) searchTarget.position.set(wardenPosition.x, Math.max(.5, wardenPosition.y || .5), wardenPosition.z);
+    }
   }
 
   function stop() {
@@ -146,12 +253,36 @@ export function createWave72Visuals({ THREE, scene, hemi, dir, skyMat }) {
     }
     group = null;
     snapshot = null;
+    locatorRing = null;
+    wardenFill = null;
+    searchLight = null;
+    searchTarget = null;
+    core = null;
+    halo = null;
+    locatorAge = Infinity;
+    finalSearchlight = false;
+    completed = false;
   }
 
   return {
     start,
+    locatorPulse,
+    setFinalSearchlight,
+    complete,
     update,
     stop,
-    get active() { return active; }
+    get active() { return active; },
+    get diagnostics() {
+      return {
+        active,
+        completed,
+        finalSearchlight,
+        hemiIntensity: hemi.intensity,
+        dirIntensity: dir.intensity,
+        fog: scene.fog ? { color: scene.fog.color.getHex?.(), near: scene.fog.near, far: scene.fog.far } : null,
+        skyTop: skyMat?.uniforms?.top?.value?.getHex?.(),
+        skyBottom: skyMat?.uniforms?.bottom?.value?.getHex?.()
+      };
+    }
   };
 }

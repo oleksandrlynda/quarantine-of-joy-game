@@ -12,6 +12,16 @@ export const WEAPON_MUZZLE_AXES = Object.freeze({
   beamsaber: Object.freeze({ x: 1.69, y: .24 })
 });
 
+const WEAPON_SURFACE_DETAILS = Object.freeze({
+  pistol: Object.freeze({ position: [.02, .482, 0], size: [.42, .16] }),
+  rifle: Object.freeze({ position: [-.28, .2, .192], size: [.528, .168], rotation: [0, 0, 0] }),
+  smg: Object.freeze({ position: [.08, .352, 0], size: [.36, .18] }),
+  shotgun: Object.freeze({ position: [-.24, .412, 0], size: [.3, .24] }),
+  dmr: Object.freeze({ position: [-.52, .372, 0], size: [.36, .19] }),
+  grenade: Object.freeze({ position: [-.12, .452, 0], size: [.3, .2] }),
+  gravitywell: Object.freeze({ position: [-.43, .412, 0], size: [.26, .22] })
+});
+
 export function createWeaponGeometryPool(THREE) {
   return {
     box: new THREE.BoxGeometry(1, 1, 1),
@@ -25,7 +35,7 @@ export function disposeWeaponGeometryPool(pool) {
   for (const geometry of Object.values(pool || {})) geometry?.dispose?.();
 }
 
-export function buildWeaponModel({ THREE, id, materials, geometryPool = null }) {
+export function buildWeaponModel({ THREE, id, materials, geometryPool = null, surfaceDetailGeometry = null }) {
   const root = new THREE.Group();
   const meshes = [];
   const actionParts = [];
@@ -217,6 +227,21 @@ export function buildWeaponModel({ THREE, id, materials, geometryPool = null }) 
     cylX(root, .19, .32, [-1.25, .24, 0], m.metal, 'pommel', 12);
   } else {
     throw new Error(`Unknown weapon model: ${id}`);
+  }
+
+  const surfaceDetail = WEAPON_SURFACE_DETAILS[id];
+  if (surfaceDetail && surfaceDetailGeometry && m.detail) {
+    const [width, height] = surfaceDetail.size;
+    const decal = add(
+      root,
+      surfaceDetailGeometry,
+      [width, height, 1],
+      surfaceDetail.position,
+      m.detail,
+      surfaceDetail.rotation || [-Math.PI / 2, 0, 0],
+      'surfaceDetail'
+    );
+    decal.renderOrder = 4;
   }
 
   root.updateWorldMatrix(true, true);

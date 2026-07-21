@@ -17,7 +17,7 @@ export class BeamSaber extends Weapon {
   }
 
   _slash(ctx, damage, heavy=false) {
-    const { THREE, camera, raycaster, enemyManager, effects, S, pickups, addScore, addComboAction, applyKnockback, objects } = ctx;
+    const { THREE, camera, raycaster, enemyManager, effects, S, pickups, addScore, addComboAction, applyKnockback, objects, obstacleManager } = ctx;
     const origin = camera.getWorldPosition(new THREE.Vector3());
     const dir = camera.getWorldDirection(new THREE.Vector3()).normalize();
     const range = heavy ? 5 : 4;
@@ -73,8 +73,9 @@ export class BeamSaber extends Weapon {
       const worldHits = raycaster.intersectObjects(objects, true);
       if (worldHits.length) {
         const h = worldHits[0];
+        obstacleManager?.handleHit?.(h.object, damage);
         if (S?.saberHit) S.saberHit();
-        // optional: minimal spark could be triggered here if available
+        effects?.spawnBulletImpact?.(h.point, h.face?.normal);
       }
     }
 

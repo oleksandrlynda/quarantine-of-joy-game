@@ -15,11 +15,13 @@ function buildGrid(start, goal, obstacles, gridSize, radius, agentRadius = 0.5) 
   const height = Math.ceil((maxZ - minZ) / gridSize) + 1;
 
   const blocked = new Array(width * height).fill(false);
-  const margin = Math.max(0.15, agentRadius);
+  // Match the main-thread rasterizer: cell-center bounds must expand equally
+  // on both sides or mirrored destinations receive different answers.
+  const margin = Math.max(0.15, agentRadius) + gridSize * 0.5;
   for (const ob of obstacles || []) {
-    const minix = Math.floor((ob.min.x - margin - minX) / gridSize);
+    const minix = Math.ceil((ob.min.x - margin - minX) / gridSize);
     const maxix = Math.floor((ob.max.x + margin - minX) / gridSize);
-    const miniz = Math.floor((ob.min.z - margin - minZ) / gridSize);
+    const miniz = Math.ceil((ob.min.z - margin - minZ) / gridSize);
     const maxiz = Math.floor((ob.max.z + margin - minZ) / gridSize);
     for (let ix = minix; ix <= maxix; ix++) {
       if (ix < 0 || ix >= width) continue;
@@ -63,7 +65,11 @@ function findPath(start, goal, obstacles, opts = {}) {
         const prev = came.get(key); if (!prev) break;
         cx = prev.ix; cz = prev.iz; key = hash(cx, cz);
       }
-      path[path.length - 1] = { x: goal.x, z: goal.z };
+      const exactStart = { x: start.x, z: start.z };
+      const exactGoal = { x: goal.x, z: goal.z };
+      path[0] = exactStart;
+      if (path.length === 1 && Math.hypot(goal.x - start.x, goal.z - start.z) > 1e-6) path.push(exactGoal);
+      else path[path.length - 1] = exactGoal;
       return path;
     }
     const neighbors = [

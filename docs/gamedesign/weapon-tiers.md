@@ -4,7 +4,7 @@ _Last update: 2026-07-19_
 
 This list ranks primaries and sidearms by overall effectiveness across waves (DPS, effective range, control, ammo economy, utility). It assumes default enemy HP and current weapon configs.
 
-Dynamite, Gravity Well, Satellite Strike, and Punchline Rush are now cooldown-based Q abilities rather than weapons and are excluded from the weapon tier ranking. Gravity Well is priced at 70 fragments as the strongest current ability.
+Dynamite, Gravity Well, Satellite Strike, and Punchline Rush are now cooldown-based Q abilities rather than weapons and are excluded from the weapon tier ranking. Gravity Well is priced at 55 fragments as the strongest current ability.
 
 ## Discovery Clearance
 
@@ -16,7 +16,7 @@ Combat tier and access tier are deliberately separate. Strong weapons are not so
 | Rifle | Classified until Wave 6 trial | 10 | Enters future primary offers |
 | DMR | Classified until Wave 10 boss trial | 18 | Enters future primary offers |
 | Grenade Launcher | Classified until Wave 15 boss trial | 50 | Permanent dedicated Slot 3 package |
-| Dynamite | Classified until Wave 20 boss trial | 35 | Timed-demolition choice for dedicated Slot 3 |
+| Dynamite | Archive Q ability | 28 + 40 | Two-grade timed-demolition ability; never occupies a weapon slot |
 
 The high Grenade Launcher price reflects loadout expansion, not only weapon strength: it adds a third combat option without replacing the primary or Pistol.
 

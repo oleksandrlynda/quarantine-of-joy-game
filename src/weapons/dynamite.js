@@ -12,17 +12,24 @@ export class Dynamite extends Weapon {
       name: 'Dynamite',
       mode: 'semi',
       fireDelayMs: 450,
-      magSize: 3,
-      reserve: 3
+      magSize: 2,
+      reserve: 2
     });
     this.gravity = 13;
     this.throwSpeed = 15.5;
-    this.blastRadius = 5.2;
-    this.baseDamage = 180;
+    this.blastRadius = 3.1;
+    this.baseDamage = 108;
     this.fuseSeconds = 2.6;
-    this.maxActiveCharges = 3;
+    this.maxActiveCharges = 2;
     this.charges = [];
     this._worldAssets = null;
+  }
+
+  configure({ baseDamage = this.baseDamage, blastRadius = this.blastRadius, maxActiveCharges = this.maxActiveCharges } = {}) {
+    this.baseDamage = Math.max(0, Number(baseDamage) || 0);
+    this.blastRadius = Math.max(0.1, Number(blastRadius) || 0.1);
+    this.maxActiveCharges = Math.max(1, Math.floor(Number(maxActiveCharges) || 1));
+    return this;
   }
 
   canFire(nowMs) {

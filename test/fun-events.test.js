@@ -16,7 +16,7 @@ test('opt-in elimination spectacle fires confetti every tenth regular enemy', ()
 });
 
 test('Algorithm Roulette resolves every seventh sky shot once per wave with grade-specific odds', () => {
-  const rolls = [0.5, 0.52];
+  const rolls = [0.49, 0.52];
   const roulette = new AlgorithmRoulette({ rng: () => rolls.shift() });
   const base = { directionY: 0.9, hp: 80, maxHp: 100, weapon: 'Pistol' };
 
@@ -26,14 +26,23 @@ test('Algorithm Roulette resolves every seventh sky shot once per wave with grad
     assert.equal(progress.progress, shot);
   }
   assert.deepEqual(roulette.tryShot({ ...base, wave: 1, grade: 1 }), {
-    triggered: true, counted: true, won: true, grade: 1, wave: 1, delta: 5, progress: 7, remaining: 0
+    triggered: true, counted: true, won: true, grade: 1, wave: 1, neutralized: false, delta: 5, progress: 7, remaining: 0
   });
   assert.equal(roulette.tryShot({ ...base, wave: 1, grade: 1 }).counted, false);
 
   for (let shot = 1; shot < 7; shot++) roulette.tryShot({ ...base, wave: 2, grade: 2 });
   assert.deepEqual(roulette.tryShot({ ...base, wave: 2, grade: 2 }), {
-    triggered: true, counted: true, won: false, grade: 2, wave: 2, delta: -6, progress: 7, remaining: 0
+    triggered: true, counted: true, won: false, grade: 2, wave: 2, neutralized: false, delta: -6, progress: 7, remaining: 0
   });
+});
+
+test('Algorithm Roulette Grade III neutralizes the first loss in each boss cycle', () => {
+  const roulette = new AlgorithmRoulette({ rng: () => 0.99, shotCadence: 1 });
+  const base = { directionY: 0.9, hp: 80, maxHp: 100, weapon: 'Pistol', grade: 3 };
+
+  assert.equal(roulette.tryShot({ ...base, wave: 6 }).neutralized, true);
+  assert.equal(roulette.tryShot({ ...base, wave: 7 }).delta, -6);
+  assert.equal(roulette.tryShot({ ...base, wave: 11 }).neutralized, true);
 });
 
 test('Algorithm Roulette ignores unsafe, full-health, tutorial, saber, and non-upward shots', () => {
@@ -52,39 +61,39 @@ test('Algorithm Roulette ignores unsafe, full-health, tutorial, saber, and non-u
 
 test('Opening Act triggers only on the first regular elimination of each wave', () => {
   const stagecraft = new StagecraftDeaths();
-  const first = stagecraft.recordElimination({ wave: 2, openingGrade: 2, regularWave: true });
+  const first = stagecraft.recordElimination({ wave: 2, openingGrade: 3, regularWave: true });
   assert.deepEqual(first, {
     triggered: true,
     style: 'opening_act',
-    grade: 2,
+    grade: 3,
     wave: 2,
     elimination: 1,
     staminaRestore: 0,
     comboHoldSeconds: 3
   });
-  assert.equal(stagecraft.recordElimination({ wave: 2, openingGrade: 2, regularWave: true }).triggered, false);
+  assert.equal(stagecraft.recordElimination({ wave: 2, openingGrade: 3, regularWave: true }).triggered, false);
   assert.equal(stagecraft.recordElimination({ wave: 3, openingGrade: 1, regularWave: true }).triggered, true);
   assert.equal(stagecraft.recordElimination({ wave: 5, openingGrade: 2, regularWave: false, boss: true }).triggered, false);
   assert.equal(stagecraft.recordElimination({ wave: 6, openingGrade: 2, regularWave: true, tutorial: true }).triggered, false);
 });
 
-test('Final Cut takes priority on the last regular enemy and Grade II restores stamina', () => {
+test('Final Cut takes priority on the last regular enemy and Grade III restores stamina and holds combo', () => {
   const stagecraft = new StagecraftDeaths();
   const final = stagecraft.recordElimination({
     wave: 4,
-    openingGrade: 2,
-    finalGrade: 2,
+    openingGrade: 3,
+    finalGrade: 3,
     lastEnemy: true,
     regularWave: true
   });
   assert.deepEqual(final, {
     triggered: true,
     style: 'final_cut',
-    grade: 2,
+    grade: 3,
     wave: 4,
     elimination: 1,
     staminaRestore: 10,
-    comboHoldSeconds: 0
+    comboHoldSeconds: 3
   });
   stagecraft.reset();
   assert.equal(stagecraft.wave, null);

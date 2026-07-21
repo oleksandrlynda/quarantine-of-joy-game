@@ -1,3 +1,5 @@
+import { batchRigidAsset } from './rigid-batching.js';
+
 // ============================================================================
 // Algorithm Shard Avatar (Glitch Proxy) — boss asset
 // Returns { root, head, refs }
@@ -135,7 +137,7 @@ export function createShardAvatarAsset({ THREE, mats, scale = 1.0, palette } = {
     group.rotation.x = -0.03;
     group.scale.set(scale, scale, scale);
   
-    return {
+    const built = {
       root: group,
       head,
       refs: {
@@ -150,6 +152,8 @@ export function createShardAvatarAsset({ THREE, mats, scale = 1.0, palette } = {
         emissives,
       }
     };
+    batchRigidAsset({ THREE, built });
+    return built;
   }
   
   // -----------------------------------------------------------------------------

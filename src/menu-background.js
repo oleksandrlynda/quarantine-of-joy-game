@@ -1,3 +1,5 @@
+import { createPropagandaPelican } from './assets/propaganda-pelican.js';
+
 export const MENU_BACKGROUND_ASSET_IDS = Object.freeze([
   'cornershop',
   'clinic',
@@ -12,13 +14,63 @@ const ENVIRONMENT_PLACEMENTS = Object.freeze([
   { id: 'roadblock', position: [12.9, 0, 3.5], scale: .56, rotationY: -.34 }
 ]);
 
-const ACTOR_PLACEMENTS = Object.freeze([
+export const MENU_BACKGROUND_ACTOR_PLACEMENTS = Object.freeze([
   { id: 'gruntbot', position: [16.5, 0, 1.2], scale: .46, rotationY: 0, motion: { type: 'patrol', axis: 'z', range: 1.8, speed: .51, phase: .4 } },
-  { id: 'winged_drone', position: [12.1, 5, -2.2], scale: .5, rotationY: 0, motion: { type: 'fly', radiusX: 3.9, radiusZ: 1.25, speed: .32, phase: .2 } },
+  {
+    id: 'propaganda_pelican',
+    position: [12.1, 5, -2.2],
+    scale: .5,
+    rotationY: 0,
+    motion: {
+      type: 'fly', phase: .2,
+      route: [
+        [10.6, 5.1, -2.7],
+        [15.8, 6.0, -1.2],
+        [18.2, 5.6, -5.0],
+        [15.3, 6.7, -8.5],
+        [10.4, 6.1, -7.4],
+        [6.4, 5.0, -5.9]
+      ],
+      perch: {
+        position: [8.4, 3.82, -4.2], yaw: 0,
+        flightDuration: 48, landingDuration: 4.8, duration: 3.4, takeoffDuration: 4.2,
+        landingControls: [[5.9, 4.8, -5.4], [7.6, 4.2, -4.45]],
+        takeoffControls: [[8.5, 4.2, -3.7], [9.6, 5.1, -3.1]]
+      }
+    }
+  },
   { id: 'winged_drone', position: [15.7, 6.6, -10.8], scale: .21, rotationY: 0, motion: { type: 'fly', radiusX: 1.1, radiusZ: .58, speed: -.28, phase: 2.7 } },
   { id: 'winged_drone', position: [16.8, 8.2, -11.6], scale: .18, rotationY: 0, motion: { type: 'fly', radiusX: .9, radiusZ: .46, speed: .25, phase: 4.1 } },
   { id: 'winged_drone', position: [17.9, 7.2, -10.5], scale: .2, rotationY: 0, motion: { type: 'fly', radiusX: 1.15, radiusZ: .64, speed: -.3, phase: 1.5 } }
 ]);
+
+const smoothUnitInterval = value => {
+  const clamped = Math.max(0, Math.min(1, value));
+  return clamped * clamped * (3 - 2 * clamped);
+};
+
+export function sampleMenuPerchCycle(time, perch) {
+  if (!perch) return { phase: 'flight', progress: 0, resting: false };
+  const flightDuration = Math.max(.1, perch.flightDuration ?? 48);
+  const landingDuration = Math.max(.1, perch.landingDuration ?? 4.5);
+  const duration = Math.max(0, perch.duration ?? 3.5);
+  const takeoffDuration = Math.max(.1, perch.takeoffDuration ?? 4);
+  const landingEnd = flightDuration + landingDuration;
+  const restEnd = landingEnd + duration;
+  const interval = restEnd + takeoffDuration;
+  const cycleTime = ((time % interval) + interval) % interval;
+
+  if (cycleTime < flightDuration) {
+    return { phase: 'flight', progress: cycleTime / flightDuration, resting: false };
+  }
+  if (cycleTime < landingEnd) {
+    return { phase: 'landing', progress: (cycleTime - flightDuration) / landingDuration, resting: false };
+  }
+  if (cycleTime < restEnd) {
+    return { phase: 'perched', progress: duration ? (cycleTime - landingEnd) / duration : 1, resting: true };
+  }
+  return { phase: 'takeoff', progress: (cycleTime - restEnd) / takeoffDuration, resting: false };
+}
 
 function createFeatherTexture(THREE, kind) {
   const width = 128;
@@ -114,6 +166,7 @@ export function createMenuBackground({ THREE, canvas, clonePrefab }) {
 
   const disposableObjects = [];
   const sharedAssetRoots = [];
+  const ownedActorRoots = [];
   const animatedActors = [];
   const pointer = new THREE.Vector2();
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
@@ -198,10 +251,26 @@ export function createMenuBackground({ THREE, canvas, clonePrefab }) {
     const wingRoots = [];
     if (placement.motion.type === 'fly') {
       root.traverse(node => {
-        if (node.isGroup && Math.abs(node.position.x) > .35 && node.position.y > .8) {
-          wingRoots.push({ node, baseZ: node.rotation.z, side: Math.sign(node.position.x) || 1 });
+        const authoredWingSide = Number(node.userData?.menuWingSide) || 0;
+        if (node.isGroup && (authoredWingSide || (Math.abs(node.position.x) > .35 && node.position.y > .8))) {
+          wingRoots.push({ node, baseZ: node.rotation.z, side: authoredWingSide || Math.sign(node.position.x) || 1 });
         }
       });
+    }
+    const routePoints = placement.motion.route?.map(point => new THREE.Vector3(...point)) || [];
+    const perch = placement.motion.perch;
+    let flightRoute = null;
+    let landingRoute = null;
+    let takeoffRoute = null;
+    if (routePoints.length >= 2 && perch) {
+      flightRoute = new THREE.CatmullRomCurve3(routePoints, false, 'catmullrom', .18);
+      flightRoute.arcLengthDivisions = 80;
+      flightRoute.updateArcLengths();
+      const perchPoint = new THREE.Vector3(...perch.position);
+      const landingControls = perch.landingControls.map(point => new THREE.Vector3(...point));
+      const takeoffControls = perch.takeoffControls.map(point => new THREE.Vector3(...point));
+      landingRoute = new THREE.CubicBezierCurve3(routePoints.at(-1), landingControls[0], landingControls[1], perchPoint);
+      takeoffRoute = new THREE.CubicBezierCurve3(perchPoint, takeoffControls[0], takeoffControls[1], routePoints[0]);
     }
     animatedActors.push({
       root,
@@ -210,8 +279,23 @@ export function createMenuBackground({ THREE, canvas, clonePrefab }) {
       baseRotationY: root.rotation.y,
       currentYaw: root.rotation.y,
       shadow,
-      wingRoots
+      wingRoots,
+      flightRoute,
+      landingRoute,
+      takeoffRoute,
+      routePoint: new THREE.Vector3(),
+      routeTangent: new THREE.Vector3(),
+      nextRouteTangent: new THREE.Vector3()
     });
+  }
+
+  function createActorRoot(placement) {
+    if (placement.id !== 'propaganda_pelican') return clonePrefab(placement.id);
+    const built = createPropagandaPelican({ THREE });
+    built.refs.leftWing.userData.menuWingSide = 1;
+    built.refs.rightWing.userData.menuWingSide = -1;
+    ownedActorRoots.push(built.root);
+    return built.root;
   }
 
   for (const placement of ENVIRONMENT_PLACEMENTS) {
@@ -223,8 +307,8 @@ export function createMenuBackground({ THREE, canvas, clonePrefab }) {
     createContactShadow(root, .22);
   }
 
-  for (const placement of ACTOR_PLACEMENTS) {
-    const root = clonePrefab(placement.id);
+  for (const placement of MENU_BACKGROUND_ACTOR_PLACEMENTS) {
+    const root = createActorRoot(placement);
     if (!root) continue;
     placeAsset(THREE, root, placement);
     scene.add(root);
@@ -250,11 +334,67 @@ export function createMenuBackground({ THREE, canvas, clonePrefab }) {
       const phase = motion.phase ?? 0;
       const t = time * speed + phase;
       if (motion.type === 'fly') {
+        if (actor.flightRoute && motion.perch) {
+          const perchState = sampleMenuPerchCycle(time, motion.perch);
+          const progress = perchState.progress;
+          let routeProgress = progress;
+          if (perchState.phase === 'landing') routeProgress = progress + progress * progress - progress * progress * progress;
+          else if (perchState.phase === 'takeoff') routeProgress = 2 * progress * progress - progress * progress * progress;
+          let route = actor.flightRoute;
+          if (perchState.phase === 'landing') route = actor.landingRoute;
+          else if (perchState.phase === 'takeoff') route = actor.takeoffRoute;
+
+          if (perchState.phase === 'perched') {
+            root.position.set(...motion.perch.position);
+            root.position.y += Math.sin(time * 1.4) * .01;
+            actor.routeTangent.set(Math.sin(motion.perch.yaw), 0, Math.cos(motion.perch.yaw));
+          } else {
+            route.getPointAt(routeProgress, actor.routePoint);
+            route.getTangentAt(routeProgress, actor.routeTangent);
+            root.position.copy(actor.routePoint);
+            if (perchState.phase === 'flight') {
+              root.position.y += Math.sin(time * .85 + phase) * .08 * Math.sin(Math.PI * routeProgress);
+            }
+          }
+
+          const horizontalSpeed = Math.hypot(actor.routeTangent.x, actor.routeTangent.z);
+          root.rotation.y = Math.atan2(actor.routeTangent.x, actor.routeTangent.z);
+          root.rotation.x = horizontalSpeed > .001
+            ? Math.max(-.18, Math.min(.18, -Math.atan2(actor.routeTangent.y, horizontalSpeed)))
+            : 0;
+          root.rotation.z = 0;
+
+          let wingAmplitude = 0;
+          let wingFrequency = 7.5;
+          let wingFlare = 0;
+          if (perchState.phase === 'flight') {
+            wingAmplitude = .22;
+            actor.flightRoute.getTangentAt(Math.min(1, routeProgress + .02), actor.nextRouteTangent);
+            const turn = actor.routeTangent.x * actor.nextRouteTangent.z - actor.routeTangent.z * actor.nextRouteTangent.x;
+            root.rotation.z = Math.max(-.14, Math.min(.14, turn * 3));
+          } else if (perchState.phase === 'landing') {
+            wingAmplitude = .2 * (1 - smoothUnitInterval(perchState.progress));
+            wingFrequency = 5.2;
+            wingFlare = Math.sin(Math.PI * perchState.progress) * .14;
+            root.rotation.x = -Math.sin(Math.PI * perchState.progress) * .14;
+          } else if (perchState.phase === 'takeoff') {
+            wingAmplitude = .28 * smoothUnitInterval(perchState.progress);
+            wingFrequency = 9.2;
+            wingFlare = Math.sin(Math.PI * perchState.progress) * .08;
+          }
+          wingRoots.forEach(({ node, baseZ, side }, index) => {
+            const flap = Math.sin(time * wingFrequency + phase + index * .15) * wingAmplitude;
+            node.rotation.z = baseZ + side * (flap + wingFlare);
+          });
+          continue;
+        }
+
         const radiusX = motion.radiusX ?? 2.5;
         const radiusZ = motion.radiusZ ?? 1.2;
         root.position.x = base.x + Math.cos(t) * radiusX;
         root.position.z = base.z + Math.sin(t) * radiusZ;
         root.position.y = base.y + Math.sin(t * 2.15) * .22;
+        root.rotation.x = 0;
         root.rotation.y = Math.atan2(-Math.sin(t) * radiusX * speed, Math.cos(t) * radiusZ * speed);
         root.rotation.z = Math.sin(t) * .09;
         wingRoots.forEach(({ node, baseZ, side }, index) => {
@@ -321,6 +461,17 @@ export function createMenuBackground({ THREE, canvas, clonePrefab }) {
     window.removeEventListener('resize', resize);
     window.removeEventListener('pointermove', onPointerMove);
     for (const root of sharedAssetRoots) scene.remove(root);
+    const ownedGeometries = new Set();
+    const ownedMaterials = new Set();
+    for (const root of ownedActorRoots) {
+      root.traverse(object => {
+        if (object.geometry) ownedGeometries.add(object.geometry);
+        const materials = Array.isArray(object.material) ? object.material : [object.material];
+        materials.filter(Boolean).forEach(material => ownedMaterials.add(material));
+      });
+    }
+    ownedGeometries.forEach(geometry => geometry.dispose?.());
+    ownedMaterials.forEach(material => material.dispose?.());
     for (const object of disposableObjects) {
       scene.remove(object);
       object.geometry?.dispose?.();

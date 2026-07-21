@@ -52,6 +52,9 @@ body.relay-overview #crosshair,
 body.relay-overview #bossHud,
 body.relay-overview #desktopHelp,
 body.relay-overview #weaponPicker{ display:none !important; }
+body.relay-player-preview #center,
+body.relay-player-preview #desktopHelp,
+body.relay-player-preview #weaponPicker{ display:none !important; }
 @media (max-width:700px){
   .menu-bg-label{ display:none; }
   .menu-bg-scanline{ left:35%; width:70vw; opacity:.28; }
@@ -86,6 +89,69 @@ body.relay-overview #weaponPicker{ display:none !important; }
   .loading-card{ width:100%; }
 }
 #hud{ position:fixed; inset:0; z-index:10; pointer-events:none; }
+
+/* Campaign level handoff. This veil sits above the WebGL world but below the
+   HUD, so vision is obscured while status and player meters stay crisp. It is
+   made from opaque gradients rather than backdrop-filter: the old scene does
+   not need to keep rendering while the next one compiles. */
+#levelTransition{
+  --transition-near:#18242be8;
+  --transition-mid:#30434ee8;
+  --transition-glow:#8fc6c9;
+  position:fixed; inset:0; z-index:9; overflow:hidden; pointer-events:auto;
+  opacity:0; background:
+    radial-gradient(circle at 50% 48%,#aec6c526 0 5%,transparent 24%),
+    linear-gradient(115deg,var(--transition-near),var(--transition-mid) 48%,var(--transition-near));
+  transition:opacity 320ms ease;
+  contain:strict;
+}
+#levelTransition[hidden]{ display:none; }
+#levelTransition[data-theme="storm"]{
+  --transition-near:#2b1c10f2;
+  --transition-mid:#765126ed;
+  --transition-glow:#e3bb72;
+}
+#levelTransition.is-covering,
+#levelTransition.is-covered{ opacity:1; }
+#levelTransition.is-revealing{ opacity:0; transition-duration:900ms; }
+.level-transition-depth,
+.level-transition-grain{ position:absolute; inset:-18%; pointer-events:none; }
+.level-transition-depth{
+  background:
+    radial-gradient(ellipse at 32% 45%,color-mix(in srgb,var(--transition-glow) 22%,transparent) 0 2%,transparent 23%),
+    radial-gradient(ellipse at 72% 58%,color-mix(in srgb,var(--transition-glow) 16%,transparent) 0 3%,transparent 26%),
+    repeating-linear-gradient(102deg,transparent 0 7%,#ffffff0a 9%,transparent 12% 20%);
+  opacity:.4; transform:translate3d(-2%,0,0) scale(1.04);
+  animation:levelTransitionDrift 2.8s ease-in-out infinite alternate;
+}
+.level-transition-grain{
+  background-image:
+    radial-gradient(circle,#ffffff38 0 1px,transparent 1.8px),
+    radial-gradient(circle,var(--transition-glow) 0 1px,transparent 2px);
+  background-position:0 0,19px 13px; background-size:31px 29px,43px 37px;
+  opacity:.12; transform:rotate(-4deg) scale(1.08);
+  animation:levelTransitionGrain 1.35s steps(5,end) infinite;
+}
+.level-transition-label{
+  position:absolute; left:50%; bottom:max(12vh,72px); transform:translateX(-50%);
+  padding:7px 12px; color:#eefbff; background:#07101499; border-left:2px solid var(--transition-glow);
+  font:600 10px/1.2 "IBM Plex Mono",monospace; letter-spacing:.14em; text-transform:uppercase;
+  text-shadow:0 1px 5px #000; white-space:nowrap; opacity:.82;
+}
+body.level-transition-active #crosshair,
+body.level-transition-active #hitmarker{ opacity:0 !important; }
+@keyframes levelTransitionDrift{
+  from{ transform:translate3d(-3%,-1%,0) scale(1.04); }
+  to{ transform:translate3d(3%,1%,0) scale(1.12); }
+}
+@keyframes levelTransitionGrain{
+  0%{ transform:translate3d(-2%,0,0) rotate(-4deg) scale(1.08); }
+  50%{ transform:translate3d(2%,-1%,0) rotate(-3deg) scale(1.1); }
+  100%{ transform:translate3d(0,2%,0) rotate(-5deg) scale(1.09); }
+}
+@media (prefers-reduced-motion:reduce){
+  .level-transition-depth,.level-transition-grain{ animation:none; }
+}
 .row{ display:flex; gap:10px; align-items:center; }
 .pill{ pointer-events:auto; backdrop-filter: blur(10px); background:var(--panel); border:2px solid #00000018; border-radius:14px; padding:8px 12px; font-weight:800; box-shadow:0 10px 30px #00000022; position:relative; }
 .hud-util .pill{ backdrop-filter:none; -webkit-backdrop-filter:none; background:#fffffff8; }
@@ -189,6 +255,11 @@ body.relay-overview #weaponPicker{ display:none !important; }
 .hud-tc #combo.tier2{ border-color:#ff8c42aa; background:#ff8c4233; }
 .hud-tc #combo.tier3{ border-color:#ff6b2caa; background:#ff6b2c44; color:#ffd08a; }
 .hud-tc #combo.tier4{ border-color:#fff; background:#ff8c4266; color:#fff; }
+
+/* Keep the boss name's center lane clear while preserving the normal stacked HUD. */
+#hud.boss-active .hud-tc{
+  flex-direction:row; align-items:center; gap:10px;
+}
 
 .objective-tracker{
   position:absolute; top:116px; left:50%; z-index:2; width:min(430px, calc(100vw - 34px));
@@ -349,13 +420,47 @@ body.relay-overview #weaponPicker{ display:none !important; }
 #center.menu-bleed > #pauseMenu.menu-modal,
 #center.menu-bleed > #settingsMenu.menu-modal,
 #center.menu-bleed > #achievementsMenu.menu-modal,
-#center.menu-bleed > #debugLogMenu.menu-modal{
+#center.menu-bleed > #debugLogMenu.menu-modal,
+#center.menu-bleed > #tutorialCompleteMenu.menu-modal{
   position:absolute; left:50%; top:50%; transform:translate(-50%, -50%);
   width:min(92vw, 480px); max-height:min(92svh, 720px); overflow:auto;
   background:#0f1219f0; border:2px solid #ffffff22; border-radius:0;
   padding:22px 20px; text-align:left; color:#eef2f7;
   box-shadow:0 24px 80px #00000088; backdrop-filter:blur(10px);
   font-family: Syne, "Segoe UI", sans-serif;
+}
+
+#center.menu-bleed > #tutorialCompleteMenu.tutorial-complete-menu{
+  width:min(92vw, 560px); padding:30px;
+  overflow:hidden; border-color:#6ecf8e88;
+  background:linear-gradient(145deg, #111a18f7, #080d0dfb 72%);
+  box-shadow:0 30px 100px #000000c4, 0 0 54px #3dcf7a1f;
+}
+.tutorial-complete-menu::before{
+  content:""; position:absolute; inset:0 0 auto; height:4px;
+  background:linear-gradient(90deg, #3dcf7a, #b8ff54 68%, #ffffff22);
+  box-shadow:0 0 24px #6ecf8e88;
+}
+.tutorial-complete-mark{
+  display:flex; align-items:baseline; gap:4px; margin:22px 0 12px;
+  color:#b8ff54; font:800 3.7rem/.8 "IBM Plex Mono", ui-monospace, monospace;
+  text-shadow:0 0 28px #6ecf8e55;
+}
+.tutorial-complete-mark small{ color:#ffffff72; font-size:1rem; }
+#center.menu-bleed .tutorial-complete-menu h2{
+  margin:0 0 12px; color:#f7fafc; font-size:clamp(2rem, 7vw, 3.2rem);
+  line-height:.95; letter-spacing:-.045em; text-transform:uppercase;
+}
+.tutorial-complete-menu p{
+  max-width:42ch; margin:0 0 22px; color:#bac5c5;
+  font:500 12px/1.6 "IBM Plex Mono", ui-monospace, monospace;
+}
+#center.menu-bleed .tutorial-complete-actions{
+  display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:0;
+}
+#center.menu-bleed .tutorial-complete-actions .primary,
+#center.menu-bleed .tutorial-complete-actions .secondary{
+  min-height:54px; text-align:center;
 }
 
 #center.menu-bleed > #pauseMenu.pause-menu{
@@ -518,6 +623,8 @@ body.debug-mode .debug-only-control{ display:block !important; }
   text-align:right; font-family: "IBM Plex Mono", ui-monospace, monospace;
   color:#ffffff77;
 }
+.menu-playtime{ margin-bottom:4px; color:#d7e0eacc; font-weight:600; }
+.menu-playtime .playtimeValue{ color:var(--bj-wave, #6ecf8e); }
 .menu-foot .appVersion{ margin-top:0; font-weight:600; color:#ffffff66; }
 .menu-links{ display:flex; gap:12px; justify-content:flex-end; margin-top:6px; }
 .menu-links a{ color:#9fd4ff; text-decoration:none; }
@@ -555,21 +662,28 @@ html[lang="en"] #center.menu-bleed .menu-settings.secondary{
   width:min(94vw, 780px); max-height:min(92svh, 760px); padding:24px; box-sizing:border-box;
   scrollbar-width:thin; scrollbar-color:#ffffff44 #0f1219;
 }
-#center.menu-bleed > #achievementsMenu.menu-modal::-webkit-scrollbar{ width:8px; }
-#center.menu-bleed > #achievementsMenu.menu-modal::-webkit-scrollbar-track{ background:#0f1219; }
-#center.menu-bleed > #achievementsMenu.menu-modal::-webkit-scrollbar-thumb{ background:#ffffff33; border:2px solid #0f1219; }
+#center.menu-bleed > #achievementsMenu.menu-modal::-webkit-scrollbar,
+#center.menu-bleed > #archiveMenu.menu-modal::-webkit-scrollbar{ width:8px; }
+#center.menu-bleed > #achievementsMenu.menu-modal::-webkit-scrollbar-track,
+#center.menu-bleed > #archiveMenu.menu-modal::-webkit-scrollbar-track{ background:#0f1219; }
+#center.menu-bleed > #achievementsMenu.menu-modal::-webkit-scrollbar-thumb,
+#center.menu-bleed > #archiveMenu.menu-modal::-webkit-scrollbar-thumb{ background:#ffffff33; border:2px solid #0f1219; }
 .achievements-board-head{
   display:flex; align-items:flex-end; justify-content:space-between; gap:18px;
 }
-.achievements-head-actions{ display:flex; align-items:center; gap:18px; }
-.achievements-close{
+.achievements-head-actions,
+.archive-head-actions{ display:flex; align-items:center; gap:18px; }
+.achievements-close,
+.archive-close{
   display:grid; place-items:center; width:32px; height:32px; padding:0;
   border:0; border-radius:0; background:transparent; box-shadow:none;
   color:#ffffff99; font:400 30px/1 "IBM Plex Mono", ui-monospace, monospace;
   transition:color 0.12s ease, background 0.12s ease;
 }
-.achievements-close:hover{ color:#ff5263; background:#ff526314; }
-.achievements-close:focus-visible{ outline:2px solid var(--bj-wave, #6ecf8e); outline-offset:2px; }
+.achievements-close:hover,
+.archive-close:hover{ color:#ff5263; background:#ff526314; }
+.achievements-close:focus-visible,
+.archive-close:focus-visible{ outline:2px solid var(--bj-wave, #6ecf8e); outline-offset:2px; }
 .achievements-board-head h2{ margin:2px 0 0 !important; font-size:clamp(1.7rem, 4vw, 2.35rem) !important; }
 .achievements-eyebrow,
 .achievements-summary{
@@ -603,9 +717,14 @@ html[lang="en"] #center.menu-bleed .menu-settings.secondary{
   letter-spacing:0.04em; transform:skewX(-6deg);
 }
 .achievement-card.unlocked .achievement-card-badge{
-  color:#071b0e; background:var(--bj-wave, #6ecf8e); border-color:#b9ffd1;
+  color:#071b0e; background:#0a1410; border-color:#6ecf8e99;
   box-shadow:0 0 18px #6ecf8e33;
 }
+.achievement-card-badge .achievement-icon{
+  width:36px; height:36px; object-fit:contain; transform:skewX(6deg);
+  filter:drop-shadow(0 0 5px #6ecf8e44);
+}
+.achievement-card.locked .achievement-icon{ filter:grayscale(1); opacity:.34; }
 .achievement-card-copy{ min-width:0; }
 .achievement-card-name{ color:#f4f7fa; font-weight:800; line-height:1.15; }
 .achievement-card-desc{
@@ -680,6 +799,24 @@ html[lang="en"] #center.menu-bleed .menu-settings.secondary{
 #center.menu-bleed .menu-modal h2{
   margin:0 0 12px; font-size:1.4rem; letter-spacing:0;
 }
+#center.menu-bleed > #settingsMenu.settings-menu{ width:min(92vw, 620px); }
+#center.menu-bleed .settings-tabs{
+  display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:0;
+  margin:0 0 14px; border:1px solid #ffffff1f; background:#05080d80;
+}
+#center.menu-bleed .settings-tab{
+  min-width:0; padding:10px 8px; border:0; border-radius:0; box-shadow:none;
+  background:transparent; color:#ffffff78; transform:none;
+  font:700 10px/1.15 "IBM Plex Mono", ui-monospace, monospace;
+  letter-spacing:.06em; text-transform:uppercase;
+}
+#center.menu-bleed .settings-tab + .settings-tab{ border-left:1px solid #ffffff18; }
+#center.menu-bleed .settings-tab:hover{ color:#fff; background:#ffffff0b; }
+#center.menu-bleed .settings-tab[aria-selected="true"]{
+  color:#dfffee; background:#6ecf8e1d; box-shadow:inset 0 -2px var(--bj-wave, #6ecf8e);
+}
+#center.menu-bleed .settings-tab:focus-visible{ outline:2px solid var(--bj-wave, #6ecf8e); outline-offset:-2px; }
+#center.menu-bleed .settings-panel{ min-height:184px; }
 #center.menu-bleed .settingsGroup{
   width:100%; margin:10px auto 0; text-align:left;
 }
@@ -710,6 +847,11 @@ html[lang="en"] #center.menu-bleed .menu-settings.secondary{
 }
 #center.menu-bleed .menu-modal input[type="range"]{ accent-color:var(--bj-wave, #3dcf7a); }
 #center.menu-bleed .menu-modal input[type="checkbox"]{ accent-color:var(--bj-wave, #3dcf7a); }
+#center.menu-bleed .settings-hint{
+  margin:0; color:#ffffff8f; font:500 11px/1.5 "IBM Plex Mono", ui-monospace, monospace;
+}
+#center.menu-bleed .settings-log-button{ width:100%; transform:none; }
+#center.menu-bleed .settings-log-button:disabled{ cursor:not-allowed; opacity:.42; }
 #center.menu-bleed .menu-modal .appVersion{ color:#ffffff66; font-weight:600; }
 
 @media (max-height:500px){
@@ -720,7 +862,8 @@ html[lang="en"] #center.menu-bleed .menu-settings.secondary{
   #center.menu-bleed > #pauseMenu.menu-modal,
   #center.menu-bleed > #settingsMenu.menu-modal,
   #center.menu-bleed > #achievementsMenu.menu-modal,
-  #center.menu-bleed > #debugLogMenu.menu-modal{ margin-top:0; top:12px; transform:translateX(-50%); }
+  #center.menu-bleed > #debugLogMenu.menu-modal,
+  #center.menu-bleed > #tutorialCompleteMenu.menu-modal{ margin-top:0; top:12px; transform:translateX(-50%); }
 }
 @media (max-width:640px){
   #center.menu-bleed > #panel.menu-start{ padding:22px 20px 20px; }
@@ -744,6 +887,10 @@ html[lang="en"] #center.menu-bleed .menu-settings.secondary{
   #center.menu-bleed .pause-stats{ margin:0 20px 18px; }
   #center.menu-bleed .pause-actions{ padding:0 20px 22px; }
   .pause-action-grid{ grid-template-columns:1fr; }
+  #center.menu-bleed .tutorial-complete-actions{ grid-template-columns:1fr; }
+  #center.menu-bleed .settings-tabs{ grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  #center.menu-bleed .settings-tab:nth-child(3){ border-left:0; border-top:1px solid #ffffff18; }
+  #center.menu-bleed .settings-tab:nth-child(4){ border-top:1px solid #ffffff18; }
 }
 @media (max-width:380px){
   .menu-hero h1{ font-size:2.65rem; }
@@ -916,7 +1063,7 @@ button.selected{ outline:4px solid #3b82f6; }
   color:var(--bj-wave); font-family:"IBM Plex Mono",ui-monospace,monospace;
   font-size:9px; font-weight:600; letter-spacing:.14em; text-transform:uppercase;
 }
-#story .storyText{ margin-top:8px; color:#f4f6f8; font-size:clamp(16px,2vw,21px); font-weight:800; line-height:1.25; }
+#story .storyText{ margin-top:8px; color:#f4f6f8; font-size:clamp(16px,2vw,21px); font-weight:800; line-height:1.25; white-space:pre-line; }
 #story .actions{ display:flex; align-items:center; justify-content:space-between; gap:14px; margin-top:18px; }
 #story .story-paused{
   color:#ffffff66; font-family:"IBM Plex Mono",ui-monospace,monospace;
@@ -929,6 +1076,29 @@ button.selected{ outline:4px solid #3b82f6; }
 }
 #story .primary:hover{ filter:brightness(1.07); }
 #story .primary:focus-visible{ outline:2px solid #fff; outline-offset:3px; }
+
+/* Non-blocking chapter transmission */
+#storyBroadcast{
+  position:fixed; left:50%; top:29%; z-index:14; width:min(78vw,760px); padding:12px 42px 15px;
+  color:#f6faf7; text-align:center; pointer-events:none; opacity:0;
+  transform:translate(-50%,-8px) scale(.985); transition:opacity 220ms ease,transform 280ms ease;
+  text-shadow:0 2px 8px #000,0 0 24px #000;
+}
+#storyBroadcast::before{
+  content:""; position:absolute; inset:0; z-index:-1;
+  background:linear-gradient(90deg,transparent,#071019d9 14%,#071019e8 50%,#071019d9 86%,transparent);
+  border-top:1px solid transparent; border-bottom:1px solid transparent;
+  border-image:linear-gradient(90deg,transparent,#71dd9699,transparent) 1;
+}
+#storyBroadcast.is-visible{ opacity:1; transform:translate(-50%,0) scale(1); }
+.story-broadcast-label{
+  margin-bottom:7px; color:var(--bj-wave); font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:9px; font-weight:700; letter-spacing:.2em; text-transform:uppercase;
+}
+.story-broadcast-text{
+  font-family:Syne,"Segoe UI",sans-serif; font-size:clamp(19px,2.15vw,30px); font-weight:800;
+  line-height:1.18; letter-spacing:-.02em; text-wrap:balance;
+}
 
 /* Quiet Feed: armory / weapon offer */
 #offer{
@@ -1032,8 +1202,12 @@ button.selected{ outline:4px solid #3b82f6; }
   box-shadow:0 12px 30px #00000088; opacity:0; transform:translateY(6px); animation:achievementIn 180ms ease-out forwards;
 }
 .achievement-badge{
-  display:grid; place-items:center; margin:10px; color:#0a2615; background:var(--bj-wave); border:1px solid #b9ffd1;
+  display:grid; place-items:center; margin:10px; color:#0a2615; background:#0a1410; border:1px solid #6ecf8e99;
   font-family:"IBM Plex Mono",ui-monospace,monospace; font-size:11px; font-weight:700; letter-spacing:.04em; transform:skewX(-6deg);
+}
+.achievement-badge .achievement-icon{
+  width:30px; height:30px; object-fit:contain; transform:skewX(6deg);
+  filter:drop-shadow(0 0 6px #6ecf8e55);
 }
 .achievement-copy{ min-width:0; padding:11px 13px 10px 0; }
 .achievement-kicker{ color:var(--bj-wave); font-family:"IBM Plex Mono",ui-monospace,monospace; font-size:8px; font-weight:600; letter-spacing:.12em; text-transform:uppercase; }
@@ -1101,6 +1275,17 @@ button.selected{ outline:4px solid #3b82f6; }
   display:inline-block;
   white-space:nowrap;
 }
+#blockBoxLegend{
+  position:fixed; left:16px; top:96px; z-index:18; pointer-events:none;
+  display:flex; flex-wrap:wrap; align-items:center; gap:7px 11px;
+  max-width:min(410px,calc(100vw - 32px)); padding:7px 10px;
+  color:#f4f7f8; background:#071015d9; border:1px solid #ffffff2d;
+  font:700 10px/1.2 "IBM Plex Mono",ui-monospace,monospace;
+  letter-spacing:.06em; box-shadow:0 5px 18px #0008;
+}
+#blockBoxLegend strong{ color:#ffffffa8; font-size:9px; }
+#blockBoxLegend span{ display:inline-flex; align-items:center; gap:5px; }
+#blockBoxLegend i{ width:9px; height:9px; border:1px solid #fff8; box-shadow:0 0 7px currentColor; }
 @keyframes tickerScroll{
   from{ transform:translateX(100vw); }
   to{ transform:translateX(-100%); }
@@ -1142,6 +1327,8 @@ body:has(#newsTicker:not(:empty)) .hud-br{
   #story .story-content{ padding:16px; }
   #story .actions{ align-items:flex-end; }
   #story .story-paused{ max-width:14ch; line-height:1.35; }
+  #storyBroadcast{ top:27%; width:min(92vw,620px); padding:10px 24px 12px; }
+  .story-broadcast-text{ font-size:clamp(17px,4.8vw,24px); }
   #offer .card{ width:min(94vw,500px); padding:18px; }
   #offer .choices{ grid-template-columns:1fr; }
   #offer .actions{ grid-template-columns:1fr; }
@@ -1164,12 +1351,15 @@ body:has(#newsTicker:not(:empty)) .hud-br{
   border:2px solid #ffffff22; box-shadow:0 24px 80px #00000099;
   font-family:Syne,"Segoe UI",sans-serif;
 }
+#center.menu-bleed > #archiveMenu.menu-modal{
+  scrollbar-width:thin; scrollbar-color:#ffffff44 #0f1219;
+}
 .menu-eyebrow{ color:#67e8f9; font:600 10px/1.2 "IBM Plex Mono",monospace; letter-spacing:.15em; text-transform:uppercase; }
 .defeat-stats{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin:18px 0; }
 .defeat-stats div{ display:flex; flex-direction:column; gap:6px; padding:14px; background:#ffffff0b; border:1px solid #ffffff18; }
 .defeat-stats span{ color:#ffffff88; font:600 10px/1.2 "IBM Plex Mono",monospace; text-transform:uppercase; }
 .defeat-stats strong{ font-size:1.55rem; color:#fff; }
-.archive-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:20px; }
+.archive-head{ display:flex; align-items:flex-end; justify-content:space-between; gap:20px; }
 .fragment-balance{ display:flex; align-items:center; gap:8px; color:#67e8f9; font:800 1.3rem/1 "IBM Plex Mono",monospace; }
 .archive-copy{ color:#ffffffa8; line-height:1.5; max-width:58ch; }
 .archive-grid{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin:18px 0; }
@@ -1193,6 +1383,15 @@ body:has(#newsTicker:not(:empty)) .hud-br{
 .classified-progress{ border-left-color:#f5b942; color:#ffe2a1; }
 #openArchive{ display:flex; align-items:center; justify-content:space-between; }
 #openArchive small{ color:#67e8f9; font-family:"IBM Plex Mono",monospace; }
+#center.menu-bleed #openArchive:disabled{
+  cursor:not-allowed; color:#ffffff66; background:#ffffff08; border-color:#ffffff14;
+  filter:grayscale(1); opacity:.58;
+}
+#center.menu-bleed #openArchive:disabled:hover,
+#center.menu-bleed #openArchive:disabled:active{
+  transform:skewX(-6deg); filter:grayscale(1);
+}
+#center.menu-bleed #openArchive:disabled small{ color:#ffffff4d; }
 
 #offer.mutation-offer .card{ width:min(94vw,720px); }
 #offer.mutation-offer .choices{ grid-template-columns:repeat(3,minmax(0,1fr)); }

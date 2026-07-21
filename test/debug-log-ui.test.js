@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 
-test('debug log controls and modal are present but hidden outside debug mode', () => {
+test('support log shortcuts are present but only appear in debug mode', () => {
   const html = read('index.html');
   const css = read('styles/styles.css');
   for (const id of ['openDebugLog', 'pauseDebugLog', 'debugLogMenu', 'debugLogStream', 'debugLogCopy', 'debugLogClear', 'debugLogBack']) {
@@ -15,17 +15,30 @@ test('debug log controls and modal are present but hidden outside debug mode', (
   }
   assert.match(html, /id="openDebugLog"[^>]*debug-only-control|debug-only-control[^>]*id="openDebugLog"/);
   assert.match(html, /id="pauseDebugLog"[^>]*debug-only-control|debug-only-control[^>]*id="pauseDebugLog"/);
+  assert.match(html, /id="supportLogsEnabled"/);
+  assert.match(html, /id="settingsOpenLog"/);
   assert.match(css, /\.debug-only-control\s*\{\s*display\s*:\s*none\s*!important/);
   assert.match(css, /body\.debug-mode \.debug-only-control\s*\{\s*display\s*:\s*block\s*!important/);
+  assert.doesNotMatch(css, /body\.diagnostic-logs-enabled \.debug-only-control/);
 });
 
-test('debug menu returns to its originating start or pause menu and exports a full report', () => {
+test('support log menu returns to settings, start, or pause and exports a full report', () => {
   const main = read('src/main.js');
   assert.match(main, /debugLogReturn\s*=\s*from/);
   assert.match(main, /debugLogReturn === 'pause' \? 'pause' : 'start'/);
+  assert.match(main, /debugLogReturn === 'settings'/);
   assert.match(main, /perfLog\.exportReport\(debugEnvironment\)/);
   assert.match(main, /navigator\.clipboard(?:\?\.)?\.writeText\(report\)/);
   assert.match(main, /perfLog\.clear\(\)/);
+});
+
+test('support logging persists independently and never turns on debug mode', () => {
+  const main = read('src/main.js');
+  assert.match(main, /SUPPORT_LOGS_KEY\s*=\s*'bs3d_support_logs'/);
+  assert.match(main, /diagnosticLogsEnabled\s*=\s*debugPerf\s*\|\|\s*supportLogsEnabled/);
+  assert.match(main, /setString\(SUPPORT_LOGS_KEY, supportLogsToggle\.checked \? '1' : '0'\)/);
+  assert.match(main, /document\.body\.classList\.add\('debug-mode'\)/);
+  assert.match(main, /document\.body\.classList\.add\('diagnostic-logs-enabled'\)/);
 });
 
 test('English and Ukrainian include every debug log control translation', () => {

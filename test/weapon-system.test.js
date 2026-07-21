@@ -5,6 +5,7 @@ import { SMG } from '../src/weapons/smg.js';
 import { Rifle } from '../src/weapons/rifle.js';
 import { DMR } from '../src/weapons/dmr.js';
 import { Minigun } from '../src/weapons/minigun.js';
+import { Shotgun } from '../src/weapons/shotgun.js';
 import { BeamSaber } from '../src/weapons/beamsaber.js';
 import { Progression } from '../src/progression.js';
 
@@ -51,6 +52,22 @@ test('debug wave loadout contains guns only because Q abilities are not weapon s
   }
 });
 
+test('Armory offers exclude revealed or trial classified primaries until they are owned', () => {
+  const owned = new Set();
+  const mutations = {
+    isWeaponClassified: weapon => ['rifle', 'dmr'].includes(weapon),
+    isWeaponOwned: weapon => owned.has(weapon),
+    hasWeaponAccess: () => true
+  };
+  const ws = new WeaponSystem({ updateHUD: () => {}, mutations });
+  const unlocks = { rifle: true, dmr: true, smg: true };
+
+  assert.deepEqual(ws.getUnlockedPrimaries(unlocks).map(choice => choice.name), ['SMG']);
+
+  owned.add('rifle');
+  assert.deepEqual(ws.getUnlockedPrimaries(unlocks).map(choice => choice.name), ['Rifle', 'SMG']);
+});
+
 test('wave 2 progression auto-equips SMG as first primary and preserves Pistol sidearm', () => {
   setupLocalStorage();
   const ws = makeWeaponSystem();
@@ -62,6 +79,63 @@ test('wave 2 progression auto-equips SMG as first primary and preserves Pistol s
   assert.equal(ws.currentIndex, 0);
   assert.equal(ws.current.name, 'SMG');
   assert.equal(progression.unlocks.smg, true);
+});
+
+test('Backup Broadcast puts SMG in Slot 2 and Wave 2 grants a Shotgun primary', () => {
+  setupLocalStorage();
+  const ws = makeWeaponSystem();
+  const smg = ws.replaceSecondaryWithSMG();
+  const progression = new Progression({ weaponSystem: ws, documentRef: makeDoc(), onPause: () => {} });
+
+  assert.equal(smg.name, 'SMG');
+  assert.equal(ws.hasPrimaryWeapon(), false);
+  assert.deepEqual(ws.inventory.map(weapon => weapon.name), ['SMG']);
+
+  progression.onWave(2);
+
+  assert.equal(ws.hasPrimaryWeapon(), true);
+  assert.deepEqual(ws.inventory.map(weapon => weapon.name), ['Shotgun', 'SMG']);
+  assert.equal(ws.currentIndex, 0);
+  assert.equal(ws.current.name, 'Shotgun');
+
+  ws.resetRunInventory();
+  assert.equal(ws.hasPrimaryWeapon(), false);
+  assert.deepEqual(ws.inventory.map(weapon => weapon.name), ['Pistol']);
+});
+
+test('wave progression repairs an older best-wave save and still grants the Wave 2 SMG', () => {
+  const store = setupLocalStorage();
+  store.bs3d_unlocks = JSON.stringify({ bestWave: 5 });
+  const ws = makeWeaponSystem();
+  const progression = new Progression({ weaponSystem: ws, documentRef: makeDoc(), onPause: () => {} });
+
+  progression.onWave(1);
+  progression.onWave(2);
+
+  assert.deepEqual(ws.inventory.map(weapon => weapon.name), ['SMG', 'Pistol']);
+  assert.equal(progression.unlocks.smg, true);
+  assert.equal(progression.unlocks.shotgun, true);
+  assert.equal(progression.unlocks.minigun, true);
+  assert.equal(progression.unlocks.beamsaber, true);
+  assert.equal(JSON.parse(store.bs3d_unlocks).smg, true);
+});
+
+test('Wave 2 grants the SMG in a debug playtest without saving campaign progress', () => {
+  const store = setupLocalStorage();
+  const ws = makeWeaponSystem();
+  const mutations = { getRunState: () => ({ tutorial: false, debug: true }), onWaveStarted() {} };
+  const progression = new Progression({
+    weaponSystem: ws,
+    documentRef: makeDoc(),
+    onPause: () => {},
+    mutations
+  });
+
+  progression.onWave(2);
+
+  assert.deepEqual(ws.inventory.map(weapon => weapon.name), ['SMG', 'Pistol']);
+  assert.equal(progression.unlocks.bestWave, 0);
+  assert.equal(store.bs3d_unlocks, undefined);
 });
 
 test('slot switching and swapPrimary preserve the sidearm', () => {
@@ -90,6 +164,22 @@ test('owned Grenade package preserves a dedicated Slot 3 when the first primary 
   assert.equal(ws.inventory[2].name, 'Grenade');
   ws.resetRunInventory();
   assert.deepEqual(ws.inventory.map(weapon => weapon.name), ['Pistol', 'Grenade']);
+});
+
+test('Backup Broadcast preserves an owned tactical Slot 3 package', () => {
+  setupLocalStorage();
+  const mutations = {
+    isWeaponOwned: weapon => weapon === 'grenade',
+    hasWeaponAccess: weapon => weapon === 'grenade',
+    discoverWeapon() {}
+  };
+  const ws = new WeaponSystem({ updateHUD: () => {}, mutations });
+  const progression = new Progression({ weaponSystem: ws, documentRef: makeDoc(), onPause: () => {} });
+
+  ws.replaceSecondaryWithSMG();
+  assert.deepEqual(ws.inventory.map(weapon => weapon.name), ['SMG', 'Grenade']);
+  progression.onWave(2);
+  assert.deepEqual(ws.inventory.map(weapon => weapon.name), ['Shotgun', 'SMG', 'Grenade']);
 });
 
 test('primary offers never replace an active Pistol or Grenade slot', () => {
@@ -154,25 +244,77 @@ test('inventory changes notify the transient weapon picker', () => {
 
 test('ammo pickups report the scaled reserve amount shown in the pickup feed', () => {
   const ws = makeWeaponSystem();
+  ws.current.reserveAmmo = 45;
 
   const gained = ws.onAmmoPickup(20);
 
-  assert.equal(gained, 9);
-  assert.equal(ws.current.getReserve(), 50 + 9);
+  assert.equal(gained, 5);
+  assert.equal(ws.current.getReserve(), 50);
+  assert.equal(ws.onAmmoPickup(20), 0, 'a full reserve rejects excess pickup ammo');
 });
 
-test('swapPrimary carries half old reserve into the new primary reserve', () => {
+test('swapPrimary never carries ammo beyond the new primary reserve limit', () => {
   const ws = makeWeaponSystem();
   ws.current.reserveAmmo = 41;
 
   const smg = ws.swapPrimary(() => new SMG());
-  assert.equal(smg.getReserve(), 108 + Math.floor(41 * 0.5));
+  assert.equal(smg.getReserve(), 108);
   assert.deepEqual(ws.inventory.map(w => w.name), ['SMG', 'Pistol']);
 
   smg.reserveAmmo = 25;
   const rifle = ws.swapPrimary(() => new Rifle());
-  assert.equal(rifle.getReserve(), 64 + Math.floor(25 * 0.5));
+  assert.equal(rifle.getReserve(), 64);
   assert.deepEqual(ws.inventory.map(w => w.name), ['Rifle', 'Pistol']);
+});
+
+test('Background Sync regenerates exactly 5% of base reserve per ten seconds', () => {
+  const mutations = {
+    getRank: id => id === 'background_sync' ? 1 : 0,
+    getReserveLimit: (base, specific) => specific,
+    discoverWeapon() {}
+  };
+  const cases = [
+    [SMG, 32],
+    [Rifle, 19],
+    [Shotgun, 7],
+    [DMR, 10],
+    [Minigun, 108]
+  ];
+
+  for (const [WeaponType, expectedMinute] of cases) {
+    const ws = new WeaponSystem({ updateHUD: () => {}, mutations });
+    const weapon = ws.swapPrimary(() => new WeaponType());
+    weapon.ammoInMag = 0;
+    weapon.reserveAmmo = 0;
+    ws.update(9.99);
+    assert.equal(weapon.getReserve(), 0, `${weapon.name} waits for the full interval`);
+    ws.update(0.01);
+    ws.update(50);
+    assert.equal(weapon.getReserve(), expectedMinute, `${weapon.name} one-minute regeneration`);
+  }
+});
+
+test('Deep Reserves adds 30% of base reserve per run rank without boosting regen', () => {
+  let rank = 4;
+  const mutations = {
+    getRank: id => id === 'background_sync' ? 1 : (id === 'deep_reserves' ? rank : 0),
+    getReserveLimit: (base, specific) => specific + Math.floor(base * 0.3 * rank),
+    discoverWeapon() {}
+  };
+  const ws = new WeaponSystem({ updateHUD: () => {}, mutations });
+  const smg = ws.swapPrimary(() => new SMG());
+
+  assert.equal(smg.getReserveCapacity(), 237);
+  assert.equal(smg.getReserve(), 237);
+  smg.ammoInMag = 0;
+  smg.reserveAmmo = 0;
+  ws.update(60);
+  assert.equal(smg.getReserve(), 32, 'regen remains floor(108 * 30%) after one minute');
+
+  rank = 0;
+  assert.equal(smg.getReserveCapacity(), 108);
+  assert.equal(smg.addReserve(999), 76);
+  assert.equal(smg.getReserve(), 108);
 });
 
 test('successful reload emits one attributed achievement event', () => {
@@ -223,15 +365,24 @@ test('Minigun mastery expands both magazine and starting reserve', () => {
   let grade = 0;
   const mastery = {
     getMagazineSize(_weapon, base) { return grade === 3 ? 320 : base; },
-    getMinigunReserveSize() { return grade === 3 ? 540 : 300; }
+    getMinigunReserveSize() { return grade === 3 ? 660 : 360; }
   };
   const minigun = new Minigun({ mastery });
   assert.equal(minigun.getAmmo(), 200);
-  assert.equal(minigun.getReserve(), 300);
+  assert.equal(minigun.getReserve(), 360);
   grade = 3;
   minigun.reset();
   assert.equal(minigun.getAmmo(), 320);
-  assert.equal(minigun.getReserve(), 540);
+  assert.equal(minigun.getReserve(), 660);
+});
+
+test('Minigun ammo pickups use the four-times heavy-weapon multiplier', () => {
+  const ws = makeWeaponSystem();
+  const minigun = ws.swapPrimary(() => new Minigun());
+  minigun.reserveAmmo = 0;
+
+  assert.equal(ws.onAmmoPickup(20), 80);
+  assert.equal(minigun.getReserve(), 80);
 });
 
 test('SMG mastery expands the magazine without changing reserve or adding alt fire', () => {

@@ -1,11 +1,15 @@
 import { mkdir, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createAssetRegistry } from '../src/assets/registry.js';
+import { batchStaticPrefab } from '../src/assets/static-batching.js';
 import {
   ASSET_EXPORT_VERSION,
   disposeObject3D,
+  inspectPreparedAsset,
   manifestEntry,
   prepareAssetForExport
 } from '../tools/exporter/core.js';
@@ -80,6 +84,21 @@ function formatMetrics(report) {
   return `${metrics.meshes} meshes · ${metrics.triangles.toLocaleString()} tris · ${metrics.materials} materials`;
 }
 
+function normalizeBatchedRoot(THREE, root, { centerXZ, ground }) {
+  root.updateMatrixWorld(true);
+  const bounds = new THREE.Box3().setFromObject(root);
+  if (bounds.isEmpty()) return;
+  const center = bounds.getCenter(new THREE.Vector3());
+  const offset = new THREE.Vector3(
+    centerXZ ? -center.x : 0,
+    ground ? -bounds.min.y : 0,
+    centerXZ ? -center.z : 0
+  );
+  if (offset.lengthSq() <= 1e-12) return;
+  root.children.forEach(child => child.position.add(offset));
+  root.updateMatrixWorld(true);
+}
+
 async function main() {
   const options = parseArguments(process.argv.slice(2));
   if (options.help) {
@@ -110,6 +129,18 @@ async function main() {
         ground: options.ground
       });
 
+      if (!['enemies', 'bosses'].includes(asset.category)) {
+        batchStaticPrefab({ THREE, mergeGeometries, entry: asset, root: prepared.root });
+        normalizeBatchedRoot(THREE, prepared.root, options);
+        prepared.report = inspectPreparedAsset({
+          THREE,
+          definition: asset,
+          root: prepared.root,
+          centerXZ: options.centerXZ,
+          ground: options.ground
+        });
+      }
+
       const report = prepared.report;
       if (!report.valid) {
         failures.push({ id: asset.id, issues: report.issues });
@@ -131,9 +162,14 @@ async function main() {
       const categoryDirectory = path.join(options.out, asset.category);
       const filePath = path.join(categoryDirectory, `${asset.id}.glb`);
       await mkdir(categoryDirectory, { recursive: true });
-      await writeFile(filePath, new Uint8Array(glb));
+      const glbBytes = new Uint8Array(glb);
+      await writeFile(filePath, glbBytes);
       const relativeFile = path.relative(options.out, filePath).split(path.sep).join('/');
-      manifestAssets.push(manifestEntry(report, relativeFile));
+      // Content-address every model so a rebuilt GLB cannot be hidden behind a
+      // browser's previous HTTP cache entry. Keep the digest short in URLs but
+      // deterministic, allowing identical builds to retain the same revision.
+      const revision = createHash('sha256').update(glbBytes).digest('hex').slice(0, 16);
+      manifestAssets.push({ ...manifestEntry(report, relativeFile), revision });
     } catch (error) {
       failures.push({ id: asset.id, issues: [error?.message || String(error)] });
       console.error(`FAIL ${asset.id}: ${error?.stack || error}`);

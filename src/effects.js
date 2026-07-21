@@ -9,6 +9,97 @@ window._EFFECTS.spawnDashTrail = window._EFFECTS.spawnDashTrail || (()=>{});
 window._EFFECTS.spawnDashImpact = window._EFFECTS.spawnDashImpact || (()=>{});
 window._EFFECTS.screenShake = window._EFFECTS.screenShake || (()=>{});
 
+const EXPLOSION_PLANE_VERTEX_SHADER = `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`;
+const EXPLOSION_RING_FRAGMENT_SHADER = `precision mediump float; varying vec2 vUv; uniform float uElapsed; uniform float uLife; uniform float uStart; uniform float uEnd; uniform vec3 uColor; void main(){ float t=clamp(uElapsed/uLife,0.0,1.0); float r=mix(uStart,uEnd,t); float d=abs(length(vUv-0.5)*2.0 - r); float a=smoothstep(0.08,0.0,d)*(1.0-t); if(a<0.01) discard; gl_FragColor=vec4(uColor, a); }`;
+const EXPLOSION_CORE_FRAGMENT_SHADER = `precision mediump float; varying vec2 vUv; uniform float uAlpha; uniform vec3 uTint; uniform float uTime; void main(){ vec2 p=vUv-0.5; float r=length(p)*2.0; float core=smoothstep(1.0,0.0,r); float flicker=0.9+0.1*sin(uTime*30.0); float a=uAlpha*core*flicker; if(a<0.02) discard; gl_FragColor=vec4(uTint,a); }`;
+const EXPLOSION_SPARK_VERTEX_SHADER = `uniform float uElapsed; uniform vec3 uOrigin; uniform vec3 uGravity; uniform float uSize; attribute vec3 aDir; attribute float aSpeed; attribute float aLife; varying float vAlpha; void main(){ float t=min(uElapsed,aLife); float k = smoothstep(0.0,0.15,t); vec3 pos = uOrigin + aDir*(aSpeed*t*k) + 0.5*uGravity*(t*t); vec4 mv = modelViewMatrix*vec4(pos,1.0); gl_Position=projectionMatrix*mv; float dist=-mv.z; gl_PointSize = uSize * clamp(200.0/dist, 1.0, 10.0); vAlpha = 1.0 - (t/aLife); }`;
+const EXPLOSION_SPARK_FRAGMENT_SHADER = `precision mediump float; varying float vAlpha; void main(){ vec2 pc=gl_PointCoord-0.5; float d=length(pc); float a=smoothstep(0.5,0.0,d)*vAlpha; if(a<0.02) discard; vec3 col=mix(vec3(1.0,0.65,0.2), vec3(1.0,0.9,0.4), 0.3); gl_FragColor=vec4(col, a); }`;
+
+function createExplosionRingMaterial(THREE) {
+  const material = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    uniforms: {
+      uElapsed: { value: 0 },
+      uLife: { value: 0.5 },
+      uStart: { value: 1 },
+      uEnd: { value: 1.4 },
+      uColor: { value: new THREE.Color(0xfff1a1) }
+    },
+    vertexShader: EXPLOSION_PLANE_VERTEX_SHADER,
+    fragmentShader: EXPLOSION_RING_FRAGMENT_SHADER
+  });
+  material.name = 'qoj-explosion-ring';
+  return material;
+}
+
+function createExplosionCoreMaterial(THREE) {
+  const material = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    uniforms: {
+      uAlpha: { value: 0.95 },
+      uTint: { value: new THREE.Color(0xffb347) },
+      uTime: { value: 0 }
+    },
+    vertexShader: EXPLOSION_PLANE_VERTEX_SHADER,
+    fragmentShader: EXPLOSION_CORE_FRAGMENT_SHADER
+  });
+  material.name = 'qoj-explosion-core';
+  return material;
+}
+
+function createExplosionSparkMaterial(THREE) {
+  const material = new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    uniforms: {
+      uElapsed: { value: 0 },
+      uOrigin: { value: new THREE.Vector3() },
+      uGravity: { value: new THREE.Vector3(0, -50, 0) },
+      uSize: { value: 0.9 }
+    },
+    vertexShader: EXPLOSION_SPARK_VERTEX_SHADER,
+    fragmentShader: EXPLOSION_SPARK_FRAGMENT_SHADER
+  });
+  material.name = 'qoj-explosion-sparks';
+  return material;
+}
+
+// Effects are constructed after startup shader warmup. These representatives
+// let the loader compile the exact barrel-explosion programs before gameplay.
+export function createEffectsShaderWarmupExtras(THREE) {
+  const root = new THREE.Group();
+  root.name = 'effects-shader-warmup';
+
+  const ring = new THREE.Mesh(new THREE.RingGeometry(1, 1.2, 16), createExplosionRingMaterial(THREE));
+  ring.rotation.x = -Math.PI / 2;
+  root.add(ring);
+
+  const core = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), createExplosionCoreMaterial(THREE));
+  core.position.x = 2;
+  root.add(core);
+
+  const sparkGeometry = new THREE.BufferGeometry();
+  sparkGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array([0, 0, 0]), 3));
+  sparkGeometry.setAttribute('aDir', new THREE.BufferAttribute(new Float32Array([0, 1, 0]), 3));
+  sparkGeometry.setAttribute('aSpeed', new THREE.BufferAttribute(new Float32Array([1]), 1));
+  sparkGeometry.setAttribute('aLife', new THREE.BufferAttribute(new Float32Array([1]), 1));
+  const sparks = new THREE.Points(sparkGeometry, createExplosionSparkMaterial(THREE));
+  sparks.position.x = 4;
+  root.add(sparks);
+
+  const smokeMaterial = new THREE.SpriteMaterial({ color: 0x555555, opacity: 0.35, transparent: true, depthWrite: false });
+  smokeMaterial.name = 'qoj-explosion-smoke';
+  const smoke = new THREE.Sprite(smokeMaterial);
+  smoke.position.x = 6;
+  root.add(smoke);
+  return [root];
+}
+
 export class Effects {
   constructor(THREE, scene, camera){
     this.THREE = THREE;
@@ -126,34 +217,11 @@ export class Effects {
 
     // Explosion shared resources
     this._ringSharedGeo = new THREE.RingGeometry(1, 1.2, 80, 1);
-    this._ringSharedMatProto = new THREE.ShaderMaterial({
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      uniforms: {
-        uElapsed: { value: 0 },
-        uLife: { value: 0.5 },
-        uStart: { value: 1.0 },
-        uEnd: { value: 1.4 },
-        uColor: { value: new THREE.Color(0xfff1a1) }
-      },
-      vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-      fragmentShader: `precision mediump float; varying vec2 vUv; uniform float uElapsed; uniform float uLife; uniform float uStart; uniform float uEnd; uniform vec3 uColor; void main(){ float t=clamp(uElapsed/uLife,0.0,1.0); float r=mix(uStart,uEnd,t); float d=abs(length(vUv-0.5)*2.0 - r); float a=smoothstep(0.08,0.0,d)*(1.0-t); if(a<0.01) discard; gl_FragColor=vec4(uColor, a); }`
-    });
+    this._ringSharedMatProto = createExplosionRingMaterial(THREE);
 
     this._explCoreGeo = new THREE.PlaneGeometry(1, 1);
-    this._explCoreMatProto = new THREE.ShaderMaterial({
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      uniforms: {
-        uAlpha: { value: 0.95 },
-        uTint: { value: new THREE.Color(0xffb347) },
-        uTime: { value: 0 }
-      },
-      vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-      fragmentShader: `precision mediump float; varying vec2 vUv; uniform float uAlpha; uniform vec3 uTint; uniform float uTime; void main(){ vec2 p=vUv-0.5; float r=length(p)*2.0; float core=smoothstep(1.0,0.0,r); float flicker=0.9+0.1*sin(uTime*30.0); float a=uAlpha*core*flicker; if(a<0.02) discard; gl_FragColor=vec4(uTint,a); }`
-    });
+    this._explCoreMatProto = createExplosionCoreMaterial(THREE);
+    this._explSparkMatProto = createExplosionSparkMaterial(THREE);
 
     // convenience hook for enemy VFX
     window._EFFECTS = window._EFFECTS || {};
@@ -486,7 +554,7 @@ export class Effects {
     mesh.material.uniforms.uColor.value.copy(color);
     mesh.material.uniforms.uSoft.value = 0.35 + 0.5 * softness;
 
-    // Random slight non-square scale and roll
+    // Random slight non-square scale
     const sx = size * (0.9 + Math.random()*0.3);
     const sy = size * (0.9 + Math.random()*0.3);
     mesh.scale.set(sx, sy, 1);
@@ -519,6 +587,27 @@ export class Effects {
         .invert();
       const localNormal = n.clone().applyMatrix3(inverseParentNormal).normalize();
       mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1), localNormal);
+
+      // The requested decal size is in world units. Most environment pieces are
+      // unit primitives enlarged with Object3D.scale, so parenting the decal
+      // without compensating here would multiply its diameter by the surface's
+      // scale (large walls produced enormous bullet holes). Measure how the
+      // parent's complete world matrix stretches the decal's local plane axes
+      // and cancel that stretch before attaching it.
+      const parentLinear = new THREE.Matrix3().setFromMatrix4(attachTarget.matrixWorld);
+      const worldUnitsPerLocalX = new THREE.Vector3(1,0,0)
+        .applyQuaternion(mesh.quaternion)
+        .applyMatrix3(parentLinear)
+        .length();
+      const worldUnitsPerLocalY = new THREE.Vector3(0,1,0)
+        .applyQuaternion(mesh.quaternion)
+        .applyMatrix3(parentLinear)
+        .length();
+      mesh.scale.set(
+        worldUnitsPerLocalX > 1e-8 ? sx / worldUnitsPerLocalX : sx,
+        worldUnitsPerLocalY > 1e-8 ? sy / worldUnitsPerLocalY : sy,
+        1
+      );
       attachTarget.add(mesh);
     } else {
       this.scene.add(mesh);
@@ -1114,10 +1203,12 @@ spawnBulletImpact(position, normal){
       dirs[i3]=d.x; dirs[i3+1]=d.y; dirs[i3+2]=d.z; speeds[i]=6+Math.random()*14; lifes[i]=0.35+Math.random()*0.25;
     }
     const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(positions,3)); g.setAttribute('aDir', new THREE.BufferAttribute(dirs,3)); g.setAttribute('aSpeed', new THREE.BufferAttribute(speeds,1)); g.setAttribute('aLife', new THREE.BufferAttribute(lifes,1));
-    const uniforms = { uElapsed:{value:0}, uOrigin:{value:center.clone()}, uGravity:{value:new THREE.Vector3(0,-50,0)}, uSize:{value:0.9} };
-    const mat = new THREE.ShaderMaterial({ transparent:true, depthWrite:false, blending:THREE.AdditiveBlending, uniforms,
-      vertexShader:`uniform float uElapsed; uniform vec3 uOrigin; uniform vec3 uGravity; uniform float uSize; attribute vec3 aDir; attribute float aSpeed; attribute float aLife; varying float vAlpha; void main(){ float t=min(uElapsed,aLife); float k = smoothstep(0.0,0.15,t); vec3 pos = uOrigin + aDir*(aSpeed*t*k) + 0.5*uGravity*(t*t); vec4 mv = modelViewMatrix*vec4(pos,1.0); gl_Position=projectionMatrix*mv; float dist=-mv.z; gl_PointSize = uSize * clamp(200.0/dist, 1.0, 10.0); vAlpha = 1.0 - (t/aLife); }`,
-      fragmentShader:`precision mediump float; varying float vAlpha; void main(){ vec2 pc=gl_PointCoord-0.5; float d=length(pc); float a=smoothstep(0.5,0.0,d)*vAlpha; if(a<0.02) discard; vec3 col=mix(vec3(1.0,0.65,0.2), vec3(1.0,0.9,0.4), 0.3); gl_FragColor=vec4(col, a); }`});
+    const mat = this._explSparkMatProto.clone();
+    const uniforms = mat.uniforms;
+    uniforms.uElapsed.value = 0;
+    uniforms.uOrigin.value.copy(center);
+    uniforms.uGravity.value.set(0, -50, 0);
+    uniforms.uSize.value = 0.9;
     const pts = new THREE.Points(g, mat); this.scene.add(pts); this._alive.push({ points: pts, uniforms, maxLife: 0.55 });
 
     // 4) Smoke puffs (few sprites rising and fading)
@@ -1133,10 +1224,6 @@ spawnBulletImpact(position, normal){
         if (this.camera) sm.lookAt(this.camera.position);
       }, cleanup: ()=>{ sm.material.dispose(); } });
     }
-
-    // 5) Brief point light flash
-    const light = new THREE.PointLight(0xffaa66, 2.2, radius*6, 2.0); light.position.set(center.x, center.y+0.6, center.z); this.scene.add(light);
-    this._alive.push({ light, life:0, maxLife:0.18, tick: dt=>{ light.intensity = Math.max(0, light.intensity - dt*10); } });
 
     return true;
   }

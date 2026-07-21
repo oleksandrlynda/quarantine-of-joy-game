@@ -19,6 +19,15 @@ import { createAdjudicatorMineVisual } from './visual-cache.js';
 
 import { createStrikeAdjudicatorAsset } from '../assets/boss_adjudicator.js';
 
+export const ADJUDICATOR_DAMAGE = Object.freeze({
+  citationMine: 30,
+  citationMinePhase2: 44,
+  sector: 42,
+  heavySector: 72,
+  gavel: 50,
+  heavyGavel: 82
+});
+
 export class StrikeAdjudicator {
   constructor({ THREE, mats, spawnPos, enemyManager = null, rng = Math.random }) {
     this.THREE = THREE;
@@ -58,6 +67,11 @@ export class StrikeAdjudicator {
 
     // Weakpoint window after each Verdict
     this._weakpointTimer = 0;
+
+    // Bailiffs use a real ability cadence. The previous scheduler sampled a
+    // frame-sized probability only once per 1.2-second retry, which made the
+    // expected first summon take several minutes at 60 FPS.
+    this._addCooldown = 3.5 + this.rng() * 1.5;
 
     // Citation Mines: shoot the cyan purge core to remove a Strike, or leave
     // the red perimeter armed and risk a short-fuse proximity detonation.
@@ -162,9 +176,12 @@ export class StrikeAdjudicator {
     }
 
     // Light add spawns (bailiffs) while in combat (never more than 3 alive from this boss)
-    if (this.enemyManager && (this._addCooldown || 0) <= 0) {
+    if (this.enemyManager && this._addCooldown <= 0) {
       const mine = Array.from(this.enemyManager.instances || []).filter(inst => inst?.summoner === this).length;
-      if (mine < 3 && this.rng() < 0.18 * dt) {
+      if (mine < 3) {
+        ctx.emitAIEvent?.(this.root, 'ability_started', {
+          ability: 'citation_bailiff', telegraphSeconds: 0
+        });
         const p = ctx.player.position;
         const a = this.rng() * Math.PI * 2, r = 10 + this.rng() * 6;
         const pos = new this.THREE.Vector3(p.x + Math.cos(a)*r, 0.8, p.z + Math.sin(a)*r);
@@ -179,6 +196,9 @@ export class StrikeAdjudicator {
             ability: 'citation_bailiff', spawnedRoot: root, ownerRoot: this.root
           });
         }
+        ctx.emitAIEvent?.(this.root, 'ability_released', {
+          ability: 'citation_bailiff', spawnedCount: root ? 1 : 0
+        });
         this._addCooldown = 6.5 + this.rng() * 2.0;
       } else {
         this._addCooldown = 1.2;
@@ -357,7 +377,7 @@ export class StrikeAdjudicator {
       fuse: 0,
       armDuration: this.phase === 2 ? 0.55 : 0.9,
       triggerRadius: this.phase === 2 ? 2.7 : 2.25,
-      damage: this.phase === 2 ? 36 : 24
+      damage: this.phase === 2 ? ADJUDICATOR_DAMAGE.citationMinePhase2 : ADJUDICATOR_DAMAGE.citationMine
     };
     const instance = {
       root,
@@ -436,7 +456,7 @@ export class StrikeAdjudicator {
     for (const n of this._nodes) {
       n.armDuration = Math.min(n.armDuration, 0.55);
       n.triggerRadius = 2.7;
-      n.damage = 36;
+      n.damage = ADJUDICATOR_DAMAGE.citationMinePhase2;
       n.visual.refs.floorRing.scale.setScalar(1.2);
     }
   }
@@ -476,7 +496,7 @@ export class StrikeAdjudicator {
       ctx.onPlayerDamage?.(node.damage, 'mine', {
         sourceRoot: this.root, ownerRoot: this.root, sourceOrigin: node.root.position.clone(), sourceKind: 'citation_mine'
       });
-      if (away.lengthSq() > 0) ctx.player.position.add(away.normalize().multiplyScalar(1.15));
+      if (away.lengthSq() > 0) this._applyPlayerKnockback(ctx, away.normalize().multiplyScalar(1.15), 'citation_mine');
     }
     ctx.emitAIEvent?.(this.root, 'citation_mine_detonated', {
       ability: 'citation_mine', spawnedRoot: node.root, ownerRoot: this.root,
@@ -570,7 +590,7 @@ export class StrikeAdjudicator {
   }
 
   _resolveSector(ctx, heavy) {
-    const dmg = heavy ? 60 : 32;
+    const dmg = heavy ? ADJUDICATOR_DAMAGE.heavySector : ADJUDICATOR_DAMAGE.sector;
     const knock = heavy ? 1.2 : 0.7;
     // Angle test
     const from = this.root.position.clone();
@@ -607,8 +627,8 @@ export class StrikeAdjudicator {
             sourceRoot: this.root, ownerRoot: this.root, sourceOrigin: origin.clone(), sourceKind: 'verdict_sweep'
           });
           hitPlayer = true;
-          const knockDir = toP.clone().normalize();
-          ctx.player.position.add(knockDir.multiplyScalar(knock));
+          const knockDir = toP.clone().normalize().multiplyScalar(knock);
+          this._applyPlayerKnockback(ctx, knockDir, 'verdict_sweep');
         }
       }
     }
@@ -649,13 +669,13 @@ export class StrikeAdjudicator {
     if (dist <= 4.0 && toP.lengthSq() > 0) toP.normalize();
     const cos = dist <= 4.0 ? forward.dot(toP) : -1;
     if (cos >= Math.cos(Math.PI/6)) { // ~30° cone
-      const dmg = heavy ? 70 : 38;
+      const dmg = heavy ? ADJUDICATOR_DAMAGE.heavyGavel : ADJUDICATOR_DAMAGE.gavel;
       const knock = heavy ? 1.5 : 0.9;
       ctx.onPlayerDamage(dmg, 'gavel', {
         sourceRoot: this.root, ownerRoot: this.root, sourceOrigin: origin.clone(), sourceKind: 'gavel'
       });
       hitPlayer = true;
-      ctx.player.position.add(toP.multiplyScalar(knock));
+      this._applyPlayerKnockback(ctx, toP.multiplyScalar(knock), 'gavel');
     }
     ctx.emitAIEvent?.(this.root, 'verdict_released', {
       ability: 'verdict', kind: 'gavel', heavy, hitPlayer, worldBlocked: false, distanceToPlayer: dist
@@ -678,6 +698,15 @@ export class StrikeAdjudicator {
   }
 
   // ---------- Helpers ----------
+  _applyPlayerKnockback(ctx, vector, ability) {
+    if (!vector || vector.lengthSq() <= 0) return;
+    if (typeof ctx.applyPlayerKnockback === 'function') ctx.applyPlayerKnockback(vector);
+    else ctx.player.position.add(vector);
+    ctx.emitAIEvent?.(this.root, 'player_knockback', {
+      ability, vector: vector.clone(), magnitude: vector.length()
+    });
+  }
+
   _clearTele(scene) {
     if (this._telegraph && scene) {
       scene.remove(this._telegraph);

@@ -1,7 +1,7 @@
 // Armory and Punchline offer scheduling with one shared, queued modal.
 import { logError } from './util/log.js';
 import { getJSON, setJSON } from './util/storage.js';
-import { describeMutationRank } from './mutations.js';
+import { ARCHIVE_MILESTONE_WAVES, describeMutationRank } from './mutations.js?rev=smg-sidearm1';
 
 export function pickTwoDistinct(pool, rng = Math.random){
   if (pool.length <= 1) return pool.slice(0, 1);
@@ -76,17 +76,55 @@ export class Progression {
     return run?.tutorial !== true && run?.debug !== true;
   }
 
+  _reconcileWaveUnlocks(wave) {
+    const currentWave = Math.max(0, Math.floor(Number(wave) || 0));
+    const previousBest = Math.max(0, Math.floor(Number(this.unlocks.bestWave) || 0));
+    const reachedWave = Math.max(previousBest, currentWave);
+    const previous = {
+      bestWave: this.unlocks.bestWave,
+      smg: this.unlocks.smg,
+      shotgun: this.unlocks.shotgun,
+      minigun: this.unlocks.minigun,
+      beamsaber: this.unlocks.beamsaber
+    };
+
+    this.unlocks.bestWave = reachedWave;
+    if (reachedWave >= 2) this.unlocks.smg = true;
+    if (reachedWave >= 3) this.unlocks.shotgun = true;
+    if (reachedWave >= 4) this.unlocks.minigun = true;
+    if (reachedWave >= 3) this.unlocks.beamsaber = true;
+
+    if (
+      previous.bestWave !== this.unlocks.bestWave ||
+      previous.smg !== this.unlocks.smg ||
+      previous.shotgun !== this.unlocks.shotgun ||
+      previous.minigun !== this.unlocks.minigun ||
+      previous.beamsaber !== this.unlocks.beamsaber
+    ) this._saveUnlocks();
+  }
+
   onWave(wave){
     this.mutations?.onWaveStarted?.(wave);
-    if (!this._isProgressionRun()) return;
-    if (wave > (this.unlocks.bestWave || 0)){
-      this.unlocks.bestWave = wave;
-      if (wave >= 2) this.unlocks.smg = true;
-      if (wave >= 3) this.unlocks.shotgun = true;
-      if (wave >= 4) this.unlocks.minigun = true;
-      if (wave >= 3) this.unlocks.beamsaber = true;
-      this._saveUnlocks();
+    const runState = this.mutations?.getRunState?.();
+    if (runState?.tutorial === true) return;
+    const persistentRun = this._isProgressionRun();
+    // Older saves may know their best wave without carrying newer per-weapon
+    // flags. Re-derive the campaign unlocks every wave so Wave 2 can always
+    // grant its intended SMG instead of leaving the player pistol-only.
+    if (persistentRun) this._reconcileWaveUnlocks(wave);
+
+    // Debug/archive playtests must not write campaign progress, but they still
+    // need the authored combat loadout. Otherwise a diagnostic flag silently
+    // turns the Wave 5 balance test into a pistol-only run.
+    if (wave === 2) {
+      const smgSidearm = this.ws.hasSecondarySMG?.() === true;
+      const grantedName = smgSidearm ? 'Shotgun' : 'SMG';
+      const pool = this.ws.getUnlockedPrimaries(this._effectiveUnlocks({ smg: true, ...(smgSidearm ? { shotgun: true } : {}) }));
+      const primary = pool.find(candidate => candidate.name === grantedName);
+      if (primary && (!this.ws.hasPrimaryWeapon?.() || this.ws.getPrimaryWeapon?.()?.name !== grantedName)) this.ws.swapPrimary(primary.make);
+      return;
     }
+    if (!persistentRun) return;
 
     if (wave === 6) this._revealClassifiedTrial('rifle');
 
@@ -94,12 +132,6 @@ export class Progression {
       if (this.mutations?.shouldOfferAtWave?.(wave)) this.requestMutationOffer();
       return;
     }
-    if (wave === 2) {
-      const smg = this.ws.getUnlockedPrimaries(this._effectiveUnlocks()).find(x => x.name === 'SMG');
-      if (smg) this.ws.swapPrimary(smg.make);
-      return;
-    }
-
     let guided = false;
     const guidedOffers = new Map([
       [3, ['Shotgun', 'SMG']],
@@ -129,10 +161,10 @@ export class Progression {
     if (bossWave <= 0 || this.defeatedBossWaves.has(bossWave)) return false;
     this.defeatedBossWaves.add(bossWave);
     this.bossKills += 1;
+    if (ARCHIVE_MILESTONE_WAVES.includes(bossWave)) this.mutations?.claimArchiveMilestone?.(bossWave);
     if (bossWave === 10) this._revealClassifiedTrial('dmr');
     if (bossWave === 15) {
       const trialGranted = this._revealClassifiedTrial('grenade');
-      this.mutations?.claimClassifiedDossier?.();
       if (trialGranted) this.ws?.ensureGrenadeSlot?.();
     }
     if (bossWave === 5) return this.requestMutationOffer();
@@ -143,17 +175,22 @@ export class Progression {
     if (!this.mutations) return false;
     const revealed = this.mutations.revealClassifiedWeapon?.(weaponId) === true;
     if (!revealed) return false;
-    const trialGranted = this.mutations.grantWeaponTrial?.(weaponId) === true;
-    this.onClassifiedReveal?.({ weaponId, trialGranted, definition: this.mutations.getClassifiedWeaponDefinition?.(weaponId) || null });
+    const definition = this.mutations.getClassifiedWeaponDefinition?.(weaponId) || null;
+    // Primary weapons become purchasable when decrypted, but cannot enter the
+    // picker until licensed. Slot-based tactical packages keep their authored
+    // one-run trial behavior.
+    const trialGranted = definition?.tacticalSlot === true
+      && this.mutations.grantWeaponTrial?.(weaponId) === true;
+    this.onClassifiedReveal?.({ weaponId, trialGranted, definition });
     return trialGranted;
   }
 
   _effectiveUnlocks(overrides = null) {
     const effective = { ...this.unlocks, ...(overrides || {}) };
-    if (this.mutations?.hasWeaponAccess) {
-      effective.rifle = this.mutations.hasWeaponAccess('rifle');
-      effective.dmr = this.mutations.hasWeaponAccess('dmr');
-      effective.grenade = this.mutations.hasWeaponAccess('grenade');
+    if (this.mutations?.isWeaponOwned) {
+      effective.rifle = this.mutations.isWeaponOwned('rifle');
+      effective.dmr = this.mutations.isWeaponOwned('dmr');
+      effective.grenade = this.mutations.isWeaponOwned('grenade');
     }
     return effective;
   }
@@ -195,9 +232,14 @@ export class Progression {
     };
   }
 
-  _currentPrimaryName(){ return this.ws?.inventory?.[0]?.name || null; }
+  _currentPrimaryName(){
+    if (typeof this.ws?.getPrimaryWeapon === 'function') return this.ws.getPrimaryWeapon()?.name || null;
+    return this.ws?.inventory?.[0]?.name || null;
+  }
 
   _currentSidearmName(){
+    const sidearm = this.ws?.getSecondaryWeapon?.();
+    if (sidearm) return sidearm.name || null;
     const inv = this.ws?.inventory || [];
     return inv.length >= 2 ? inv[1]?.name || null : null;
   }
@@ -305,7 +347,13 @@ export class Progression {
       if (card.dataset) card.dataset.slot = String(index + 1);
       const glyph = this.doc.createElement('div');
       glyph.className = `mutation-glyph mutation-${def.id}`;
-      glyph.textContent = def.id === 'irony_armor' ? 'A' : def.id === 'extended_bit' ? 'S' : def.id === 'main_character_energy' ? '+' : def.id === 'callback' ? '8×' : '5×';
+      glyph.textContent = def.id === 'irony_armor' ? 'A'
+        : def.id === 'extended_bit' ? 'S'
+          : def.id === 'main_character_energy' ? '+'
+            : def.id === 'callback' ? '8×'
+              : def.id === 'background_sync' ? '↻'
+                : def.id === 'deep_reserves' ? '+R'
+                  : def.id === 'smg_sidearm' ? 'SMG' : 'M';
       const name = this.doc.createElement('div');
       name.className = 'choice-name';
       name.textContent = this.translate(def.nameKey);
@@ -371,7 +419,7 @@ export class Progression {
 
   _accept(pick){
     if (pick?.mutationId) {
-      const result = this.mutations.applyRank(pick.mutationId, { session: this.session, player: this.player });
+      const result = this.mutations.applyRank(pick.mutationId, { session: this.session, player: this.player, weaponSystem: this.ws });
       if (result.ok) {
         this.ws.updateHUD?.();
         this.onMutationApplied?.(result);

@@ -1,3 +1,5 @@
+import { batchRigidAsset } from './rigid-batching.js';
+
 // Strike Adjudicator asset (Content Court)
 // Returns { root, head, refs } with refs for gameplay telegraphs:
 //  - gavel, gavelHead, gavelImpact
@@ -129,6 +131,8 @@ export function createStrikeAdjudicatorAsset({ THREE, mats, scale = 1.0, palette
     group.rotation.x = -0.03;
   
     group.scale.set(scale, scale, scale);
-    return { root: group, head, refs };
+    const built = { root: group, head, refs };
+    batchRigidAsset({ THREE, built });
+    return built;
   }
   

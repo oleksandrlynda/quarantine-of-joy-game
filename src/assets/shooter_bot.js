@@ -1,7 +1,7 @@
 // ShooterBot v2: compact biped with right-hand SMG
 // Faces +Z in object space; gun also fires along +Z.
 // Earlier versions fired backward and needed a code-side π yaw flip.
-// Returns { root, head, refs: { gun, muzzle } }
+// Returns { root, head, refs: { leftArm, rightArm, gun, muzzle } }
 import { getBox } from './geocache.js';
 
 export function createShooterBot({ THREE, mats, scale = 1.0, palette } = {}) {
@@ -101,5 +101,5 @@ export function createShooterBot({ THREE, mats, scale = 1.0, palette } = {}) {
   group.rotation.x = -0.05;
 
   group.scale.set(scale, scale, scale);
-  return { root: group, head, refs: { gun, muzzle } };
+  return { root: group, head, refs: { leftArm: L, rightArm: R, gun, muzzle } };
 }

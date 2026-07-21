@@ -48,3 +48,60 @@ test('hitscan still selects an enemy when it is in front of world geometry', () 
   assert.equal(result.enemyRoot, enemy);
   assert.ok(Math.abs(result.distance - 4.5) < 1e-6);
 });
+
+test('hitscan ignores movement-only proxies used behind shoot-through windows', () => {
+  const enemy = meshAt(-10);
+  const movementShell = meshAt(-5);
+  movementShell.userData.blocksShots = false;
+  const enemyManager = {
+    enemies: new Set([enemy]),
+    getEnemyRaycastTargets: () => [enemy]
+  };
+
+  const result = performHitscan({
+    THREE,
+    camera: new THREE.PerspectiveCamera(),
+    raycaster: new THREE.Raycaster(),
+    enemyManager,
+    objects: [movementShell],
+    origin: new THREE.Vector3(),
+    dir: new THREE.Vector3(0, 0, -1),
+    range: 30
+  });
+
+  assert.equal(result.type, 'enemy');
+  assert.equal(result.enemyRoot, enemy);
+});
+
+test('hitscan diagnostics inherit collider identity from a raycast child', () => {
+  const enemy = meshAt(-10);
+  const collider = new THREE.Group();
+  collider.name = 'collider:corner-cover-post';
+  collider.userData.colliderId = 'corner-cover-post';
+  collider.userData.blocksShots = true;
+  const raycastChild = meshAt(-5);
+  raycastChild.name = 'profile-primitive';
+  raycastChild.position.z = 0;
+  collider.position.z = -5;
+  collider.add(raycastChild);
+  collider.updateMatrixWorld(true);
+  const enemyManager = {
+    enemies: new Set([enemy]),
+    getEnemyRaycastTargets: () => [enemy]
+  };
+
+  performHitscan({
+    THREE,
+    camera: new THREE.PerspectiveCamera(),
+    raycaster: new THREE.Raycaster(),
+    enemyManager,
+    objects: [collider],
+    origin: new THREE.Vector3(),
+    dir: new THREE.Vector3(0, 0, -1),
+    range: 30
+  });
+
+  assert.equal(globalThis.__QOJ_LAST_SHOT.colliderId, 'corner-cover-post');
+  assert.equal(globalThis.__QOJ_LAST_SHOT.worldObject, 'collider:corner-cover-post');
+  assert.equal(globalThis.__QOJ_LAST_SHOT.blocksShots, true);
+});

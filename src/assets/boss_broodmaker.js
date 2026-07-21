@@ -1,3 +1,5 @@
+import { batchRigidAsset } from './rigid-batching.js';
+
 // Broodmaker boss asset: hulking torso with abdomen sacs, dorsal weakpoint, back spines
 // Returns { root, head, refs }:
 // refs = {
@@ -180,7 +182,7 @@ export function createBroodmakerAsset({ THREE, mats, scale = 1.0, palette, outli
     // Final scale
     group.scale.set(scale, scale, scale);
   
-    return {
+    const built = {
       root: group,
       head,
       refs: {
@@ -194,5 +196,7 @@ export function createBroodmakerAsset({ THREE, mats, scale = 1.0, palette, outli
         outlineGroup
       }
     };
+    batchRigidAsset({ THREE, built });
+    return built;
   }
   

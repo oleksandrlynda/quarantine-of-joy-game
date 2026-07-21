@@ -59,6 +59,20 @@ export function createSwarmWarden({ THREE, mats, scale = 1.0, palette } = {}) {
     head.userData.bodyPart = 'head';
     add(new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.1, 0.06), new THREE.MeshLambertMaterial({ color: colors.visor })), head, new THREE.Vector3(0, 0.03, 0.36));
     const core = add(new THREE.Mesh(new THREE.OctahedronGeometry(0.28, 0), M.glowB), fuselage, new THREE.Vector3(0, 0.1, -0.15));
+
+    // A belly-mounted beacon keeps the Warden readable from the player's
+    // ground-level view. The light sits just outside the hull so it illuminates
+    // the underside instead of being occluded by the fuselage around it.
+    const highlightBeacon = add(
+      new THREE.Mesh(new THREE.OctahedronGeometry(0.26, 1), M.glowB),
+      fuselage,
+      new THREE.Vector3(0, -0.58, -0.15)
+    );
+    highlightBeacon.name = 'warden-highlight-beacon';
+    const highlightLight = new THREE.PointLight(0x9dfff5, 28, 22, 1.55);
+    highlightLight.name = 'warden-highlight-light';
+    highlightLight.position.set(0, -0.24, 0);
+    highlightBeacon.add(highlightLight);
   
     // Dorsal recall ring (visual when re-summoning flies)
     const recallEmitter = new THREE.Group(); group.add(recallEmitter);
@@ -72,7 +86,7 @@ export function createSwarmWarden({ THREE, mats, scale = 1.0, palette } = {}) {
     const refs = {
       leftWing: null, rightWing: null,
       thrusters: [], bays: [], bayMuzzles: [],
-      swarmAnchors: [], recallEmitter, core
+      swarmAnchors: [], recallEmitter, core, highlightBeacon, highlightLight
     };
   
     const mkWing = (side) => {

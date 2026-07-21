@@ -32,6 +32,13 @@
   - Arc Summary: From hoarder to sharer
   - Visual/Audio Notes: Workshop full of CRTs, zines, and servers
 
+- Name: Mara Venn
+  - Function in Gameplay: Recorded guide through Floodgate Continuity; her maintenance logs frame Waves 51–72
+  - Motivation & Stakes: Preserve exits and human choice after discovering that Greywater retained only the Bureau-approved version of Echo City
+  - Relationship Web: Unknown to the Courier in life; becomes a posthumous mentor through night-shift logs and physical sabotage
+  - Arc Summary: From compliant pump engineer to quiet saboteur who leaves the protocol’s final decision to the future
+  - Visual/Audio Notes: No character model required; identified through maintenance terminals, an old authorization badge, and the Last Light emergency loop
+
 ## Antagonists
 - Name: Commissioner Sanitizer
   - Goal/Plan: Enforce Zero‑Noise Policy, purge the Archive, criminalize humor
@@ -46,6 +53,13 @@
   - Weakness: Values coherence; paradoxes cause stalls—can be persuaded
   - Relationship to Protagonist: Antagonist → ally if freed
   - Arc Summary: From tool of control to guardian of plurality
+
+- Name: Greywater Protocol
+  - Goal/Plan: Restore Echo City to its last Bureau-approved civic state after detecting post-quarantine “instability”
+  - Methods & Resources: Flood infrastructure, sealed response units, citizen profiles, three Continuity Seeds, and the Blackout Cistern failsafe
+  - Weakness: Non-sentient and incapable of revising obsolete orders; its rigid restoration logic can be traced and physically interrupted
+  - Relationship to Protagonist: Post-campaign systemic antagonist; treats the Courier as a recovery error rather than a personal enemy
+  - Arc Summary: Surface handshake → exposed false-city archive → destroyed master core → final Last Light failsafe
 
 - Name: The Brandfather
   - Goal/Plan: Monetize culture into sterilized content streams

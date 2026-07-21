@@ -1,7 +1,12 @@
 // Ad Zeppelin Support using asset pack.
 // It carries the shootable generators that protect the Captain, then retreats.
 
-import { createZeppelinVisual } from './visual-cache.js';
+import {
+  createZeppelinBombMarkerVisual,
+  createZeppelinBombVisual,
+  createZeppelinVisual
+} from './visual-cache.js?rev=zeppelin-overhead-bomb1';
+import { ReusablePool } from './reusable-pool.js';
 
 export class ZeppelinSupport {
   constructor({ THREE, mats, enemyManager, scene, onPodsCleared, onPodsChanged, rng = Math.random }) {
@@ -52,6 +57,46 @@ export class ZeppelinSupport {
     this._retreatTime = 0;
     this.life = 0; this.maxLife = 20; // despawn failsafe
     this._lastPodCount = this.enginePods.length;
+
+    // Overhead bombing pass. The craft follows the player's lane on Z while
+    // preserving its readable left/right flyover on X, then releases one
+    // telegraphed bomb whenever it crosses above the player.
+    this._bombStrikes = [];
+    this._bombCooldown = 1.2;
+    this._bombInterval = 4.5;
+    this._bombTelegraphSeconds = 1.15;
+    this._bombRadius = 3.2;
+    this._bombDamage = 22;
+    this._nextBombRail = 0;
+    this._lastPlayerPosition = null;
+    this._playerVelocity = new THREE.Vector3();
+    this._strikePool = new ReusablePool({
+      preallocate: 2,
+      create: () => ({
+        bomb: createZeppelinBombVisual({ THREE }),
+        marker: createZeppelinBombMarkerVisual({ THREE })
+      }),
+      reset: strike => {
+        strike.bomb.root.visible = true;
+        strike.bomb.root.rotation.set(0, 0, 0);
+        strike.marker.root.visible = true;
+        strike.marker.root.userData = { life: 0 };
+        strike.marker.refs?.ring?.scale?.set?.(1.35, 1.35, 1.35);
+        if (strike.marker.refs?.ring?.material) strike.marker.refs.ring.material.opacity = 0.9;
+        if (strike.marker.refs?.disk?.material) strike.marker.refs.disk.material.opacity = 0.2;
+      },
+      release: (strike, activeScene) => {
+        activeScene?.remove?.(strike.bomb.root);
+        activeScene?.remove?.(strike.marker.root);
+        strike.bomb.root.visible = false;
+        strike.marker.root.visible = false;
+      },
+      destroy: strike => {
+        strike.bomb.refs?.body?.material?.dispose?.();
+        strike.marker.refs?.ring?.material?.dispose?.();
+        strike.marker.refs?.disk?.material?.dispose?.();
+      }
+    });
 
     // Telegraph path line (brief)
     this._pathLine = null;
@@ -137,7 +182,7 @@ export class ZeppelinSupport {
       duration: 1,
       startYaw: this.root.rotation.y,
       targetYaw: this.root.rotation.y + Math.PI,
-      targetDirection: -this.direction.x
+      targetDirection: new this.THREE.Vector3(-Math.sign(this.root.position.x || this.direction.x || 1), 0, 0)
     };
   }
 
@@ -152,7 +197,7 @@ export class ZeppelinSupport {
     if (!this.direction.x) this.direction.x = 1;
   }
 
-  _updateFlight(dt) {
+  _updateFlight(dt, ctx) {
     if (this.retreating) {
       this._retreatTime += dt;
       const desiredYaw = this.direction.x < 0 ? Math.PI : 0;
@@ -165,7 +210,34 @@ export class ZeppelinSupport {
     }
 
     if (!this._turn) {
-      this.root.position.addScaledVector(this.direction, this.speed * dt);
+      let flightTarget = null;
+      if (ctx?.player?.position) {
+        const currentPlayerPosition = ctx.player.position.clone();
+        if (this._lastPlayerPosition && dt > 0) {
+          const measuredVelocity = currentPlayerPosition.clone()
+            .sub(this._lastPlayerPosition)
+            .multiplyScalar(1 / dt)
+            .setY(0);
+          if (measuredVelocity.length() > 20) measuredVelocity.setLength(20);
+          this._playerVelocity.lerp(measuredVelocity, Math.min(1, dt * 6));
+        }
+        this._lastPlayerPosition = currentPlayerPosition;
+        flightTarget = ctx.player.position.clone().addScaledVector(this._playerVelocity, 0.8);
+      }
+      const toPlayer = flightTarget
+        ? flightTarget.sub(this.root.position).setY(0)
+        : null;
+      const playerDistance = toPlayer?.length?.() || 0;
+      if (toPlayer && playerDistance > 0.1) {
+        const desiredDirection = toPlayer.multiplyScalar(1 / playerDistance);
+        this.direction.lerp(desiredDirection, Math.min(1, dt * 2.4)).normalize();
+      }
+      const flightSpeed = playerDistance > 8 ? 22 : this.speed;
+      this.root.position.addScaledVector(this.direction, flightSpeed * dt);
+      const desiredYaw = Math.atan2(-this.direction.z, this.direction.x);
+      let yawDelta = desiredYaw - this.root.rotation.y;
+      yawDelta = ((yawDelta + Math.PI) % (Math.PI * 2)) - Math.PI;
+      this.root.rotation.y += Math.max(-2.8 * dt, Math.min(2.8 * dt, yawDelta));
       return;
     }
 
@@ -175,12 +247,85 @@ export class ZeppelinSupport {
     this.root.rotation.y = this._turn.startYaw + Math.PI * eased;
     if (progress < 1) return;
 
-    this.direction.x = this._turn.targetDirection;
+    this.direction.copy(this._turn.targetDirection);
     this.root.rotation.y = this._turn.targetYaw;
     this._turn = null;
   }
 
-  update(dt){
+  _dropOverheadBomb(ctx) {
+    if (!ctx?.player?.position || !ctx?.scene) return false;
+    const target = ctx.player.position.clone().setY(0.06);
+    const rails = this.refs?.bombRails || [];
+    const rail = rails.length ? rails[this._nextBombRail++ % rails.length] : this.root;
+    this.root.updateWorldMatrix(true, true);
+    const origin = rail.getWorldPosition
+      ? rail.getWorldPosition(new this.THREE.Vector3())
+      : this.root.position.clone();
+    const visual = this._strikePool.acquire();
+    visual.bomb.root.position.copy(origin);
+    visual.marker.root.position.copy(target);
+    ctx.scene.add(visual.bomb.root, visual.marker.root);
+    this._bombStrikes.push({ visual, origin, target, timer: 0 });
+    this._bombCooldown = this._bombInterval;
+    ctx.emitAIEvent?.(this.root, 'ability_started', {
+      ability: 'zeppelin_overhead_bomb', telegraphSeconds: this._bombTelegraphSeconds,
+      radius: this._bombRadius, target: target.clone()
+    });
+    ctx.emitAIEvent?.(this.root, 'zeppelin_bomb_dropped', {
+      ability: 'zeppelin_overhead_bomb', origin: origin.clone(), target: target.clone()
+    });
+    return true;
+  }
+
+  _updateBombing(dt, ctx) {
+    for (let index = this._bombStrikes.length - 1; index >= 0; index--) {
+      const strike = this._bombStrikes[index];
+      strike.timer += dt;
+      const progress = Math.min(1, strike.timer / this._bombTelegraphSeconds);
+      strike.visual.bomb.root.position.lerpVectors(strike.origin, strike.target, progress);
+      strike.visual.bomb.root.position.y += Math.sin(progress * Math.PI) * 0.35;
+      strike.visual.bomb.root.rotation.x += dt * 5;
+      strike.visual.marker.root.userData.life = strike.timer;
+      const countdown = 1.35 - progress * 0.35;
+      strike.visual.marker.refs?.ring?.scale?.set?.(countdown, countdown, countdown);
+      if (strike.visual.marker.refs?.disk?.material) {
+        strike.visual.marker.refs.disk.material.opacity = 0.18 + progress * 0.3;
+      }
+      if (progress < 1) continue;
+
+      const dx = (ctx?.player?.position?.x ?? 999) - strike.target.x;
+      const dz = (ctx?.player?.position?.z ?? 999) - strike.target.z;
+      const hitPlayer = dx * dx + dz * dz <= this._bombRadius * this._bombRadius;
+      if (hitPlayer) {
+        if (ctx.damagePlayer) {
+          ctx.damagePlayer(this._bombDamage, {
+            sourceKind: 'zeppelin_overhead_bomb',
+            sourceRoot: this.root,
+            ownerRoot: this.root
+          });
+        } else {
+          ctx.onPlayerDamage?.(this._bombDamage, 'zeppelin_overhead_bomb');
+        }
+      }
+      ctx?.emitAIEvent?.(this.root, 'ability_released', {
+        ability: 'zeppelin_overhead_bomb', hitPlayer, radius: this._bombRadius
+      });
+      ctx?.emitAIEvent?.(this.root, 'ability_resolved', {
+        ability: 'zeppelin_overhead_bomb', hitPlayer
+      });
+      try { globalThis.window?._EFFECTS?.spawnExplosion?.(strike.target.clone(), 1.1, 0xff9f1c); } catch {}
+      this._strikePool.release(strike.visual, ctx?.scene || this.scene);
+      this._bombStrikes.splice(index, 1);
+    }
+
+    if (this.retreating || this._turn || this.enginePods.length === 0 || !ctx?.player?.position) return;
+    this._bombCooldown = Math.max(0, this._bombCooldown - dt);
+    const dx = this.root.position.x - ctx.player.position.x;
+    const dz = this.root.position.z - ctx.player.position.z;
+    if (this._bombCooldown <= 0 && dx * dx + dz * dz <= 4.5 * 4.5) this._dropOverheadBomb(ctx);
+  }
+
+  update(dt, ctx){
     if (this.cleaned) return;
     this.life += dt;
     if (this._pathLine){
@@ -195,12 +340,14 @@ export class ZeppelinSupport {
 
     // Move across the arena, pausing for a visible bank-free turnaround at
     // either edge. Mounted pods follow continuously instead of teleporting.
-    this._updateFlight(dt);
+    const wasOffArena = Math.abs(this.root.position.x) > 46 || Math.abs(this.root.position.z) > 46;
+    this._updateFlight(dt, ctx);
     this._updateFallingPods(dt);
+    this._updateBombing(dt, ctx);
 
     // Keep the shield objective reachable: while pods remain, the Zeppelin
     // turns around for another pass instead of flying permanently off-map.
-    const off = Math.abs(this.root.position.x) > 46;
+    const off = wasOffArena || Math.abs(this.root.position.x) > 46 || Math.abs(this.root.position.z) > 46;
     this._checkPodsCleared();
     if (this.retreating) {
       const escaped = Math.abs(this.root.position.x) > 58 || this.root.position.y > 26 || this._retreatTime >= 3;
@@ -223,6 +370,9 @@ export class ZeppelinSupport {
       this._pathLine = null;
     }
     if (this.root){ this.scene.remove(this.root); }
+    for (const strike of this._bombStrikes) this._strikePool.release(strike.visual, this.scene);
+    this._bombStrikes = [];
+    this._strikePool.destroy(this.scene);
     // Do not force-remove engine pods; EnemyManager lifecycle handles them. Just clear lists.
     this.enginePods = [];
     for (const debris of this._fallingPods) this.scene.remove(debris.root);

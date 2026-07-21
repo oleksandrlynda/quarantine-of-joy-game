@@ -32,7 +32,13 @@ class Box3 {
       other.max.z < this.min.z || other.min.z > this.max.z);
   }
 }
-class Raycaster { set() {} intersectObjects() { return []; } }
+class Raycaster {
+  set(origin, direction) {
+    this.origin = origin.clone();
+    this.direction = direction.clone();
+  }
+  intersectObjects() { return []; }
+}
 class InstancedMesh {
   constructor() {
     this.instanceMatrix = { setUsage() {}, needsUpdate: false };
@@ -97,13 +103,18 @@ test('registered boss roots resolve boss-sized bodies before regular behavior fa
   assert.deepEqual(profile.preferredRange, [15, 22]);
 });
 
-function makeManager({ objects = [], rng = sequenceRng([0.8, 0.2]), scene = makeScene() } = {}) {
+function makeManager({
+  objects = [],
+  rng = sequenceRng([0.8, 0.2]),
+  scene = makeScene(),
+  getPlayer = () => ({ position: new Vector3(0, 0, 0), forward: new Vector3(0, 0, 1) })
+} = {}) {
   const manager = new EnemyManager(
     THREE,
     scene,
     {},
     objects,
-    () => ({ position: new Vector3(0, 0, 0), forward: new Vector3(0, 0, 1) }),
+    getPlayer,
     Infinity,
     null,
     rng
@@ -111,6 +122,50 @@ function makeManager({ objects = [], rng = sequenceRng([0.8, 0.2]), scene = make
   manager.spawnRings = { edge: [], mid: [] };
   return { manager, scene };
 }
+
+test('visibility probes originate at the actual elevated player height', () => {
+  const { manager } = makeManager({
+    getPlayer: () => ({ position: new Vector3(9, 3.636, 14), forward: new Vector3(0, 0, 1) })
+  });
+
+  assert.equal(manager._isVisibleFromPlayer(new Vector3(15, 1.1, 14)), true);
+  assert.equal(manager.raycaster.origin.y, 3.636);
+});
+
+test('dynamic projectile pools remain visible outside stale instanced-mesh bounds', () => {
+  const { manager } = makeManager();
+
+  assert.equal(manager._bulletPools.shooter.mesh.frustumCulled, false);
+  assert.equal(manager._bulletPools.sniper.mesh.frustumCulled, false);
+});
+
+test('AI blackboard receives the full player camera ray for precise counter-aim reactions', () => {
+  const { manager } = makeManager();
+  const player = { position: new Vector3(2, 1.7, 3) };
+  const aimOrigin = new Vector3(2, 1.65, 3);
+  const aimDirection = new Vector3(0.1, -0.2, 0.97).normalize();
+  manager.getPlayer = () => ({
+    position: player.position.clone(),
+    forward: new Vector3(0, 0, 1),
+    aimOrigin: aimOrigin.clone(),
+    aimDirection: aimDirection.clone()
+  });
+  manager.bossManager.update = () => {};
+  manager._updateBulletPools = () => {};
+
+  manager.tickAI(player, 0.1, () => {});
+
+  assert.deepEqual(manager._ctx.blackboard.playerAimOrigin, aimOrigin);
+  assert.deepEqual(manager._ctx.blackboard.playerAimDirection, aimDirection);
+});
+
+test('procedural waves unlock one Propaganda Pelican five waves after Flyers', () => {
+  const beforeUnlock = makeManager({ rng: () => 0 }).manager._getWaveTypes(9, 14);
+  const unlockWave = makeManager({ rng: () => 0 }).manager._getWaveTypes(10, 14);
+
+  assert.equal(beforeUnlock.includes('pelican'), false);
+  assert.equal(unlockWave.filter(type => type === 'pelican').length, 1);
+});
 
 test('_isSpawnAreaClear rejects positions intersecting obstacle AABBs', () => {
   const obstacle = makeBox({ x: 4, y: 0, z: 4 }, { x: 6, y: 2, z: 6 });
@@ -156,6 +211,33 @@ test('refreshColliders rebuilds obstacle bounding boxes after object changes', (
   assert.equal(manager._isSpawnAreaClear(new Vector3(11, 0.8, 11), 0.1), false);
 });
 
+test('ground height ignores solid overhead colliders excluded from AI grounding', () => {
+  const ceiling = makeBox({ x: -9, y: 3.7, z: -9 }, { x: 9, y: 4, z: 9 });
+  ceiling.userData = { blocksMovement: true, blocksGrounding: false };
+  const { manager } = makeManager({ objects: [ceiling] });
+
+  assert.equal(manager.movementObjects.includes(ceiling), true, 'ceiling must remain a body obstacle');
+  assert.equal(manager.groundingObjects.includes(ceiling), false, 'ceiling must not be sampled as terrain');
+  assert.equal(manager._groundHeightAt(0, 0), 0);
+
+  manager.refreshColliders([ceiling]);
+  assert.equal(manager._groundHeightAt(0, 0), 0, 'refresh must preserve the grounding channel');
+});
+
+test('movement-locked tutorial sentries stay in their authored firing lane', () => {
+  const { manager } = makeManager();
+  const sentry = {
+    position: new Vector3(2, .8, -7.5),
+    userData: { type: 'shooter', movementLocked: true }
+  };
+
+  const result = manager._moveWithCollisions(sentry, new Vector3(4, 0, 3));
+
+  assert.deepEqual({ x: sentry.position.x, y: sentry.position.y, z: sentry.position.z }, { x: 2, y: .8, z: -7.5 });
+  assert.equal(result.requestedDistance, 5);
+  assert.equal(result.appliedDistance, 0);
+});
+
 test('authored-only spawn selection returns null instead of falling back to arena coordinates', () => {
   const { manager } = makeManager();
   manager.setEncounterHooks({ authoredOnly: true, getSpawnCandidates: () => [] });
@@ -176,6 +258,83 @@ test('blocked authored enemies stay reserved in the retry queue', () => {
   assert.ok(manager._authoredSpawnCooldown > 0);
 });
 
+test('a blocked authored queue head does not hide spawnable tail enemies', () => {
+  const { manager } = makeManager();
+  manager.wave = 1;
+  manager.qaImmediateSpawns = true;
+  manager.setEncounterHooks({
+    authoredOnly: true,
+    getSpawnCandidates: ({ type }) => type === 'blocked' ? [] : [{ entranceId: `${type}-gate` }]
+  });
+  manager.queueAuthoredEnemies(['blocked', 'grunt', 'shooter'], { initial: true });
+  const spawned = [];
+  manager.spawn = type => {
+    if (type === 'blocked') return null;
+    spawned.push(type);
+    return { userData: { type } };
+  };
+
+  manager._updateAuthoredSpawnQueue(1);
+
+  assert.deepEqual(spawned, ['grunt', 'shooter']);
+  assert.deepEqual(manager._authoredSpawnQueue.map(item => item.type), ['blocked']);
+  assert.equal(manager.alive, 3, 'failed entries remain reserved for later retry');
+});
+
+test('level transition priming materializes one representative per queued enemy type', () => {
+  const { manager } = makeManager();
+  manager.wave = 42;
+  manager.queueAuthoredEnemies(['grunt', 'grunt', 'shooter', 'flyer', 'flyer', 'rusher'], { initial: true });
+  const spawned = [];
+  manager.spawn = type => { spawned.push(type); return { userData: { type } }; };
+
+  const result = manager.primeAuthoredSpawnTypes();
+
+  assert.deepEqual(spawned, ['grunt', 'shooter', 'flyer', 'rusher']);
+  assert.deepEqual(result.spawnedTypes, spawned);
+  assert.deepEqual(manager._authoredSpawnQueue.map(item => item.type), ['grunt', 'flyer']);
+  assert.equal(manager.alive, 6, 'priming consumes reserved entries without changing alive accounting');
+});
+
+test('failed level transition representatives remain queued for normal retry', () => {
+  const { manager } = makeManager();
+  manager.wave = 6;
+  manager.queueAuthoredEnemies(['grunt', 'shooter'], { initial: true });
+  manager.spawn = type => type === 'grunt' ? { userData: { type } } : null;
+
+  const result = manager.primeAuthoredSpawnTypes();
+
+  assert.deepEqual(result.spawnedTypes, ['grunt']);
+  assert.deepEqual(manager._authoredSpawnQueue.map(item => item.type), ['shooter']);
+  assert.equal(manager.alive, 2);
+});
+
+test('authored active caps keep committed reinforcements reserved until a slot opens', () => {
+  const { manager } = makeManager();
+  const existing = [{}, {}];
+  existing.forEach(root => manager.enemies.add(root));
+  manager.wave = 6;
+  manager.setEncounterHooks({
+    authoredOnly: true,
+    getWaveDefinition: () => ({ activeCap: 2 }),
+    getSpawnCandidates: () => [{ position: new Vector3(20, .8, 20) }]
+  });
+  manager.spawn = () => {
+    const root = {};
+    manager.enemies.add(root);
+    return root;
+  };
+  manager.queueAuthoredEnemies(['grunt', 'grunt', 'shooter'], { initial: true });
+
+  manager._updateAuthoredSpawnQueue(1);
+  assert.equal(manager._authoredSpawnQueue.length, 3);
+
+  manager.enemies.delete(existing[0]);
+  manager._updateAuthoredSpawnQueue(.2);
+  assert.equal(manager._authoredSpawnQueue.length, 2);
+  assert.equal(manager.enemies.size, 2);
+});
+
 test('objective completion hook gates and explicitly retries wave advancement', () => {
   const { manager } = makeManager();
   let complete = false;
@@ -191,6 +350,29 @@ test('objective completion hook gates and explicitly retries wave advancement', 
   assert.equal(manager.tryAdvanceWave(), true);
   assert.equal(manager.wave, 4);
   assert.equal(started, 1);
+});
+
+test('wave advancement can atomically replace encounter hooks before the next wave starts', () => {
+  const { manager } = makeManager();
+  const events = [];
+  manager.suspendWaves = false;
+  manager.alive = 0;
+  manager.wave = 5;
+  manager.setEncounterHooks({ canCompleteWave: wave => wave === 5 });
+  manager.startWave = () => {
+    events.push(`start:${manager.wave}`);
+    assert.equal(manager.encounterHooks.campaignLevel, 'level-2');
+  };
+
+  assert.equal(manager.tryAdvanceWave({
+    beforeStart: wave => {
+      events.push(`handoff:${wave}`);
+      manager.setEncounterHooks({ campaignLevel: 'level-2' });
+    }
+  }), true);
+  assert.deepEqual(events, ['handoff:6', 'start:6']);
+  assert.equal(manager.wave, 6);
+  assert.equal(manager._advancingWave, false);
 });
 
 test('applyKnockback leaves explicitly immovable encounter fixtures in place', () => {
@@ -223,18 +405,18 @@ test('startWave reports wave and remaining counts through hooks', () => {
   assert.deepEqual(calls, [['wave', 1, 11], ['remaining', 11]]);
 });
 
-test('Wave 72 starts the shooter-free Last Light package and reserves all 42 units', () => {
+test('Wave 73 starts the shooter-free Last Light package and reserves all 42 units', () => {
   const { manager } = makeManager();
   const waveCalls = [];
   const specialCalls = [];
-  manager.wave = 72;
+  manager.wave = 73;
   manager.onWave = (wave, count, types) => waveCalls.push({ wave, count, types });
   manager.onSpecialWave = event => specialCalls.push(event);
 
   manager.startWave();
 
   const [waveCall] = waveCalls;
-  assert.equal(waveCall.wave, 72);
+  assert.equal(waveCall.wave, 73);
   assert.equal(waveCall.count, 42);
   assert.equal(waveCall.types.length, 42);
   assert.equal(waveCall.types.filter(type => type === 'grunt').length, 10);
@@ -255,10 +437,47 @@ test('Wave 72 starts the shooter-free Last Light package and reserves all 42 uni
   );
 });
 
-test('Wave 72 warns after the clear threshold and commits its next package after the alarm', () => {
+test('authored Last Light routing keeps the Wave 73 special surge controller', () => {
+  const { manager } = makeManager();
+  manager.wave = 73;
+  manager.setEncounterHooks({
+    authoredOnly: true,
+    getWaveDefinition: () => ({ id: 'last-light', specialEncounter: 'last_light', packages: [] }),
+    getSpawnCandidates: () => []
+  });
+
+  manager.startWave();
+
+  assert.equal(manager.specialWaveState?.definition?.id, 'last_light');
+  assert.equal(manager.specialWaveState?.packagesCommitted, 1);
+  assert.equal(manager.alive, 42);
+  assert.equal(manager._authoredSpawnQueue.length, 0);
+});
+
+test('Wave 73 emits Warden locator pulses and enables tracking on the final surge', () => {
   const { manager } = makeManager();
   const specialCalls = [];
-  manager.wave = 72;
+  manager.wave = 73;
+  manager.spawn = () => null;
+  manager.onSpecialWave = event => specialCalls.push(event);
+  manager.startWave();
+  manager.enemies.add({ userData: { type: 'swarm_warden' }, position: new Vector3(4, 3, -6) });
+
+  manager._aiClock = 9;
+  manager._updateSpecialWave(0);
+  manager.specialWaveState.packagesCommitted = 3;
+  manager._commitSpecialWavePackage(3);
+
+  const locator = specialCalls.find(event => event.type === 'locator-pulse');
+  assert.deepEqual(locator.position, [4, 3, -6]);
+  assert.equal(locator.totalSurges, 4);
+  assert.equal(specialCalls.at(-1).type, 'final-searchlight');
+});
+
+test('Wave 73 warns after the clear threshold and commits its next package after the alarm', () => {
+  const { manager } = makeManager();
+  const specialCalls = [];
+  manager.wave = 73;
   manager.spawn = () => null;
   manager.onSpecialWave = event => specialCalls.push(event);
   manager.startWave();
@@ -283,11 +502,11 @@ test('Wave 72 warns after the clear threshold and commits its next package after
   );
 });
 
-test('Wave 72 completion advances only after all four packages and their reserve are cleared', () => {
+test('Wave 73 completion advances only after all four packages and their reserve are cleared', () => {
   const { manager } = makeManager();
   const specialCalls = [];
   let startWaveCalls = 0;
-  manager.wave = 72;
+  manager.wave = 73;
   manager.onSpecialWave = event => specialCalls.push(event);
   manager.startWave();
   manager.specialWaveState.packagesCommitted = 4;
@@ -305,7 +524,7 @@ test('Wave 72 completion advances only after all four packages and their reserve
 
   assert.equal(manager.alive, 0);
   assert.equal(manager.specialWaveState, null);
-  assert.equal(manager.wave, 73);
+  assert.equal(manager.wave, 74);
   assert.equal(startWaveCalls, 1);
   assert.equal(specialCalls.at(-1).type, 'complete');
   assert.equal(specialCalls.at(-1).committedTotal, 165);
@@ -325,6 +544,30 @@ test('only the final wave-counted enemy can enter last-survivor behavior', () =>
   manager.alive = 1;
   manager._nonWaveEnemies.add(healer);
   assert.equal(manager.isLastWaveEnemy(healer), false);
+});
+
+test('one healer becomes the support-only leader when no combat allies or reserves remain', () => {
+  const { manager } = makeManager();
+  const first = { userData: { type: 'healer', hp: 90 }, position: new Vector3() };
+  const second = { userData: { type: 'healer', hp: 90 }, position: new Vector3() };
+  manager.enemies.add(first);
+  manager.enemies.add(second);
+  manager._enemyRootsArr.push(first, second);
+  manager.alive = 2;
+
+  assert.equal(manager.isSupportOnlyWaveLeader(first), true);
+  assert.equal(manager.isSupportOnlyWaveLeader(second), false);
+
+  const grunt = { userData: { type: 'grunt', hp: 100 }, position: new Vector3() };
+  manager.enemies.add(grunt);
+  manager._enemyRootsArr.push(grunt);
+  manager.alive = 3;
+  assert.equal(manager.isSupportOnlyWaveLeader(first), false);
+
+  manager.enemies.delete(grunt);
+  manager._enemyRootsArr.pop();
+  manager._authoredSpawnQueue.push({ type: 'grunt' });
+  assert.equal(manager.isSupportOnlyWaveLeader(first), false);
 });
 
 test('reset clears enemies, projectiles, heal sprites, and restarts waves when not suspended', () => {
@@ -429,6 +672,28 @@ test('removing a non-wave enemy does not decrement alive or advance the wave', (
   assert.equal(startWaveCalls, 0);
 });
 
+test('enemy cleanup failures are contained instead of freezing the game loop', () => {
+  const { manager } = makeManager();
+  const root = {
+    userData: { type: 'shooter', hp: 100 },
+    position: new Vector3(4, 0.8, 6)
+  };
+  const instance = { root, onRemoved() { throw new Error('cleanup failed'); } };
+  manager._createInstance = () => instance;
+  manager.spawnAt('shooter', root.position, { countsTowardAlive: false });
+
+  const originalConsoleError = console.error;
+  console.error = () => {};
+  try {
+    assert.doesNotThrow(() => manager.remove(root));
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  assert.equal(manager.enemies.has(root), false);
+  assert.equal(manager.instances.has(instance), false);
+});
+
 test('removing a reserved wave spawn decrements alive and advances the wave', () => {
   const { manager } = makeManager();
   const root = {
@@ -490,6 +755,37 @@ test('Callback shockwave pushes nearby enemies away from the player without affe
   assert.equal(pushes[0].root, near);
   assert.ok(Math.abs(pushes[0].vector.length() - 1.4) < 1e-9);
   assert.ok(pushes[0].vector.x > 0);
+});
+
+test('Engagement Bait redirects nearby non-boss AI damage into the prop', () => {
+  const { manager } = makeManager();
+  manager.bossManager.update = () => {};
+  manager._updateBulletPools = () => {};
+  const player = { position: new Vector3(0, 1.7, 0) };
+  const bait = { position: new Vector3(3, 0, 0) };
+  const root = { userData: { type: 'grunt' }, position: new Vector3(4, 0.8, 0) };
+  let observedTarget = null;
+  let playerDamage = 0;
+  const affectedCounts = [];
+  manager.instances.add({
+    root,
+    update(_dt, ctx) {
+      observedTarget = ctx.player;
+      ctx.damagePlayer(12, { sourceRoot: root });
+    }
+  });
+  manager.enemies.add(root);
+  manager.setEngagementBait({ root: bait, radius: 10, hp: 50, onAffected: count => affectedCounts.push(count) });
+
+  manager.tickAI(player, 0.1, amount => { playerDamage += amount; });
+
+  assert.equal(observedTarget, bait);
+  assert.equal(manager.engagementBait.hp, 38);
+  assert.equal(playerDamage, 0);
+  assert.deepEqual(affectedCounts, [1]);
+
+  manager.tickAI(player, 0.1, () => {});
+  assert.deepEqual(affectedCounts, [1], 'the same enemy only counts once per bait');
 });
 
 test('stunned enemies skip AI updates until their stun expires', () => {
@@ -569,6 +865,42 @@ test('shared swept bodies steer ground enemies around allies while separated air
   manager.spatialIndex.clear();
   const airResult = manager._moveWithCollisions(flyer, new Vector3(0, 0, 4));
   assert.notEqual(airResult.blockedBy, 'ally');
+});
+
+test('a boss can move through its own stationary encounter objective', () => {
+  const { manager } = makeManager();
+  const boss = {
+    position: new Vector3(0, .8, 0),
+    userData: { type: 'boss_strike_adjudicator' }
+  };
+  const mine = {
+    position: new Vector3(0, 0, 2),
+    userData: { type: 'purge_node', behaviorId: 'purge_node', bossOwnerRoot: boss }
+  };
+  manager.enemies.add(boss);
+  manager.enemies.add(mine);
+  manager._ctx = { player: { position: new Vector3(100, 1.7, 100) } };
+
+  const result = manager._moveWithCollisions(boss, new Vector3(0, 0, 4));
+
+  assert.notEqual(result.blockedBy, 'ally');
+  assert.equal(result.blockerRoot, null);
+  assert.ok(boss.position.z > mine.position.z);
+  assert.equal(mine.position.z, 2);
+});
+
+test('high-speed enemy movement cannot tunnel through thin world colliders', () => {
+  const wall = makeBox({ x: -3, y: 0, z: -.6 }, { x: 3, y: 3, z: .6 });
+  const { manager } = makeManager({ objects: [wall] });
+  const rusher = { position: new Vector3(0, .8, -5), userData: { type: 'rusher', behaviorId: 'rusher' } };
+  manager.enemies.add(rusher);
+  manager._ctx = { player: { position: new Vector3(100, 1.7, 100) } };
+
+  const result = manager._moveWithCollisions(rusher, new Vector3(0, 0, 10));
+
+  assert.equal(result.blockedBy, 'world');
+  assert.ok(result.appliedDistance < result.requestedDistance);
+  assert.ok(rusher.position.z < -1.1, `expected rusher before wall, got z=${rusher.position.z}`);
 });
 
 test('air attack reservations cap concurrent dives per formation owner', () => {

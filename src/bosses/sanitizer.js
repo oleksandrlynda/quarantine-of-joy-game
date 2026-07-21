@@ -30,6 +30,7 @@ export class Sanitizer {
     this.speed = 1.8;
     this._yaw = 0;
     this._moveDelta = new THREE.Vector3();
+    this._emergencyRetreatActive = false;
 
     // Utility
     this._raycaster = new THREE.Raycaster();
@@ -52,6 +53,8 @@ export class Sanitizer {
 
     // Pulse (both phases)
     this._pulseCd = 3.8;
+    this._pulseState = 'idle';
+    this._pulseTimer = 0;
 
     // Jump wave attack
     this._jumpCd = 3 + this.rng() * 1.5; // seconds
@@ -59,6 +62,16 @@ export class Sanitizer {
     this._jumpTimer = 0;
     this._jumpDir = new THREE.Vector3(1, 0, 0);
     this._jumpVel = 0;
+    this._jumpHorizontalSpeed = 12;
+    this._jumpTravelRemaining = 0;
+
+    // Mine Fountain: one center mine forces movement while four separated
+    // outer mines preserve diagonal escape lanes.
+    this._mineFountainCd = 6.5 + this.rng() * 1.5;
+    this._mineFountainState = 'idle';
+    this._mineFountainTimer = 0;
+    this._mineProjectiles = [];
+    this._mineZones = [];
 
     // Panic rushers (low HP trigger)
     this._panicRushActive = false;
@@ -105,7 +118,9 @@ export class Sanitizer {
 
     // Nodes: register + visuals
     const arenaCenter = new THREE.Vector3(0, 0.8, 0);
-    this.nodes = new SuppressionNodes({ THREE, mats, center: arenaCenter, enemyManager, rng: this.rng });
+    this.nodes = new SuppressionNodes({
+      THREE, mats, center: arenaCenter, enemyManager, ownerRoot: this.root, rng: this.rng
+    });
     this.nodes.addToSceneAndRegister(enemyManager.scene);
   }
 
@@ -132,6 +147,7 @@ export class Sanitizer {
     for (const t of this._tiles) this._tilePool.release(t.mesh, scene);
     this._tiles.length = 0;
     this._tilePool.destroy(scene);
+    this._clearMineFountain(scene);
   }
 
   // ------------- frame update -------------
@@ -167,6 +183,7 @@ export class Sanitizer {
     this._updateBeam(dt, ctx);
     this._maybePulse(dt, ctx);
     this._maybeJumpWave(dt, ctx);
+    this._updateMineFountain(dt, ctx);
     this._maybePanicRushers(dt, ctx);
 
     // P1: elite shooter calls
@@ -201,20 +218,30 @@ export class Sanitizer {
 
   // ------------- locomotion -------------
   _updateMovement(dt, ctx) {
-    if (this._jumpState && this._jumpState !== 'idle') return;
     const e = this.root;
     const playerPos = ctx.player.position.clone();
     const toPlayer = playerPos.clone().sub(e.position);
+    toPlayer.y = 0;
     const dist = toPlayer.length();
-    toPlayer.y = 0; if (toPlayer.lengthSq() === 0) return;
+    if (toPlayer.lengthSq() === 0) return;
     toPlayer.normalize();
+    // Use hysteresis so the boss does not stop retreating exactly on the
+    // minimum-range boundary and immediately drift back inside it.
+    const emergencyRetreat = this._emergencyRetreatActive ? dist < 14.5 : dist < 13;
+    if (emergencyRetreat !== this._emergencyRetreatActive) {
+      this._emergencyRetreatActive = emergencyRetreat;
+      ctx.emitAIEvent?.(this.root, emergencyRetreat ? 'range_retreat_started' : 'range_recovered', {
+        ability: 'sanitizer_positioning', distanceToPlayer: dist, preferredMinimumDistance: 13
+      });
+    }
+    if (this._jumpState && this._jumpState !== 'idle') return;
     const desired = new this.THREE.Vector3();
     const side = new this.THREE.Vector3(-toPlayer.z, 0, toPlayer.x);
-    if (dist < 13) desired.addScaledVector(toPlayer, -1.2).addScaledVector(side, 0.25);
+    if (emergencyRetreat) desired.addScaledVector(toPlayer, -1);
     else if (dist > 22) desired.add(toPlayer);
     else desired.addScaledVector(side, 0.7);
     const hasLOS = this._hasLineOfSight(e.position, playerPos, ctx.objects);
-    if (!hasLOS && ctx.pathfind) {
+    if (!emergencyRetreat && !hasLOS && ctx.pathfind) {
       ctx.pathfind.recomputeIfStale(this, playerPos);
       const wp = ctx.pathfind.nextWaypoint(this);
       if (wp) {
@@ -226,7 +253,8 @@ export class Sanitizer {
     }
     if (desired.lengthSq() > 0) {
       desired.normalize();
-      const step = desired.multiplyScalar(this.speed * dt);
+      const movementSpeed = this.speed * (emergencyRetreat ? 1.55 : 1);
+      const step = desired.multiplyScalar(movementSpeed * dt);
       this._moveDelta.copy(e.position);
       ctx.moveWithCollisions(e, step);
       this._moveDelta.subVectors(e.position, this._moveDelta);
@@ -244,7 +272,8 @@ export class Sanitizer {
     // Entry
     if (this._beamState === 'idle') {
       if (this._beamCd > 0) this._beamCd -= dt;
-      if (this._beamCd <= 0) {
+      if (this._beamCd <= 0 && this._jumpState === 'idle' && this._pulseState === 'idle'
+        && (this._mineFountainState || 'idle') === 'idle') {
         // P1: long telegraph, sweep. P2: micro-telegraph, rapid bursts.
         if (this.phase === 1) this._beginBeamTelegraph(ctx, 0.8);
         else this._beginBeamTelegraph(ctx, 0.35, true);
@@ -277,7 +306,7 @@ export class Sanitizer {
           this._beamAngularSpeed = (Math.PI / 3) / 1.8;
           if (this._telegraph) { ctx.scene.remove(this._telegraph); this._telegraph.visible = false; }
           this._ensureBeamMesh(ctx);
-          this._updateBeamMeshTransform();
+          this._updateBeamMeshTransform(ctx);
           ctx.emitAIEvent?.(this.root, 'ability_released', { ability: 'sanitizer_beam', kind: 'sweep' });
         } else {
           // P2: set up rapid burst pack
@@ -299,7 +328,7 @@ export class Sanitizer {
     if (this._beamState === 'sweep') {
       const ang = this._beamAngularSpeed * dt;
       this._beamDir.copy(this._rotateY(this._beamDir, ang));
-      this._updateBeamMeshTransform();
+      this._updateBeamMeshTransform(ctx);
       this._applyBeamDamage(dt, ctx, 15);
       if (this._beamTimer >= 1.8) {
         this._endBeam(ctx);
@@ -318,7 +347,7 @@ export class Sanitizer {
         // add slight jitter to be dodgeable
         this._beamDir.copy(this._rotateY(toP, (this.rng()-0.5)*0.08));
         this._beamHalfAngle = Math.PI / 18; // tighter (10°)
-        this._updateBeamMeshTransform();
+        this._updateBeamMeshTransform(ctx);
         // apply burst damage for 0.2s
         this._applyBeamDamage(0.2, ctx, 22);
         this._burstLeft--;
@@ -373,14 +402,14 @@ export class Sanitizer {
     const cosHalf = Math.cos(this._beamHalfAngle);
     if (cos < cosHalf) return;
 
-    // Raycast to ensure unobstructed line to player
+    // Use the same production-world query as the rendered beam so a collider
+    // cannot block damage without also shortening the visible beam (or vice
+    // versa).
     const dir = toPlayer.clone().normalize();
-    this._raycaster.set(origin, dir);
-    this._raycaster.far = dist - 0.1;
-    const hits = ctx.objects ? this._raycaster.intersectObjects(ctx.objects, false) : [];
-    if (hits && hits.length > 0) {
+    const worldHit = this._beamWorldHit(ctx, origin, dir, Math.max(0, dist - 0.1));
+    if (worldHit) {
       ctx.emitAIEvent?.(this.root, 'beam_blocked_by_world', {
-        ability: 'sanitizer_beam', kind: 'beam', origin: origin.clone(), impact: hits[0].point?.clone?.()
+        ability: 'sanitizer_beam', kind: 'beam', origin: origin.clone(), impact: worldHit.point?.clone?.()
       });
       return;
     }
@@ -412,15 +441,50 @@ export class Sanitizer {
     this._beamMesh = mesh;
   }
 
-  _updateBeamMeshTransform() {
+  _updateBeamMeshTransform(ctx = null) {
     if (!this._beamMesh) return;
     const origin = this.refs?.tip?.getWorldPosition(new this.THREE.Vector3()) || this.root.position;
     const dir = this._beamDir.clone().normalize();
-    const mid = origin.clone().add(dir.clone().multiplyScalar(this._beamLen * 0.5));
+    let visibleLength = this._beamLen;
+    const worldHit = this._beamWorldHit(ctx, origin, dir, this._beamLen);
+    if (worldHit) {
+      // Pull the cylinder slightly in front of the surface so its radius does
+      // not visibly poke through thin walls at oblique sweep angles.
+      visibleLength = Math.max(0.05, Math.min(this._beamLen, worldHit.distance - 0.08));
+    }
+    const mid = origin.clone().add(dir.clone().multiplyScalar(visibleLength * 0.5));
     this._beamMesh.position.set(mid.x, origin.y, mid.z);
+    this._beamMesh.scale.set(1, visibleLength / this._beamLen, 1);
     const up = new this.THREE.Vector3(0, 1, 0);
     const q = new this.THREE.Quaternion().setFromUnitVectors(up, new this.THREE.Vector3(dir.x, 0, dir.z).normalize());
     this._beamMesh.setRotationFromQuaternion(q);
+  }
+
+  _beamWorldHit(ctx, origin, dir, maxDistance) {
+    if (!ctx || maxDistance <= 0) return null;
+    const manager = ctx.enemyManager || this.enemyManager;
+    const blockers = manager?.shotBlockers || ctx.objects || [];
+    this._raycaster.set(origin, dir);
+    this._raycaster.near = 0;
+    this._raycaster.far = maxDistance;
+    const preciseHit = blockers.length
+      ? this._raycaster.intersectObjects(blockers, true)[0] || null
+      : null;
+    if (preciseHit) return preciseHit;
+
+    // Some authored collision proxies intentionally have no renderable faces.
+    // EnemyManager already maintains their production shot-blocking boxes, so
+    // use those only when the precise mesh ray produced no hit.
+    const boxes = manager?.shotObjectBBs || [];
+    let closest = null;
+    for (const box of boxes) {
+      const point = this._raycaster.ray.intersectBox(box, new this.THREE.Vector3());
+      if (!point) continue;
+      const distance = point.distanceTo(origin);
+      if (distance > maxDistance || (closest && distance >= closest.distance)) continue;
+      closest = { distance, point };
+    }
+    return closest;
   }
 
   _removeBeamMesh(ctx) {
@@ -431,17 +495,50 @@ export class Sanitizer {
 
   // ------------- pulse knockback -------------
   _maybePulse(dt, ctx) {
+    if (this._pulseState === 'windup') {
+      this._pulseTimer += dt;
+      if (this._pulseTimer < 0.45) return;
+      const e = this.root;
+      const toPlayer = ctx.player.position.clone().sub(e.position).setY(0);
+      const radius = 6.5;
+      const hitPlayer = toPlayer.lengthSq() <= radius * radius;
+      if (hitPlayer) {
+        ctx.onPlayerDamage(10, 'pulse', {
+          sourceRoot: this.root, ownerRoot: this.root, sourceOrigin: e.position.clone(), sourceKind: 'sanitizer_pulse'
+        });
+        const impulse = toPlayer.lengthSq() > 0
+          ? toPlayer.normalize().multiplyScalar(radius * 0.35)
+          : new this.THREE.Vector3(radius * 0.35, 0, 0);
+        if (typeof ctx.applyPlayerKnockback === 'function') ctx.applyPlayerKnockback(impulse);
+        else ctx.player.position.add(impulse);
+        ctx.emitAIEvent?.(this.root, 'player_knockback', {
+          ability: 'sanitizer_pulse', vector: impulse.clone(), magnitude: impulse.length()
+        });
+      }
+      try { globalThis.window?._EFFECTS?.ring?.(e.position.clone(), radius, 0x93c5fd); } catch (error) { logError(error); }
+      ctx.emitAIEvent?.(this.root, 'ability_released', {
+        ability: 'sanitizer_pulse', hitPlayer, radius
+      });
+      this._pulseState = 'idle';
+      this._pulseTimer = 0;
+      this._pulseCd = 3.5 + this.rng() * 1.0;
+      return;
+    }
+
+    if (this._jumpState !== 'idle' || this._beamState !== 'idle'
+      || (this._mineFountainState || 'idle') !== 'idle') return;
     if (this._pulseCd > 0) { this._pulseCd -= dt; return; }
     const e = this.root;
     const toPlayer = ctx.player.position.clone().sub(e.position);
     toPlayer.y = 0; const d2 = toPlayer.lengthSq();
-    const radius = 4.0;
-    if (d2 <= radius * radius) {
-      ctx.onPlayerDamage(10, 'pulse', { sourceRoot: this.root, ownerRoot: this.root });
-      const dir = toPlayer.normalize();
-      ctx.player.position.add(dir.multiplyScalar(radius * 0.35));
-      try { window?._EFFECTS?.ring?.(e.position.clone(), radius, 0x93c5fd); } catch (e) { logError(e); }
-      this._pulseCd = 3.5 + this.rng() * 1.0;
+    const triggerRadius = 7.5;
+    if (d2 <= triggerRadius * triggerRadius) {
+      this._pulseState = 'windup';
+      this._pulseTimer = 0;
+      ctx.emitAIEvent?.(this.root, 'ability_started', {
+        ability: 'sanitizer_pulse', telegraphSeconds: 0.45, radius: 6.5
+      });
+      try { globalThis.window?._EFFECTS?.ring?.(e.position.clone(), 6.5, 0x60a5fa); } catch (error) { logError(error); }
     } else {
       this._pulseCd = 0.1;
     }
@@ -452,12 +549,31 @@ export class Sanitizer {
     const e = this.root;
     switch (this._jumpState) {
       case 'idle':
+        if (this._pulseState === 'windup' || this._beamState !== 'idle'
+          || (this._mineFountainState || 'idle') !== 'idle') return;
         if (this._jumpCd > 0) { this._jumpCd -= dt; return; }
+        const jumpDistance = Math.hypot(
+          ctx.player.position.x - e.position.x,
+          ctx.player.position.z - e.position.z
+        );
+        if (jumpDistance < 15) {
+          this._jumpCd = 0.35;
+          return;
+        }
         this._jumpDir = ctx.player.position.clone().sub(e.position).setY(0);
         if (this._jumpDir.lengthSq() === 0) this._jumpDir.set(1, 0, 0);
         this._jumpDir.normalize();
+        // Leap into the ranged-control band instead of landing on top of the
+        // player. The forward shockwave owns the final gap.
+        this._jumpTravelRemaining = Math.max(0, jumpDistance - 13.5);
+        this._jumpHorizontalSpeed = Math.max(6, Math.min(20, this._jumpTravelRemaining / 0.7));
         this._jumpState = 'windup';
         this._jumpTimer = 0;
+        ctx.emitAIEvent?.(this.root, 'ability_started', {
+          ability: 'sanitizer_jump_wave', telegraphSeconds: 0.35,
+          target: ctx.player.position.clone()
+        });
+        try { globalThis.window?._EFFECTS?.ring?.(e.position.clone(), 2.2, 0xffdd55); } catch (error) { logError(error); }
         return;
       case 'windup':
         this._jumpTimer += dt;
@@ -469,21 +585,42 @@ export class Sanitizer {
         return;
       case 'air':
         this._jumpVel -= 20 * dt; // gravity
+        {
+          const travel = Math.min(this._jumpTravelRemaining, this._jumpHorizontalSpeed * dt);
+          const horizontalStep = this._jumpDir.clone().multiplyScalar(travel);
+          if (ctx.moveWithCollisions) ctx.moveWithCollisions(e, horizontalStep);
+          else e.position.add(horizontalStep);
+          this._jumpTravelRemaining = Math.max(0, this._jumpTravelRemaining - travel);
+        }
         e.position.y += this._jumpVel * dt;
         if (e.position.y <= 0.8) {
           e.position.y = 0.8;
           this._jumpState = 'land';
           this._jumpTimer = 0;
-          const radius = 7.0;
+          const radius = 18.0;
           const angle = Math.PI / 4; // 45° arc
-          try { window?._EFFECTS?.spawnShockwaveArc?.(e.position.clone(), this._jumpDir.clone(), angle, radius, 0xffdd55); } catch (e) { logError(e); }
           const toP = ctx.player.position.clone().sub(e.position); toP.y = 0;
           const dist = toP.length();
+          // The leap commits to its original route, but the landing arc
+          // reacquires a player who continued strafing during airtime.
+          const shockwaveDir = dist > 0.001 ? toP.clone().normalize() : this._jumpDir.clone();
+          try { globalThis.window?._EFFECTS?.spawnShockwaveArc?.(e.position.clone(), shockwaveDir, angle, radius, 0xffdd55); } catch (e) { logError(e); }
+          let hitPlayer = false;
           if (dist <= radius) {
             toP.normalize();
-            const ang = Math.acos(Math.max(-1, Math.min(1, this._jumpDir.dot(toP))));
-            if (ang <= angle * 0.5) ctx.onPlayerDamage(18, 'shockwave', { sourceRoot: this.root, ownerRoot: this.root });
+            const ang = Math.acos(Math.max(-1, Math.min(1, shockwaveDir.dot(toP))));
+            if (ang <= angle * 0.5) {
+              hitPlayer = true;
+              ctx.onPlayerDamage(18, 'shockwave', {
+                sourceRoot: this.root, ownerRoot: this.root,
+                sourceOrigin: e.position.clone(), sourceKind: 'sanitizer_jump_wave'
+              });
+            }
           }
+          ctx.emitAIEvent?.(this.root, 'ability_released', {
+            ability: 'sanitizer_jump_wave', hitPlayer, radius,
+            arcDegrees: 45, targetReacquired: true, distanceToPlayer: dist
+          });
         }
         return;
       case 'land':
@@ -496,6 +633,157 @@ export class Sanitizer {
       default:
         this._jumpState = 'idle';
     }
+  }
+
+  // ------------- mine fountain -------------
+  _updateMineFountain(dt, ctx) {
+    this._updateMineProjectiles(dt, ctx);
+    this._updateMineZones(dt, ctx);
+
+    if (this._mineFountainState === 'windup') {
+      this._mineFountainTimer += dt;
+      if (this._mineFountainTimer < 0.65) return;
+      this._releaseMineFountain(ctx);
+      return;
+    }
+
+    if (this._mineFountainCd > 0) {
+      this._mineFountainCd -= dt;
+      return;
+    }
+    if (this._beamState !== 'idle' || this._jumpState !== 'idle' || this._pulseState !== 'idle') return;
+    const distance = Math.hypot(
+      ctx.player.position.x - this.root.position.x,
+      ctx.player.position.z - this.root.position.z
+    );
+    if (distance > 30) {
+      this._mineFountainCd = 0.25;
+      return;
+    }
+    this._mineFountainState = 'windup';
+    this._mineFountainTimer = 0;
+    ctx.emitAIEvent?.(this.root, 'ability_started', {
+      ability: 'sanitizer_mine_fountain', telegraphSeconds: 0.65,
+      mineCount: 5, blastRadius: 1.8
+    });
+    try { globalThis.window?._EFFECTS?.ring?.(this.root.position.clone(), 2.4, 0xfacc15); } catch (error) { logError(error); }
+  }
+
+  _releaseMineFountain(ctx) {
+    const THREE = this.THREE;
+    const origin = this.refs?.tip?.getWorldPosition?.(new THREE.Vector3())
+      || this.root.position.clone().add(new THREE.Vector3(0, 1.8, 0));
+    const center = ctx.player.position.clone().setY(0.05);
+    const baseAngle = this.rng() * Math.PI * 2;
+    const targets = [center.clone()];
+    for (let index = 0; index < 4; index++) {
+      const angle = baseAngle + index * Math.PI / 2;
+      targets.push(center.clone().add(new THREE.Vector3(Math.cos(angle) * 4.4, 0, Math.sin(angle) * 4.4)));
+    }
+    targets.forEach((target, index) => {
+      const mesh = new THREE.Mesh(
+        getBossSharedGeometry(THREE, 'sanitizer-fountain-mine', () => new THREE.IcosahedronGeometry(0.24, 1)),
+        new THREE.MeshStandardMaterial({
+          color: 0x273244, emissive: 0xfacc15, emissiveIntensity: 1.4,
+          roughness: 0.48, metalness: 0.5
+        })
+      );
+      mesh.position.copy(origin);
+      mesh.userData = { type: 'boss_sanitizer_fountain_mine' };
+      ctx.scene.add(mesh);
+      this._mineProjectiles.push({
+        mesh, start: origin.clone(), target, timer: 0,
+        flightSeconds: 0.45 + index * 0.025, index
+      });
+    });
+    this._mineFountainState = 'idle';
+    this._mineFountainTimer = 0;
+    this._mineFountainCd = (this.phase === 2 ? 7.5 : 10) + this.rng() * 2;
+    ctx.emitAIEvent?.(this.root, 'ability_released', {
+      ability: 'sanitizer_mine_fountain', projectileCount: targets.length,
+      mineCount: targets.length, targetCenter: center.clone()
+    });
+  }
+
+  _updateMineProjectiles(dt, ctx) {
+    for (let index = this._mineProjectiles.length - 1; index >= 0; index--) {
+      const mine = this._mineProjectiles[index];
+      mine.timer += dt;
+      const progress = Math.min(1, mine.timer / mine.flightSeconds);
+      mine.mesh.position.lerpVectors(mine.start, mine.target, progress);
+      mine.mesh.position.y += Math.sin(progress * Math.PI) * 4.5;
+      mine.mesh.rotation.x += dt * 9;
+      mine.mesh.rotation.z += dt * 7;
+      if (progress < 1) continue;
+      ctx.scene.remove(mine.mesh);
+      mine.mesh.material?.dispose?.();
+      const marker = new this.THREE.Mesh(
+        getBossSharedGeometry(this.THREE, 'sanitizer-fountain-mine-zone', () => new this.THREE.RingGeometry(1.35, 1.8, 28)),
+        new this.THREE.MeshBasicMaterial({
+          color: 0xfacc15, transparent: true, opacity: 0.35,
+          depthWrite: false, side: this.THREE.DoubleSide
+        })
+      );
+      marker.rotation.x = -Math.PI / 2;
+      marker.position.copy(mine.target);
+      ctx.scene.add(marker);
+      this._mineZones.push({
+        mesh: marker, position: mine.target.clone(), timer: 0,
+        delay: 0.45 + mine.index * 0.08, radius: 1.8, index: mine.index
+      });
+      ctx.emitAIEvent?.(this.root, 'mine_landed', {
+        ability: 'sanitizer_mine_fountain', variant: mine.index === 0 ? 'center' : 'outer',
+        index: mine.index, armSeconds: 0.45 + mine.index * 0.08
+      });
+      this._mineProjectiles.splice(index, 1);
+    }
+  }
+
+  _updateMineZones(dt, ctx) {
+    for (let index = this._mineZones.length - 1; index >= 0; index--) {
+      const mine = this._mineZones[index];
+      mine.timer += dt;
+      const progress = Math.min(1, mine.timer / mine.delay);
+      mine.mesh.material.opacity = 0.3 + progress * 0.65;
+      mine.mesh.scale.setScalar(1.15 - progress * 0.15);
+      if (mine.timer < mine.delay) continue;
+      const distance = Math.hypot(
+        ctx.player.position.x - mine.position.x,
+        ctx.player.position.z - mine.position.z
+      );
+      const hitPlayer = distance <= mine.radius;
+      if (hitPlayer) {
+        const attribution = {
+          sourceRoot: this.root, ownerRoot: this.root,
+          sourceOrigin: mine.position.clone(), sourceKind: 'sanitizer_mine_fountain'
+        };
+        if (ctx.damagePlayer) ctx.damagePlayer(14, attribution);
+        else ctx.onPlayerDamage?.(14, 'sanitizer_mine_fountain', attribution);
+      }
+      ctx.emitAIEvent?.(this.root, 'ability_resolved', {
+        ability: 'sanitizer_mine_fountain', hitPlayer,
+        variant: mine.index === 0 ? 'center' : 'outer',
+        distanceToPlayer: distance, radius: mine.radius
+      });
+      try { globalThis.window?._EFFECTS?.spawnExplosion?.(mine.position.clone(), mine.radius, 0xfacc15); } catch (error) { logError(error); }
+      ctx.scene.remove(mine.mesh);
+      mine.mesh.material?.dispose?.();
+      this._mineZones.splice(index, 1);
+    }
+  }
+
+  _clearMineFountain(scene) {
+    for (const mine of this._mineProjectiles || []) {
+      scene?.remove(mine.mesh);
+      mine.mesh.material?.dispose?.();
+    }
+    for (const mine of this._mineZones || []) {
+      scene?.remove(mine.mesh);
+      mine.mesh.material?.dispose?.();
+    }
+    if (this._mineProjectiles) this._mineProjectiles.length = 0;
+    if (this._mineZones) this._mineZones.length = 0;
+    this._mineFountainState = 'idle';
   }
 
   // ------------- panic rusher waves -------------

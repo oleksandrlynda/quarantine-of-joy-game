@@ -33,6 +33,26 @@ test('disabled logger performs no storage reads, writes, or event allocations', 
   assert.deepEqual(Object.keys(logger), ['enabled']);
 });
 
+test('enabled in-memory logging can disable all persistence work', () => {
+  const storage = makeStorage();
+  let scheduled = 0;
+  const logger = new PerformanceEventLog({
+    enabled: true,
+    persistenceEnabled: false,
+    storage,
+    recordPageBoundary: false,
+    setTimeoutFn: () => { scheduled++; return 1; }
+  });
+
+  logger.event('performance', 'frame_sample', { frames: 300 });
+  assert.equal(logger.getEvents().length, 1);
+  assert.equal(logger.flush(), false);
+  logger.clear();
+  assert.equal(storage.reads, 0);
+  assert.equal(storage.writes, 0);
+  assert.equal(scheduled, 0);
+});
+
 test('events are ordered and the bounded log evicts oldest entries', () => {
   const clock = makeClock();
   const logger = new PerformanceEventLog({

@@ -72,6 +72,37 @@ test('every reviewed boss has a buildable enhanced asset', () => {
   }
 });
 
+test('registered bosses preserve gameplay refs within the rigid render budget', () => {
+  const bosses = createAssetRegistry({ THREE }).filter(asset => asset.category === 'bosses');
+  let sourceMeshes = 0;
+  let outputMeshes = 0;
+  const builtAssets = [];
+  try {
+    for (const asset of bosses) {
+      const built = asset.build();
+      builtAssets.push(built);
+      const descendants = new Set();
+      built.root.traverse(object => descendants.add(object));
+      const refs = [];
+      const collect = value => {
+        if (value?.isObject3D) refs.push(value);
+        else if (Array.isArray(value)) value.forEach(collect);
+        else if (value && typeof value === 'object') Object.values(value).forEach(collect);
+      };
+      collect({ head: built.head, refs: built.refs });
+      assert.ok(refs.every(ref => descendants.has(ref)), `${asset.id} detached a gameplay ref`);
+      const budget = built.root.userData.rigidBatch;
+      assert.ok(budget, `${asset.id} did not cross the rigid batching boundary`);
+      assert.ok(budget.outputMeshes <= 43, `${asset.id} exceeds the 43-mesh boss budget`);
+      sourceMeshes += budget.sourceMeshes;
+      outputMeshes += budget.outputMeshes;
+    }
+    assert.ok(outputMeshes <= sourceMeshes * .78, `bosses only reduced ${sourceMeshes} meshes to ${outputMeshes}`);
+  } finally {
+    builtAssets.forEach(disposeBuilt);
+  }
+});
+
 test('boss weapon and flight axes agree with their gameplay fronts', () => {
   const currentSanitizer = createSanitizerAsset({ THREE, mats: makeMaterials() });
   const sanitizer = createEnhancedSanitizerAsset({ THREE, mats: makeMaterials() });
@@ -122,7 +153,7 @@ test('enhanced boss gameplay refs keep their animated parent contracts', () => {
 
     zeppelin.root.updateWorldMatrix(true, true);
     const hullBounds = new THREE.Box3();
-    for (const hullPart of zeppelin.refs.body.children.slice(0, 5)) hullBounds.expandByObject(hullPart);
+    for (const hullPart of zeppelin.refs.hullParts) hullBounds.expandByObject(hullPart);
     const gondolaBounds = new THREE.Box3().setFromObject(zeppelin.refs.gondola);
     for (const strut of zeppelin.refs.hullStruts) {
       const strutBounds = new THREE.Box3().setFromObject(strut);
@@ -167,7 +198,9 @@ test('approved boss retrofits are the production runtime and export assets', () 
     assert.equal(sanitizerVisual.root.userData.retrofit, 'sanitizer-mk2');
     assert.equal(captainVisual.root.userData.retrofit, 'captain-mk2');
     assert.equal(zeppelinVisual.root.userData.retrofit, 'zeppelin-mk4');
-    assert.ok(hydra.head.children.length >= 4, 'runtime Hydraclone should include its enhanced split-signal head details');
+    let hydraHeadMeshes = 0;
+    hydra.head.traverse(node => { if (node.isMesh) hydraHeadMeshes += 1; });
+    assert.ok(hydraHeadMeshes >= 4, 'runtime Hydraclone should retain its enhanced split-signal head geometry');
 
     for (const [id, retrofit] of approved) {
       const asset = registry.find((entry) => entry.id === id);

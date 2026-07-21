@@ -32,6 +32,33 @@ test('rifle does not add a translucent duplicate receiver over the weapon', () =
   assert.doesNotMatch(rifleBody, /\.opacity\s*=/);
 });
 
+test('live weapons add a restrained gray boundary and a flat surface-detail plate', () => {
+  const camera = new THREE.PerspectiveCamera();
+  const view = new WeaponView(THREE, camera);
+  view.setWeapon('Rifle');
+  const detail = view._current.meshes.find((mesh) => mesh.userData.part === 'surfaceDetail');
+  const outlines = view._current.renderables.filter((object) => object.isLineSegments);
+
+  assert.ok(detail, 'rifle should carry one authored 2D surface detail');
+  assert.equal(detail.geometry, view._surfaceDetailGeometry, 'surface details should reuse one flat geometry');
+  assert.ok(detail.material.map?.isDataTexture, 'surface detail should use the procedural technical marking');
+  assert.ok(Math.abs(detail.rotation.x) <= Number.EPSILON, 'rifle detail should face outward from the receiver side');
+  assert.equal(detail.position.z, .192, 'rifle detail should sit just beyond the visible receiver face');
+  assert.ok(Math.abs(detail.scale.x - .528) <= Number.EPSILON, 'rifle detail should be 20% wider');
+  assert.ok(Math.abs(detail.scale.y - .168) <= Number.EPSILON, 'rifle detail should be 20% taller');
+  assert.equal(detail.material, view._matRifleDetail, 'rifle should use its high-contrast graphite detail material');
+  const pixels = view._rifleDetailTexture.image.data;
+  const bluePixel = Array.from({ length: pixels.length / 4 }, (_, index) => index * 4)
+    .some((offset) => pixels[offset] === 69 && pixels[offset + 1] === 166 && pixels[offset + 2] === 255);
+  assert.equal(bluePixel, true, 'rifle detail should contain a compact rifle-blue accent');
+  assert.equal(view._matRifleWhite.color.getHex(), 0xaebbc0);
+  assert.ok(view._current.meshes.some((mesh) => mesh.material === view._matRifleWhite), 'rifle body should use its cool-gray material');
+  assert.ok(view._current.meshes.every((mesh) => mesh.material !== view._matWhite), 'rifle should not retain the shared near-white material');
+  assert.ok(outlines.length >= 12, 'major weapon pieces should receive readable boundary edges');
+  assert.equal(view._matOutline.color.getHex(), 0x69746f);
+  view.clear();
+});
+
 test('weapon viewmodels share a color-preserving unlit material palette', () => {
   assert.match(paletteBody, /this\._matWhite = new THREE\.MeshBasicMaterial\(/);
   assert.match(paletteBody, /this\._weaponAccents = new Map\(/);
@@ -94,7 +121,7 @@ test('pistol uses the reduced first-person presentation scale', () => {
   view.setWeapon('Pistol');
   const size = new THREE.Box3().setFromObject(view._model).getSize(new THREE.Vector3());
 
-  assert.ok(Math.abs(size.z - .2646) <= .001, 'pistol presentation length stays 10% below its previous .294 size');
+  assert.ok(Math.abs(size.z - .225) <= .001, 'pistol presentation length preserves more of the combat view');
 });
 
 test('beam saber rests in a diagonal sword stance instead of pointing like a spear', () => {
@@ -149,7 +176,7 @@ test('all playable viewmodels stay inside pooled geometry and role-thickness bud
 });
 
 test('weapon view keeps its established hip, ADS, and sprint composition', () => {
-  assert.match(source, /this\._hipOffset = new THREE\.Vector3\(0\.12, -0\.08, 0\.0\)/);
+  assert.match(source, /this\._hipOffset = new THREE\.Vector3\(0\.135, -0\.105, 0\.0\)/);
   assert.match(updateBody, /this\._adsOffset\.set\(0\.02, -0\.03, -0\.02\)/);
   assert.match(updateBody, /this\._sprintOffset\.set\(0\.18, -0\.16, 0\.05\)/);
 });

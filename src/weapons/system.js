@@ -7,6 +7,7 @@ import { logError } from '../util/log.js';
 import { GrenadePistol } from './grenadepistol.js';
 import { Minigun } from './minigun.js';
 import { BeamSaber } from './beamsaber.js';
+import { AMMO_REGEN_BASE_RESERVE_RATE, AMMO_REGEN_INTERVAL_SECONDS } from '../mutations.js?rev=smg-sidearm1';
 
 // WeaponSystem orchestrates current weapon, input mapping, and HUD sync
 export class WeaponSystem {
@@ -38,10 +39,11 @@ export class WeaponSystem {
 
     this.inventory = [];
     this.currentIndex = 0; // primary slot index
+    this.primarySlotEmpty = true;
     this.zoomed = false;
 
     // Start wave 1 with the Pistol; the Grenade package is restored separately.
-    this.inventory.push(new Pistol());
+    this.inventory.push(this._configureReserveLimit(new Pistol(), { reset: true }));
     const tactical = this._makeTacticalWeapon(this._getOwnedTacticalId());
     if (tactical) this.inventory.push(tactical);
     for (const weapon of this.inventory) this.mutations?.discoverWeapon?.(weapon?.name);
@@ -52,6 +54,45 @@ export class WeaponSystem {
   getAmmo() { return this.current?.getAmmo() ?? 0; }
   getReserve() { return this.current?.getReserve() ?? 0; }
   getPrimaryName() { return this.current?.name || 'Rifle'; }
+  hasPrimaryWeapon() { return this.primarySlotEmpty !== true; }
+  getPrimaryWeapon() { return this.hasPrimaryWeapon() ? this.inventory[0] || null : null; }
+  getSecondaryWeapon() { return this.inventory[this.primarySlotEmpty ? 0 : 1] || null; }
+  hasSecondarySMG() { return this.getSecondaryWeapon()?.name === 'SMG'; }
+
+  _configureReserveLimit(weapon, { reset = false } = {}) {
+    if (!weapon) return weapon;
+    weapon.setReserveLimitProvider?.((baseReserve, weaponSpecificReserve) =>
+      this.mutations?.getReserveLimit?.(baseReserve, weaponSpecificReserve) ?? weaponSpecificReserve
+    );
+    if (reset) weapon.reset?.();
+    return weapon;
+  }
+
+  _updatePassiveAmmoRegeneration(dt) {
+    const primary = this.getPrimaryWeapon();
+    const eligible = (this.mutations?.getRank?.('background_sync') || 0) > 0
+      && primary
+      && !['Pistol', 'Grenade', 'BeamSaber'].includes(primary.name);
+    if (!eligible) {
+      primary?.resetReserveRegeneration?.();
+      return 0;
+    }
+    const totalCapacity = primary.getMagazineCapacity() + primary.getReserveCapacity();
+    const threshold = Math.floor(totalCapacity * 0.5);
+    const totalAmmo = primary.getAmmo() + primary.getReserve();
+    if (totalAmmo >= threshold) {
+      primary.resetReserveRegeneration?.();
+      return 0;
+    }
+    const reserveCeiling = Math.max(0, threshold - primary.getAmmo());
+    const gained = primary.advanceReserveRegeneration?.(dt, {
+      intervalSeconds: AMMO_REGEN_INTERVAL_SECONDS,
+      baseReserveRate: AMMO_REGEN_BASE_RESERVE_RATE,
+      reserveCeiling
+    }) || 0;
+    if (gained > 0) this.updateHUD?.();
+    return gained;
+  }
 
   // Crosshair profile for current weapon
   getCrosshairProfile(){
@@ -173,6 +214,7 @@ export class WeaponSystem {
   }
 
   update(dt) {
+    this._updatePassiveAmmoRegeneration(dt);
     const ctx = this.context();
     for (const weapon of this.inventory) weapon?.update?.(dt, ctx);
   }
@@ -186,9 +228,10 @@ export class WeaponSystem {
       weapon?.altTriggerCancel?.(this.context());
       weapon?.clearWorld?.(this.context());
     }
-    this.inventory = [new Pistol()];
+    this.inventory = [this._configureReserveLimit(new Pistol(), { reset: true })];
     const tactical = !tutorial ? this._makeTacticalWeapon(this._getOwnedTacticalId()) : null;
     if (tactical) this.inventory.push(tactical);
+    this.primarySlotEmpty = true;
     this.currentIndex = 0;
     this.notifyInventoryChange();
   }
@@ -205,8 +248,31 @@ export class WeaponSystem {
       new SMG({ mastery: this.mutations }),
       new DMR({ mastery: this.mutations }),
       new Pistol()
-    ];
-    for (const weapon of this.inventory) weapon.reset?.();
+    ].map(weapon => this._configureReserveLimit(weapon, { reset: true }));
+    this.primarySlotEmpty = false;
+    this.currentIndex = 0;
+    this.notifyInventoryChange();
+  }
+
+  setPostCampaignLoadout() {
+    this.cancelZoom();
+    for (const weapon of this.inventory) {
+      weapon?.triggerUp?.();
+      weapon?.altTriggerCancel?.(this.context());
+      weapon?.clearWorld?.(this.context());
+    }
+    // Checkpoint resumes must remain a continuation of the late game, not a
+    // pistol-only fresh run. Rifle covers the long galleries and SMG protects
+    // the flooded crossings; the normal sidearm and owned tactical stay intact.
+    this.inventory = [
+      new Rifle({ mastery: this.mutations }),
+      new SMG({ mastery: this.mutations }),
+      new Pistol()
+    ].map(weapon => this._configureReserveLimit(weapon, { reset: true }));
+    const tactical = this._makeTacticalWeapon(this._getOwnedTacticalId());
+    if (tactical) this.inventory.push(tactical);
+    for (const weapon of this.inventory) this._configureReserveLimit(weapon, { reset: true });
+    this.primarySlotEmpty = false;
     this.currentIndex = 0;
     this.notifyInventoryChange();
   }
@@ -240,7 +306,7 @@ export class WeaponSystem {
   }
 
   _makeTacticalWeapon(weaponId) {
-    if (weaponId === 'grenade') return new GrenadePistol();
+    if (weaponId === 'grenade') return this._configureReserveLimit(new GrenadePistol(), { reset: true });
     return null;
   }
 
@@ -275,16 +341,15 @@ export class WeaponSystem {
 
   // Swap primary to a new weapon instance and convert reserve from old
   swapPrimary(makeWeaponFn) {
-    const hasNoPrimary = this.inventory[0]?.name === 'Pistol';
-    const old = this.inventory[0];
+    const hasNoPrimary = this.primarySlotEmpty === true;
+    const old = hasNoPrimary ? null : this.inventory[0];
     this.cancelZoom();
     if (old) {
       old.triggerUp();
       if (typeof old.altTriggerCancel === 'function') old.altTriggerCancel(this.context());
     }
     const carry = Math.floor(Math.max(0, (old?.reserveAmmo || 0)) * 0.5);
-    const newW = makeWeaponFn();
-    newW.reset();
+    const newW = this._configureReserveLimit(makeWeaponFn(), { reset: true });
     newW.addReserve(carry);
     // If we are in pistol-only start (no primary yet), insert primary and keep pistol as sidearm
     if (hasNoPrimary) {
@@ -292,19 +357,36 @@ export class WeaponSystem {
     } else {
       this.inventory[0] = newW;
     }
+    this.primarySlotEmpty = false;
     this.currentIndex = 0;
     this.notifyInventoryChange();
     return newW;
   }
 
+  replaceSecondaryWithSMG() {
+    const secondaryIndex = this.primarySlotEmpty ? 0 : 1;
+    const old = this.inventory[secondaryIndex];
+    if (!old || this._isTacticalWeapon(old)) return null;
+    this.cancelZoom();
+    old.triggerUp?.();
+    old.altTriggerCancel?.(this.context());
+    old.clearWorld?.(this.context());
+    const smg = this._configureReserveLimit(new SMG({ mastery: this.mutations }), { reset: true });
+    this.inventory[secondaryIndex] = smg;
+    this.notifyInventoryChange();
+    return smg;
+  }
+
   // Offer pool based on unlock flags
   getUnlockedPrimaries(unlocks){
     const list = [];
-    const hasAccess = weapon => !this.mutations?.isWeaponClassified?.(weapon) || this.mutations?.hasWeaponAccess?.(weapon);
-    if (unlocks?.rifle && hasAccess('rifle')) list.push({ name:'Rifle', make: ()=> new Rifle({ mastery: this.mutations }) });
+    // Classified primary weapons must be permanently licensed before they can
+    // enter an Armory offer. A reveal/trial is not ownership.
+    const canOffer = weapon => !this.mutations?.isWeaponClassified?.(weapon) || this.mutations?.isWeaponOwned?.(weapon) === true;
+    if (unlocks?.rifle && canOffer('rifle')) list.push({ name:'Rifle', make: ()=> new Rifle({ mastery: this.mutations }) });
     if (unlocks?.smg) list.push({ name:'SMG', make: ()=> new SMG({ mastery: this.mutations }) });
     if (unlocks?.shotgun) list.push({ name:'Shotgun', make: ()=> new Shotgun() });
-    if (unlocks?.dmr && hasAccess('dmr')) list.push({ name:'DMR', make: ()=> new DMR({ mastery: this.mutations }) });
+    if (unlocks?.dmr && canOffer('dmr')) list.push({ name:'DMR', make: ()=> new DMR({ mastery: this.mutations }) });
     if (unlocks?.minigun) list.push({ name:'Minigun', make: ()=> new Minigun({ mastery: this.mutations }) });
     if (unlocks?.beamsaber) list.push({ name:'BeamSaber', make: ()=> new BeamSaber() });
     return list;
@@ -328,7 +410,7 @@ export class WeaponSystem {
     //  - Shotgun ~25% (0.3x of 15–30)
     //  - DMR ~25% (0.4x of 15–30)
     //  - Pistol ~20% (0.45x of 15–30)
-    //  - Minigun ~20% (1.8x of 15–30)
+    //  - Minigun ~24% (4.0x of 15–30)
     const weaponPickupMultiplier = (w)=>{
       switch (w) {
         case 'SMG': return 1.6;
@@ -336,7 +418,7 @@ export class WeaponSystem {
         case 'DMR': return 0.3;
         case 'Pistol': return 0.45;
         case 'Rifle': return 0.85;
-        case 'Minigun': return 1.8;
+        case 'Minigun': return 4.0;
         case 'BeamSaber': return 0.0;
         case 'Grenade': return 0.2;
         default: return 1.0;
@@ -349,10 +431,10 @@ export class WeaponSystem {
 
     if (!this.splitPickupsProportionally || weapons.length <= 1) {
       const adjustedGain = Math.floor(gain * multiplier);
-      this.current?.addReserve(adjustedGain);
+      const acceptedGain = this.current?.addReserve(adjustedGain) || 0;
       this.S?.reload?.();
       this.updateHUD?.();
-      return adjustedGain;
+      return acceptedGain;
     }
     // Proportional to deficits against each weapon's nominal reserve
     const deficits = weapons.map(w => Math.max(0, (w.getReserveCapacity?.() ?? w.cfg.reserve ?? 0) - (w.reserveAmmo || 0)));
@@ -364,28 +446,25 @@ export class WeaponSystem {
       let rem = gain - per * weapons.length;
       for (let i=0;i<weapons.length;i++) {
         const add = per + (rem>0?1:0); rem = Math.max(0, rem-1);
-        weapons[i].addReserve(add);
-        granted += add;
+        granted += weapons[i].addReserve(add) || 0;
       }
     } else {
       let remaining = gain;
       for (let i=0;i<weapons.length;i++) {
         const share = Math.floor(gain * (deficits[i] / totalDeficit));
-        weapons[i].addReserve(share);
-        granted += share;
+        const accepted = weapons[i].addReserve(share) || 0;
+        granted += accepted;
         remaining -= share;
       }
       // distribute any rounding remainder to current weapon first
       if (remaining > 0) {
-        this.current?.addReserve(remaining);
-        granted += remaining;
+        granted += this.current?.addReserve(remaining) || 0;
       }
       // If current has a >1 multiplier, grant extra bonus to current to keep feel consistent
       if (multiplier > 1) {
         const bonus = Math.floor(gain * (multiplier - 1));
         if (bonus > 0) {
-          this.current?.addReserve(bonus);
-          granted += bonus;
+          granted += this.current?.addReserve(bonus) || 0;
         }
       }
     }

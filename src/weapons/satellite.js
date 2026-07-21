@@ -32,9 +32,9 @@ export class SatelliteDesignator extends Weapon {
 
   onFire(ctx) {
     const { THREE, obstacleManager, effects, S } = ctx;
-    if (!THREE || !obstacleManager?.scene) return;
+    if (!THREE || !obstacleManager?.scene || this.pendingStrikes.length >= this.maxPendingStrikes) return false;
     const position = this._resolveTargetPoint(ctx);
-    if (!position) return;
+    if (!position) return false;
     const warning = this._createWarning(THREE, position);
     obstacleManager.scene.add(warning);
     this.pendingStrikes.push({
@@ -46,6 +46,7 @@ export class SatelliteDesignator extends Weapon {
     effects?.spawnGroundRing?.(position, this.strikeRadius, 0x63e6ff);
     S?.shot?.('pistol');
     ctx.updateHUD?.();
+    return true;
   }
 
   update(dt, ctx) {
@@ -108,15 +109,22 @@ export class SatelliteDesignator extends Weapon {
     if (!THREE || !camera) return null;
     const origin = camera.getWorldPosition(new THREE.Vector3());
     const direction = camera.getWorldDirection(new THREE.Vector3()).normalize();
-    raycaster?.set?.(origin, direction);
-    if (raycaster) {
-      raycaster.near = 0;
-      raycaster.far = this.maxRange;
-    }
-    const hit = Array.isArray(objects) && objects.length
-      ? raycaster?.intersectObjects?.(objects, true)?.[0]
+    const override = ctx.abilityTargetPoint;
+    let point = Number.isFinite(Number(override?.x)) && Number.isFinite(Number(override?.z))
+      ? new THREE.Vector3(Number(override.x), Number(override.y) || 0.06, Number(override.z))
       : null;
-    let point = hit?.point?.clone?.() || null;
+
+    if (!point) {
+      raycaster?.set?.(origin, direction);
+      if (raycaster) {
+        raycaster.near = 0;
+        raycaster.far = this.maxRange;
+      }
+      const hit = Array.isArray(objects) && objects.length
+        ? raycaster?.intersectObjects?.(objects, true)?.[0]
+        : null;
+      point = hit?.point?.clone?.() || null;
+    }
 
     if (!point && direction.y < -0.01) {
       const distanceToGround = (0.06 - origin.y) / direction.y;
@@ -154,7 +162,9 @@ export class SatelliteDesignator extends Weapon {
     for (const root of Array.from(enemyManager?.enemies || [])) {
       const distance = root.position.distanceTo(position);
       if (distance > this.strikeRadius) continue;
-      const damage = calculateSatelliteDamage(this.baseDamage, distance, this.strikeRadius);
+      const bossRoot = enemyManager?.bossManager?.active ? enemyManager.bossManager?.boss?.root : null;
+      const bossMultiplier = root === bossRoot ? 0.5 : 1;
+      const damage = Math.floor(calculateSatelliteDamage(this.baseDamage, distance, this.strikeRadius) * bossMultiplier);
       root.userData.hp -= damage;
       const killed = root.userData.hp <= 0;
       this.recordCombatHit(ctx, root, { damage, killed, distance, attackId });

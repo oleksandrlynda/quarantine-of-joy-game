@@ -1,5 +1,5 @@
 import { Weapon } from './base.js';
-import { performHitscan } from './hitscan.js';
+import { performHitscan } from './hitscan.js?rev=collision7';
 import { logError } from '../util/log.js';
 
 // High fire-rate bullet hose with low per-shot damage
@@ -8,11 +8,11 @@ export class Minigun extends Weapon {
     super({
       name: 'Minigun',
       mode: 'auto',
-      fireDelayMs: 20, // ~66 rps
+      fireDelayMs: 20, // authored 50 rps; runtime cadence remains frame-bound
       magSize: 200,
       getMagSize: () => mastery?.getMagazineSize?.('Minigun', 200) ?? 200,
-      reserve: 300,
-      getReserveSize: () => mastery?.getMinigunReserveSize?.() ?? 300
+      reserve: 360,
+      getReserveSize: () => mastery?.getMinigunReserveSize?.() ?? 360
     });
     this._bloom = 0; // grows while firing
     this._maxBloom = 0.12; // radians (~6.8 deg)

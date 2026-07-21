@@ -2,7 +2,7 @@
 
 _Intent:_ add incremental, stackable perks that deepen buildcraft without trivializing enemies. Mods are small, mostly additive, and stack with **diminishing returns** plus **hard caps**.
 
-Dynamite is now a three-charge Q ability rather than an ammo weapon. Its 25-second sequential recharge is fixed; any older reserve-ammo or weapon-slot references below are legacy notes.
+Dynamite is now a graded Q ability rather than an ammo weapon. Grade I has two charges; Grade II has three. Its 35-second sequential recharge is fixed; any older reserve-ammo or weapon-slot references below are legacy notes.
 
 ## When & How
 - Make one launch offer at **Wave 41**, after the planned Wave 40 finale, then offer another on every fifth wave (45, 50, 55, ...).
@@ -54,7 +54,7 @@ _Apply to current primary at time of pick; persists across swaps._
 - **DMR – Punch-Through**: Secondary penetration damage +10% (cap +85% of base on second target).  
 - **Minigun – Spool Boost**: Spin-up time −15% (cap −25%); per-shot bloom growth −10% (cap −30%).  
 - **Grenade Pistol – Fragment Pack**: Blast radius +10% (cap +25%); base damage +5% (cap +20%); ammo regen capped at **+0.15/s**.
-- **Dynamite – Shock Packing**: Blast radius +8% (radius cap +20%); the 2.6-second fuse and three-charge active cap remain fixed.
+- **Dynamite – Shock Packing**: Blast radius +8% (radius cap +20%); the 2.6-second fuse remains fixed and the active cap follows the owned Archive grade.
 
 > Guardrails: Shotgun pellet count limited to **+2**; Grenade radius/DMG tightly capped to prevent room wipes.
 

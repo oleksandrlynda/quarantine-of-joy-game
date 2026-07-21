@@ -15,24 +15,24 @@ export function createPostCampaignLevelAssetRegistry({ THREE } = {}) {
   });
 
   const m = {
-    acid: material(0xd7ff3f, { emissive: 0x435d0d, emissiveIntensity: 1.1 }),
+    acid: material(0xa6c844, { emissive: 0x28350f, emissiveIntensity: .42, roughness: .58 }),
     black: material(0x101613),
-    charcoal: material(0x26312c),
-    concrete: material(0x899187),
-    cyan: material(0x61ded2, { emissive: 0x164c47, emissiveIntensity: .85 }),
-    cyanGlass: material(0x4bbeb7, { emissive: 0x123b38, emissiveIntensity: .5, transparent: true, opacity: .5, roughness: .25 }),
-    dark: material(0x1d2924),
-    green: material(0x506a3d),
-    metal: material(0x5f6c65, { metalness: .25, roughness: .65 }),
-    orange: material(0xe06a36, { emissive: 0x4e1708, emissiveIntensity: .3 }),
-    pale: material(0xc2c9ba),
-    purple: material(0x7654a7, { emissive: 0x26163b, emissiveIntensity: .65 }),
-    red: material(0xff5c52, { emissive: 0x69130e, emissiveIntensity: 1 }),
-    sand: material(0xaa9162),
-    sandDark: material(0x716042),
-    water: material(0x376d79, { transparent: true, opacity: .68, roughness: .3, metalness: .08 }),
-    white: material(0xdde3d7),
-    yellow: material(0xe4b638, { emissive: 0x4b3507, emissiveIntensity: .35 })
+    charcoal: material(0x202a26),
+    concrete: material(0x747c75),
+    cyan: material(0x4ea9a3, { emissive: 0x0d2f2d, emissiveIntensity: .38 }),
+    cyanGlass: material(0x438f8b, { emissive: 0x0d2b29, emissiveIntensity: .28, transparent: true, opacity: .46, roughness: .3 }),
+    dark: material(0x19231f),
+    green: material(0x435a37),
+    metal: material(0x56625c, { metalness: .18, roughness: .72 }),
+    orange: material(0xb65c36, { emissive: 0x351308, emissiveIntensity: .16 }),
+    pale: material(0xa5ada1),
+    purple: material(0x644c82, { emissive: 0x1b1228, emissiveIntensity: .22 }),
+    red: material(0xd24f48, { emissive: 0x450e0b, emissiveIntensity: .55 }),
+    sand: material(0x907b58),
+    sandDark: material(0x62543d),
+    water: material(0x315e68, { transparent: true, opacity: .62, roughness: .36, metalness: .06 }),
+    white: material(0xbfc6bc),
+    yellow: material(0xba9333, { emissive: 0x362708, emissiveIntensity: .16 })
   };
 
   const finish = (mesh) => {
@@ -414,7 +414,9 @@ export function createPostCampaignLevelAssetRegistry({ THREE } = {}) {
     ['cisternbackdrop', 'Blackout Cistern shell', 'backdrops', 'A low-cost curved wall, dark spawn portals, and utility pipes enclose the Wave 72 arena.', 'Distant background', buildCisternBackdrop, 2.7]
   ];
 
-  const cloneMaterials = (root) => {
+  const emissiveSignalCategories = new Set(['ground', 'landmarks', 'objectives']);
+
+  const cloneMaterials = (root, { category = 'environment', preserveEmissive = false } = {}) => {
     const clones = new Map();
     root.traverse((object) => {
       if (!object.material) return;
@@ -423,6 +425,23 @@ export function createPostCampaignLevelAssetRegistry({ THREE } = {}) {
         return clones.get(source);
       };
       object.material = Array.isArray(object.material) ? object.material.map(clone) : clone(object.material);
+    });
+    const isBackdrop = category === 'backdrops';
+    const preserveSignal = preserveEmissive || emissiveSignalCategories.has(category);
+    clones.forEach((material) => {
+      if (isBackdrop && material.color) {
+        const hsl = {};
+        material.color.getHSL(hsl);
+        material.color.setHSL(hsl.h, hsl.s * .86, hsl.l * .88);
+      }
+      if (isBackdrop && material.emissive) {
+        const hsl = {};
+        material.emissive.getHSL(hsl);
+        material.emissive.setHSL(hsl.h, hsl.s * .85, hsl.l * .86);
+      }
+      if (material.emissive && !preserveSignal) {
+        material.emissiveIntensity = isBackdrop ? 0 : Math.min(material.emissiveIntensity, .08);
+      }
     });
     return root;
   };
@@ -440,7 +459,7 @@ export function createPostCampaignLevelAssetRegistry({ THREE } = {}) {
     targetY,
     source: 'level-plan',
     factoryName: build.name,
-    build: () => cloneMaterials(build())
+    build: () => cloneMaterials(build(), { category, preserveEmissive: id === 'blackoutcues' })
   }));
 
   if (assets.length !== POST_CAMPAIGN_ASSET_COUNT) {

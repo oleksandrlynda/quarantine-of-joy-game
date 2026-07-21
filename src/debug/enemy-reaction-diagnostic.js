@@ -11,10 +11,10 @@ const round = (value, digits = 2) => {
 const ARCHETYPE_LABELS = Object.freeze({
   grunt: 'Grunt', gruntling: 'Gruntling', tank: 'Tank', rusher: 'Rusher',
   rusher_elite: 'Elite rusher', rusher_explosive: 'Explosive rusher', bailiff: 'Bailiff',
-  shooter: 'Shooter', sniper: 'Sniper', flyer: 'Flyer', healer: 'Healer', warden: 'Swarm warden'
+  shooter: 'Shooter', sniper: 'Sniper', flyer: 'Flyer', pelican: 'Propaganda Pelican', healer: 'Healer', warden: 'Swarm warden'
 });
 
-const SPAWN_DISTANCE = Object.freeze({ shooter: 22, sniper: 28, healer: 20, warden: 28 });
+const SPAWN_DISTANCE = Object.freeze({ shooter: 22, sniper: 28, pelican: 20, healer: 20, warden: 28 });
 
 export const ENEMY_REACTION_ARCHETYPES = Object.freeze(
   Object.values(ENEMY_BEHAVIOR_PROFILES).map(profile => Object.freeze({
@@ -59,6 +59,7 @@ export const ENEMY_REACTION_SCENARIOS = Object.freeze([
   { id: 'healer_non_stacking', label: 'Two-healer non-stacking', healerSetup: 'two_healers', description: 'Only the strongest heal applies per target per tick.' },
   { id: 'aerial_congestion', label: 'Aerial congestion', allyKind: 'aerial', description: 'Altitude-aware separation prevents overlap.' },
   { id: 'dive_corridor', label: 'Blocked dive corridor', allyKind: 'aerial_fire_line', description: 'Delay or change the dive angle.' },
+  { id: 'pelican_bombing_cycle', label: 'Pelican bombing cycle', description: 'Approach to the 5–7 m release band, drop one grenade, retreat, and begin recharging.' },
   { id: 'outer_ring_retreat', label: 'Warden outer-ring retreat', description: 'Remain outside 18 m after positioning grace.' },
   { id: 'formation_separation', label: 'Warden formation separation', description: 'Maintain 10–15 children without overlap.' },
   { id: 'child_damage_attribution', label: 'Warden child attribution', description: 'Child attacks retain Warden ownership.' },
@@ -69,6 +70,7 @@ export const ENEMY_REACTION_SCENARIOS = Object.freeze([
 
 function scenarioDuration(archetype, scenario) {
   if (archetype.id === 'warden') return 24;
+  if (archetype.id === 'pelican') return 18;
   if (archetype.id === 'shooter' || archetype.id === 'sniper' || archetype.id === 'healer') return 18;
   if (scenario.groupSetup) return 18;
   if (['wall_occlusion', 'last_known_search', 'sight_reacquisition', 'low_wall_navigation', 'barrel_navigation', 'narrow_choke', 'wall_impact'].includes(scenario.id)) return 16;
@@ -181,6 +183,11 @@ export function evaluateEnemyReaction(result) {
     }
   }
   if (scenarioId === 'wall_occlusion') {
+    if ((metrics.longestHiddenWindowMs || 0) < 1000) {
+      findings.push(finding('occlusion_not_exercised', 'inconclusive', 'The wall never produced a sustained hidden interval, so this case cannot pass.', {
+        longestHiddenWindowMs: metrics.longestHiddenWindowMs || 0
+      }));
+    }
     if ((metrics.damageWhileOccluded || 0) > 0 || (metrics.shotsWhileOccluded || 0) > 0) {
       findings.push(finding('attacks_through_wall', 'fail', 'Enemy damaged or fired at the player while the diagnostic ray confirmed occlusion.', {
         damageWhileOccluded: metrics.damageWhileOccluded || 0,
@@ -192,13 +199,20 @@ export function evaluateEnemyReaction(result) {
     }
   }
   if (scenarioId === 'sight_reacquisition') {
-    if (metrics.damageWhileOccluded > 0 || metrics.shotsWhileOccluded > 0) {
-      findings.push(finding('attacks_before_reveal', 'fail', 'Enemy attacked before line of sight was restored.'));
-    }
-    if (metrics.reactionLatencyMs == null) {
-      findings.push(finding('failed_to_reacquire', 'fail', 'Enemy did not produce measurable pursuit, aim, or attack response after reveal.'));
-    } else if (metrics.reactionLatencyMs > 1500) {
-      findings.push(finding('slow_reacquisition', 'warn', 'Enemy reaction after sight restoration was slow.', { reactionLatencyMs: metrics.reactionLatencyMs }));
+    const reacquisitionExercised = (metrics.longestHiddenWindowMs || 0) >= 1000;
+    if (!reacquisitionExercised) {
+      findings.push(finding('reacquisition_occlusion_not_exercised', 'inconclusive', 'The target was not hidden long enough before reveal to validate reacquisition.', {
+        longestHiddenWindowMs: metrics.longestHiddenWindowMs || 0
+      }));
+    } else {
+      if (metrics.damageWhileOccluded > 0 || metrics.shotsWhileOccluded > 0) {
+        findings.push(finding('attacks_before_reveal', 'fail', 'Enemy attacked before line of sight was restored.'));
+      }
+      if (metrics.reactionLatencyMs == null) {
+        findings.push(finding('failed_to_reacquire', 'fail', 'Enemy did not produce measurable pursuit, aim, or attack response after reveal.'));
+      } else if (metrics.reactionLatencyMs > 1500) {
+        findings.push(finding('slow_reacquisition', 'warn', 'Enemy reaction after sight restoration was slow.', { reactionLatencyMs: metrics.reactionLatencyMs }));
+      }
     }
   }
   if (scenarioId === 'last_known_search') {
@@ -235,8 +249,12 @@ export function evaluateEnemyReaction(result) {
     const cancelCount = metrics.actionCounts?.charge_cancelled || metrics.actionCounts?.movement_blocked || 0;
     if (cancelCount <= 0) findings.push(finding('blocked_charge_not_exercised', 'inconclusive', 'No charge cancellation or blocked-lane action was observed.'));
   }
-  if (scenarioId === 'moving_target' && role !== 'support' && (metrics.trackingRatio || 0) < 0.35) {
-    findings.push(finding('poor_tracking', 'warn', 'Enemy facing or movement tracked the strafing player in too few samples.', { trackingRatio: metrics.trackingRatio || 0 }));
+  const scoredTrackingRatio = metrics.engagementTrackingRatio ?? metrics.trackingRatio ?? 0;
+  if (scenarioId === 'moving_target' && role !== 'support' && scoredTrackingRatio < 0.35) {
+    findings.push(finding('poor_tracking', 'warn', 'Enemy facing or movement tracked the strafing player in too few relevant samples.', {
+      trackingRatio: scoredTrackingRatio,
+      trackingWindow: metrics.engagementTrackingRatio != null ? 'engagement' : 'all_samples'
+    }));
   }
 
   const excludedFiringScenarios = new Set(['player_aiming', 'last_known_search', 'lost_los_cancellation']);
@@ -432,6 +450,35 @@ export function evaluateEnemyReaction(result) {
     }
   }
 
+  if (enemyId === 'pelican' && scenarioId === 'pelican_bombing_cycle') {
+    const runs = metrics.actionCounts?.pelican_attack_run_started || 0;
+    const drops = metrics.actionCounts?.pelican_grenade_dropped || 0;
+    const explosions = metrics.actionCounts?.pelican_grenade_exploded || 0;
+    const recharges = metrics.actionCounts?.pelican_recharge_started || 0;
+    if (runs <= 0 || drops <= 0) {
+      findings.push(finding('pelican_drop_not_exercised', 'inconclusive', 'The Pelican never completed its approach and grenade release.', { runs, drops }));
+    } else {
+      if (explosions < drops) {
+        findings.push(finding('pelican_grenade_did_not_resolve', 'fail', 'A released Pelican grenade did not reach its explosion state.', { drops, explosions }));
+      }
+      if (recharges <= 0) {
+        findings.push(finding('pelican_retreat_recharge_missing', 'fail', 'The Pelican dropped a grenade but did not finish retreating into recharge.', { drops, recharges }));
+      }
+      if ((metrics.minimumPelicanReleaseDistance ?? Infinity) < 4.95
+        || (metrics.maximumPelicanReleaseDistance ?? -Infinity) > 7.05) {
+        findings.push(finding('pelican_release_range_invalid', 'fail', 'The Pelican released outside its required 5–7 m band.', {
+          minimumReleaseDistance: metrics.minimumPelicanReleaseDistance,
+          maximumReleaseDistance: metrics.maximumPelicanReleaseDistance
+        }));
+      }
+      if ((metrics.damageBySource?.pelican_grenade || 0) <= 0) {
+        findings.push(finding('pelican_grenade_damage_missing', 'fail', 'The stationary diagnostic player received no grenade damage during a completed bombing cycle.', {
+          damageBySource: metrics.damageBySource || {}
+        }));
+      }
+    }
+  }
+
   if (enemyId === 'warden') {
     if (scenarioId === 'outer_ring_retreat') {
       if ((metrics.positioningGraceSamples || 0) <= 0) {
@@ -566,6 +613,8 @@ export class EnemyReactionMetrics {
     this.locomotionClearSamples = 0;
     this.tacticalClearSamples = 0;
     this.trackingSamples = 0;
+    this.engagementTrackingSamples = 0;
+    this.engagementTrackingEligibleSamples = 0;
     this.stuckSamples = 0;
     this.moveAttempts = 0;
     this.blockedMoveAttempts = 0;
@@ -586,6 +635,8 @@ export class EnemyReactionMetrics {
     this.damageByOwner = {};
     this.childDamageEvents = 0;
     this.childDamageAttributedToWarden = 0;
+    this.minimumPelicanReleaseDistance = Infinity;
+    this.maximumPelicanReleaseDistance = -Infinity;
     this.firstDamageAtMs = null;
     this.lastDamageAtMs = null;
     this.shots = 0;
@@ -706,8 +757,20 @@ export class EnemyReactionMetrics {
     const blockerId = event.blockerRoot?.userData?.diagnosticActorId || event.blockerRoot?.userData?.behaviorId || event.blockerRoot?.userData?.type || null;
     const targetId = event.targetRoot?.userData?.diagnosticActorId || event.targetRoot?.userData?.behaviorId || event.targetRoot?.userData?.type || null;
     const coverId = event.coverRoot?.userData?.diagnosticActorId || event.coverRoot?.userData?.behaviorId || event.coverRoot?.userData?.type || null;
-    this.addEvent(atMs, event.type, { rootId, blockerId, targetId, coverId });
-    if (['melee_hit', 'gavel_hit', 'charge_hit', 'flyer_dive_hit', 'projectile_fired'].includes(event.type)) {
+    this.addEvent(atMs, event.type, {
+      rootId,
+      blockerId,
+      targetId,
+      coverId,
+      ...(Number.isFinite(event.releaseDistance) ? { releaseDistance: round(event.releaseDistance) } : {}),
+      ...(Number.isFinite(event.blastRadius) ? { blastRadius: round(event.blastRadius) } : {}),
+      ...(Number.isFinite(event.rechargeTime) ? { rechargeTime: round(event.rechargeTime) } : {})
+    });
+    if (event.type === 'pelican_grenade_dropped' && Number.isFinite(event.releaseDistance)) {
+      this.minimumPelicanReleaseDistance = Math.min(this.minimumPelicanReleaseDistance, event.releaseDistance);
+      this.maximumPelicanReleaseDistance = Math.max(this.maximumPelicanReleaseDistance, event.releaseDistance);
+    }
+    if (['melee_hit', 'gavel_hit', 'charge_hit', 'flyer_dive_hit', 'projectile_fired', 'pelican_grenade_dropped'].includes(event.type)) {
       this.groupAttackEvents++;
       if (rootId) this._groupAttackers.add(rootId);
     }
@@ -897,7 +960,7 @@ export class EnemyReactionMetrics {
   observe({
     atMs, position, playerDistance, visible, stableVisible = visible,
     locomotionClear = true, tacticalVisible = visible, blockingCategory = null,
-    selectedTarget = null, tracking, attemptedMove = false,
+    selectedTarget = null, tracking, trackingEligible = true, attemptedMove = false,
     allyDistance = Infinity, state = 'idle', speed = 0
   }) {
     const dx = position.x - this._lastPosition.x;
@@ -906,6 +969,10 @@ export class EnemyReactionMetrics {
     this.samples++;
     this.visibleSamples += visible ? 1 : 0;
     this.trackingSamples += tracking ? 1 : 0;
+    if (trackingEligible) {
+      this.engagementTrackingEligibleSamples++;
+      this.engagementTrackingSamples += tracking ? 1 : 0;
+    }
     this.distanceTravelled += delta;
     this.maxLateralOffset = Math.max(this.maxLateralOffset, Math.abs(position.x - this.startPosition.x));
     this.minAllyDistance = Math.min(this.minAllyDistance, allyDistance);
@@ -973,6 +1040,8 @@ export class EnemyReactionMetrics {
         locomotionClearRatio: round(this.locomotionClearSamples / Math.max(1, this.tickCount)),
         tacticalFireClearRatio: round(this.tacticalClearSamples / Math.max(1, this.tickCount)),
         trackingRatio: round(this.trackingSamples / Math.max(1, this.samples)),
+        engagementTrackingRatio: round(this.engagementTrackingSamples / Math.max(1, this.engagementTrackingEligibleSamples)),
+        engagementTrackingSampleCount: this.engagementTrackingEligibleSamples,
         stuckRatio: round(this.stuckSamples / Math.max(1, this.samples)),
         moveAttempts: this.moveAttempts,
         blockedMoveAttempts: this.blockedMoveAttempts,
@@ -996,6 +1065,8 @@ export class EnemyReactionMetrics {
         damageByOwner: Object.fromEntries(Object.entries(this.damageByOwner).map(([owner, amount]) => [owner, round(amount)])),
         childDamageEvents: this.childDamageEvents,
         childDamageAttributedToWarden: this.childDamageAttributedToWarden,
+        minimumPelicanReleaseDistance: Number.isFinite(this.minimumPelicanReleaseDistance) ? round(this.minimumPelicanReleaseDistance) : null,
+        maximumPelicanReleaseDistance: Number.isFinite(this.maximumPelicanReleaseDistance) ? round(this.maximumPelicanReleaseDistance) : null,
         firstDamageAtMs: this.firstDamageAtMs == null ? null : round(this.firstDamageAtMs, 1),
         lastDamageAtMs: this.lastDamageAtMs == null ? null : round(this.lastDamageAtMs, 1),
         damageWhileOccluded: round(this.damageWhileOccluded),

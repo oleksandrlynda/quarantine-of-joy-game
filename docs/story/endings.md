@@ -35,3 +35,12 @@
 - 1/3: Crowd chorus remixes the game’s theme
 - 2/3: NPCs recount player feats as Street Legends
 - 3/3: A child tells a joke; the city laughs without fear
+
+## Post-Campaign Epilogue – Route Open
+- Scope: Waves 41–72, after either campaign ending
+- Shared Arc: The Courier traces Greywater beneath Echo City, rejects its Safe/Popular/Predictable replacement cities, and survives the Last Light failsafe
+- Free Variant: The Algorithm asks permission before opening a permanent channel; the Courier tells it to send directions, not instructions
+- Reset Variant: The community network votes to open the channel; the Courier refuses the role of central leader
+- Final Reveal: Greywater’s escaped seed reached another isolated settlement, whose residents believed they were alone
+- Final Card: `QUARANTINE LIFTED / ROUTE OPEN`
+- Post-Completion: `bs3d_lastlight_complete` returns the next standard run to Wave 1 after the epilogue is acknowledged

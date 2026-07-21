@@ -3,6 +3,7 @@
 // Phase 2 (<=60% HP): alternate CW/CCW sweeps and occasional cross-bursts; time‑dilation rings that slow nearby projectiles when player stands inside
 
 import { createShardAvatarAsset, createBeatTimeRingAsset, createGlitchBeamSegment } from '../assets/boss_shard_avatar.js';
+import { disposeOwnedObject3D } from './resource-lifecycle.js';
 
 export class ShardAvatar {
   constructor({ THREE, mats, spawnPos, enemyManager, rng = Math.random }) {
@@ -51,6 +52,18 @@ export class ShardAvatar {
     this._belowHalf = false;
     this._belowQuarter = false;
 
+    // Mirage Flank converts prolonged lost sight into a readable lateral
+    // reposition followed by one precision shard. The shot still obeys cover.
+    this._flankState = 'idle';
+    this._flankCooldown = 6.5;
+    this._flankHiddenSeconds = 0;
+    this._flankTimer = 0;
+    this._flankDir = new THREE.Vector3();
+    this._flankDestination = new THREE.Vector3();
+    this._flankTarget = new THREE.Vector3();
+    this._flankLine = null;
+    this._flankRaycaster = new THREE.Raycaster();
+
     // Time‑rings (phase 2)
     this.rings = []; // { mesh, center, radius, life, playerInside }
     this._ringCooldown = 3.5; // delay before possible first ring after p2
@@ -77,6 +90,41 @@ export class ShardAvatar {
 
     // BossManager hook
     this._notifyDeath = null;
+    this._resourcesDisposed = false;
+  }
+
+  _disposeTransientRoot(scene, root) {
+    if (!root) return;
+    scene?.remove?.(root);
+    disposeOwnedObject3D(root);
+  }
+
+  _disposeProjectile(scene, projectile) {
+    if (!projectile?.mesh) return;
+    scene?.remove?.(projectile.mesh);
+    disposeOwnedObject3D(projectile.mesh, { disposeGeometries: false });
+  }
+
+  _removeMirage(mirage, scene) {
+    if (!mirage?.root) return;
+    if (this.enemyManager?.enemies?.has?.(mirage.root)) this.enemyManager.remove(mirage.root);
+    else this._disposeTransientRoot(scene, mirage.root);
+  }
+
+  _clearTransientResources(scene) {
+    if (this._telegraphRing) {
+      this._disposeTransientRoot(scene, this._telegraphRing);
+      this._telegraphRing = null;
+    }
+    for (const projectile of this.projectiles) this._disposeProjectile(scene, projectile);
+    this.projectiles.length = 0;
+    for (const ring of this.rings) this._disposeTransientRoot(scene, ring.mesh);
+    this.rings.length = 0;
+    for (const mirage of [...this.mirages]) this._removeMirage(mirage, scene);
+    this.mirages.length = 0;
+    for (const beat of this._beatVisuals) this._disposeTransientRoot(scene, beat.root);
+    this._beatVisuals.length = 0;
+    this._clearFlankLine(scene);
   }
 
   // --- Movement ---
@@ -85,8 +133,10 @@ export class ShardAvatar {
     const e = this.root;
     const playerPos = ctx.player.position.clone();
     const toPlayer = playerPos.clone().sub(e.position);
+    toPlayer.y = 0;
     const dist = toPlayer.length();
-    toPlayer.y = 0; if (toPlayer.lengthSq() === 0) return; toPlayer.normalize();
+    if (toPlayer.lengthSq() === 0) return;
+    toPlayer.normalize();
 
     const desired = new THREE.Vector3();
     const side = new THREE.Vector3(-toPlayer.z, 0, toPlayer.x).multiplyScalar(this._strafeDir);
@@ -222,7 +272,10 @@ export class ShardAvatar {
       }
       if (this._telegraphTime >= this._telegraphRequired) {
         // Fire volley now
-        if (this._telegraphRing) { ctx.scene.remove(this._telegraphRing); this._telegraphRing = null; }
+        if (this._telegraphRing) {
+          this._disposeTransientRoot(ctx.scene, this._telegraphRing);
+          this._telegraphRing = null;
+        }
         this._setHeadGlow(false);
         const projectileCount = this._spawnBarrage(ctx) + this._maybeCrossBurst(ctx);
         ctx.emitAIEvent?.(this.root, 'ability_released', {
@@ -281,7 +334,12 @@ export class ShardAvatar {
             ownerRoot: p.ownerRoot || this.root,
             blockerRoot: worldHits[0].object || null
           });
-          ctx.scene.remove(p.mesh);
+          if (p.kind === 'shard_mirage_flank') {
+            ctx.emitAIEvent?.(this.root, 'ability_resolved', {
+              ability: 'shard_mirage_flank', hitPlayer: false, reason: 'world_blocked'
+            });
+          }
+          this._disposeProjectile(ctx.scene, p);
           this.projectiles.splice(i, 1);
           continue;
         }
@@ -289,7 +347,12 @@ export class ShardAvatar {
       p.pos.add(step);
       // Cull if too old or out of bounds
       if (p.life > 6.0 || Math.abs(p.pos.x) > 45 || Math.abs(p.pos.z) > 45) {
-        ctx.scene.remove(p.mesh);
+        if (p.kind === 'shard_mirage_flank') {
+          ctx.emitAIEvent?.(this.root, 'ability_resolved', {
+            ability: 'shard_mirage_flank', hitPlayer: false, reason: 'expired'
+          });
+        }
+        this._disposeProjectile(ctx.scene, p);
         this.projectiles.splice(i, 1);
         continue;
       }
@@ -311,7 +374,12 @@ export class ShardAvatar {
             ownerRoot: p.ownerRoot || this.root
           });
         }
-        ctx.scene.remove(p.mesh);
+        if (p.kind === 'shard_mirage_flank') {
+          ctx.emitAIEvent?.(this.root, 'ability_resolved', {
+            ability: 'shard_mirage_flank', hitPlayer: true
+          });
+        }
+        this._disposeProjectile(ctx.scene, p);
         this.projectiles.splice(i, 1);
       }
     }
@@ -322,8 +390,11 @@ export class ShardAvatar {
     const THREE = this.THREE;
     const anchors = this._assetRefs?.mirageAnchors || [];
     if (!anchors.length) return;
+    ctx.emitAIEvent?.(this.root, 'ability_started', {
+      ability: 'shard_mirages', telegraphSeconds: 0
+    });
     // Clear existing mirages first
-    for (const m of this.mirages) ctx.scene.remove(m.root);
+    for (const m of [...this.mirages]) this._removeMirage(m, ctx.scene);
     this.mirages.length = 0;
     const count = Math.min(anchors.length, 2 + this._extraMirages + (this.rng() < 0.5 ? 0 : 1));
     const chosen = new Set();
@@ -360,6 +431,7 @@ export class ShardAvatar {
       fake.position.copy(positions[i]);
       const inst = {
         root: fake,
+        head,
         timer: 0,
         life: 8 + this.rng() * 3,
         target: positions[i].clone(),
@@ -377,11 +449,160 @@ export class ShardAvatar {
           if (inst.timer >= inst.life || !this.enemyManager.enemies.has(fake)) {
             if (this.enemyManager.enemies.has(fake)) this.enemyManager.remove(fake);
           }
+        },
+        onRemoved: scene => {
+          scene?.remove?.(fake);
+          disposeOwnedObject3D(fake);
         }
       };
       this.enemyManager.registerExternalEnemy(inst, { countsTowardAlive: false });
       this.mirages.push(inst);
     }
+    ctx.emitAIEvent?.(this.root, 'ability_released', {
+      ability: 'shard_mirages', mirageCount: this.mirages.length,
+      repositioned: positions.length > 0
+    });
+  }
+
+  _beginMirageFlank(ctx) {
+    const toPlayer = ctx.player.position.clone().sub(this.root.position).setY(0);
+    if (toPlayer.lengthSq() <= 0.001) toPlayer.set(0, 0, 1);
+    toPlayer.normalize();
+    const side = new this.THREE.Vector3(-toPlayer.z, 0, toPlayer.x);
+    const targetChest = ctx.player.position.clone();
+    targetChest.y += 0.65;
+    const candidates = [];
+    for (const distance of [10, 14, 18, 22]) {
+      candidates.push(
+        this.root.position.clone().addScaledVector(side, distance * this._strafeDir),
+        this.root.position.clone().addScaledVector(side, -distance * this._strafeDir)
+      );
+    }
+    const destination = candidates.find(candidate => {
+      candidate.y = this.root.position.y;
+      const positionClear = ctx.positionClear?.(this.root, candidate) ?? true;
+      const origin = candidate.clone();
+      origin.y = 1.1;
+      return positionClear && this._hasWorldLine(origin, targetChest, ctx.objects || []);
+    }) || this.root.position.clone().addScaledVector(side, 18 * this._strafeDir);
+    this._flankDestination.copy(destination);
+    this._flankDir.copy(destination).sub(this.root.position).setY(0);
+    if (this._flankDir.lengthSq() > 0) this._flankDir.normalize();
+    this._flankTarget.copy(ctx.player.position);
+    this._flankState = 'reposition';
+    this._flankTimer = 0;
+    this._setHeadGlow(true);
+    ctx.emitAIEvent?.(this.root, 'ability_started', {
+      ability: 'shard_mirage_flank', telegraphSeconds: 1.35,
+      reason: 'lost_los', destination: this._flankDestination.clone()
+    });
+  }
+
+  _updateMirageFlank(dt, ctx) {
+    if (this._flankState === 'idle') {
+      this._flankCooldown = Math.max(0, this._flankCooldown - dt);
+      const visible = this._hasWorldLine(this.root.position, ctx.player.position, ctx.objects || []);
+      this._flankHiddenSeconds = visible ? 0 : this._flankHiddenSeconds + dt;
+      if (this._flankCooldown <= 0 && this._flankHiddenSeconds >= 1.2) this._beginMirageFlank(ctx);
+      return this._flankState !== 'idle';
+    }
+
+    this._flankTimer += dt;
+    if (this._flankState === 'reposition') {
+      const remaining = this._flankDestination.clone().sub(this.root.position).setY(0);
+      const distance = remaining.length();
+      if (distance > 0.05) {
+        const step = remaining.normalize().multiplyScalar(Math.min(distance, 24 * dt));
+        if (ctx.moveWithCollisions) ctx.moveWithCollisions(this.root, step);
+        else this.root.position.add(step);
+      }
+      if (this._flankTimer >= 0.75 || distance <= 0.2) {
+        this._flankState = 'windup';
+        this._flankTimer = 0;
+        this._flankTarget.copy(ctx.player.position);
+        this._updateFlankLine(ctx.scene);
+      }
+      return true;
+    }
+
+    this._flankTarget.lerp(ctx.player.position, Math.min(1, dt * 2.2));
+    this._updateFlankLine(ctx.scene);
+    if (this._flankTimer < 0.6) return true;
+
+    const origin = this.root.position.clone();
+    origin.y = 1.1;
+    const target = ctx.player.position.clone();
+    target.y += 0.65;
+    const clear = this._hasWorldLine(origin, target, ctx.objects || []);
+    let projectileCount = 0;
+    if (clear) {
+      const dir = target.sub(origin).setY(0);
+      if (dir.lengthSq() <= 0.001) dir.set(0, 0, 1);
+      dir.normalize();
+      const mesh = new this.THREE.Mesh(this._projGeo, this._projMat.clone());
+      mesh.material.color?.setHex?.(0xff4fd8);
+      mesh.position.copy(origin);
+      mesh.userData = { type: 'boss_shard_proj', ability: 'shard_mirage_flank' };
+      ctx.scene.add(mesh);
+      this.projectiles.push({
+        mesh, pos: mesh.position, vel: dir, speed: 18,
+        life: 0, radius: 0.35, ownerRoot: this.root, kind: 'shard_mirage_flank'
+      });
+      projectileCount = 1;
+      ctx.emitAIEvent?.(this.root, 'projectile_fired', {
+        ability: 'shard_mirage_flank', kind: 'shard_mirage_flank', worldVisible: true
+      });
+    } else {
+      ctx.emitAIEvent?.(this.root, 'shot_withheld', {
+        ability: 'shard_mirage_flank', kind: 'shard_mirage_flank', blockedBy: 'world'
+      });
+    }
+    ctx.emitAIEvent?.(this.root, 'ability_released', {
+      ability: 'shard_mirage_flank', projectileCount, worldBlocked: !clear
+    });
+    this._clearFlankLine(ctx.scene);
+    this._flankState = 'idle';
+    this._flankTimer = 0;
+    this._flankHiddenSeconds = 0;
+    this._flankCooldown = 7.5 + this.rng() * 2;
+    this._strafeDir *= -1;
+    this._setHeadGlow(false);
+    return false;
+  }
+
+  _updateFlankLine(scene) {
+    const origin = this.root.position;
+    const delta = this._flankTarget.clone().sub(origin).setY(0);
+    const length = Math.max(0.5, delta.length());
+    if (!this._flankLine) {
+      this._flankLine = new this.THREE.Mesh(
+        new this.THREE.BoxGeometry(0.16, 0.04, 1),
+        new this.THREE.MeshBasicMaterial({ color: 0xff4fd8, transparent: true, opacity: 0.72, depthWrite: false })
+      );
+      scene?.add?.(this._flankLine);
+    }
+    this._flankLine.position.copy(origin).add(this._flankTarget).multiplyScalar(0.5);
+    this._flankLine.position.y = 0.1;
+    this._flankLine.rotation.y = Math.atan2(delta.x, delta.z);
+    this._flankLine.scale.set(1, 1, length);
+  }
+
+  _clearFlankLine(scene) {
+    if (!this._flankLine) return;
+    scene?.remove?.(this._flankLine);
+    this._flankLine.geometry?.dispose?.();
+    this._flankLine.material?.dispose?.();
+    this._flankLine = null;
+  }
+
+  _hasWorldLine(origin, target, objects) {
+    const direction = target.clone().sub(origin);
+    const distance = direction.length();
+    if (distance <= 0.001) return true;
+    direction.normalize();
+    this._flankRaycaster.set(origin, direction);
+    this._flankRaycaster.far = Math.max(0, distance - 0.15);
+    return this._flankRaycaster.intersectObjects(objects, false).length === 0;
   }
 
   _tickMirages(dt, ctx) {
@@ -406,6 +627,10 @@ export class ShardAvatar {
     if (this._ringCooldown > 0) { this._ringCooldown -= ctx.dtForRing || 0; return; }
     const THREE = this.THREE;
     const count = 1 + (this.rng() < 0.5 ? 0 : 1);
+    ctx.emitAIEvent?.(this.root, 'ability_started', {
+      ability: 'shard_time_ring', telegraphSeconds: 0,
+      requestedCount: count
+    });
     for (let i = 0; i < count; i++) {
       const playerPos = ctx.player.position;
       const ang = this.rng() * Math.PI * 2;
@@ -421,6 +646,9 @@ export class ShardAvatar {
       this.rings.push({ mesh: ring, center: center.clone(), radius: 2.6, life: 0, playerInside: false });
     }
     this._ringCooldown = 7 + this.rng() * 3.5;
+    ctx.emitAIEvent?.(this.root, 'ability_released', {
+      ability: 'shard_time_ring', ringCount: count
+    });
   }
 
   _updateRings(dt, ctx) {
@@ -438,7 +666,10 @@ export class ShardAvatar {
       const dz = ctx.player.position.z - r.center.z;
       r.playerInside = (dx*dx + dz*dz) <= r.radius * r.radius;
       // Lifetime
-      if (r.life > 10) { ctx.scene.remove(r.mesh); this.rings.splice(i, 1); }
+      if (r.life > 10) {
+        this._disposeTransientRoot(ctx.scene, r.mesh);
+        this.rings.splice(i, 1);
+      }
     }
     // Allow spawning new ones
     this._maybeSpawnRing({ ...ctx, dtForRing: dt });
@@ -475,7 +706,11 @@ export class ShardAvatar {
       const disk = b.refs?.disk, ring = b.refs?.ring;
       if (disk?.material) disk.material.opacity = Math.max(0, 0.35 - b.life * 0.6);
       if (ring?.material) ring.material.opacity = Math.max(0, 0.85 - b.life * 0.8);
-      if (b.life > 0.6) { ctx.scene.remove(b.root); this._beatVisuals.splice(i, 1); this._setHeadGlow(false); }
+      if (b.life > 0.6) {
+        this._disposeTransientRoot(ctx.scene, b.root);
+        this._beatVisuals.splice(i, 1);
+        this._setHeadGlow(false);
+      }
     }
   }
 
@@ -560,11 +795,15 @@ export class ShardAvatar {
       this._mirageCooldown = 10 + this.rng() * 4;
     }
 
-    // Movement
-    this._updateMovement(dt, ctx);
+    const flankActive = this._updateMirageFlank(dt, ctx);
+
+    // Movement and barrages pause during the committed flank sequence.
+    if (!flankActive) {
+      this._updateMovement(dt, ctx);
+      this._tickBarrage(dt, ctx);
+    }
 
     // Attacks
-    this._tickBarrage(dt, ctx);
     this._updateProjectiles(dt, ctx);
     this._tickMirages(dt, ctx);
     this._updateRings(dt, ctx);
@@ -572,29 +811,17 @@ export class ShardAvatar {
 
     // Cleanup on death
     if (this.root.userData.hp <= 0) {
-      // Remove residual visuals
-      if (this._telegraphRing) { ctx.scene.remove(this._telegraphRing); this._telegraphRing = null; }
-      for (const p of this.projectiles) ctx.scene.remove(p.mesh);
-      this.projectiles.length = 0;
-      for (const r of this.rings) ctx.scene.remove(r.mesh);
-      this.rings.length = 0;
-      for (const m of this.mirages) ctx.scene.remove(m.root);
-      this.mirages.length = 0;
-      for (const b of this._beatVisuals) ctx.scene.remove(b.root);
-      this._beatVisuals.length = 0;
+      this._clearTransientResources(ctx.scene);
     }
   }
 
   onRemoved(scene) {
-    if (this._telegraphRing) { scene.remove(this._telegraphRing); this._telegraphRing = null; }
-    for (const p of this.projectiles) scene.remove(p.mesh);
-    this.projectiles.length = 0;
-    for (const r of this.rings) scene.remove(r.mesh);
-    this.rings.length = 0;
-    for (const m of this.mirages) scene.remove(m.root);
-    this.mirages.length = 0;
-    for (const b of this._beatVisuals) scene.remove(b.root);
-    this._beatVisuals.length = 0;
+    this._clearTransientResources(scene);
+    if (this._resourcesDisposed) return;
+    this._resourcesDisposed = true;
+    this._projGeo?.dispose?.();
+    this._projMat?.dispose?.();
+    disposeOwnedObject3D(this.root);
   }
 }
 

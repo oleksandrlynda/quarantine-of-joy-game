@@ -4,6 +4,8 @@
 
 Build eight reusable campaign levels. Each supports four escalating waves and a boss on the fifth wave. The final campaign package adds Waves 36–40 and culminates at Wave 40 with **The Algorithm**. Clearing the campaign unlocks the first ten-wave post-game endurance sector.
 
+Every seamless level-entry wave after the opening district (Waves 6, 11, 16, 21, 26, 31, 36, and 41) places one authored ammo crate and one authored health crate on separate clear routes near the player approach. These are optional recovery resources rather than an automatic health or reserve refill, and any unopened entry crates are cleared when the next wave begins.
+
 | Level | Waves | Role | Final Encounter |
 |---|---:|---|---|
 | Relay District | 1–5 | Onboarding arena | Broodmaker (light) |
@@ -15,8 +17,12 @@ Build eight reusable campaign levels. Each supports four escalating waves and a 
 | Content Court | 31–35 | Radial objectives and final Bureau trial | Strike Adjudicator |
 | Server Cathedral | 36–40 | Campaign climax and player choice | The Algorithm |
 | Sandstorm Expanse | 41–50 | Post-game endurance sector | Elite assault at Wave 50 |
-| Floodgate Continuity | 51–71 | Proposed three-chapter deep run | Greywater Protocol shutdown |
-| Blackout Cistern | 72 | One-wave darkness climax | Last Light swarm |
+| Floodgate Continuity | 51–71 | Three-chapter flood-control endurance run | Greywater core shutdown at Wave 71 |
+| Blackout Cistern — Last Light | 72 | One-wave darkness climax | Four internal surges and the Swarm Warden |
+
+### Authored Encounter Pacing
+
+Campaign arenas commit a larger authored roster without putting the entire roster on screen at once. Ordinary waves open with one package, release later packages after the active group is substantially cleared, and hold surplus units in a committed queue while the wave's `activeCap` is full. Objective waves attach package releases to objective progress instead. A wave cannot complete while a package or queued unit remains. This preserves escalation and battlefield pressure without returning to random procedural spawn coordinates.
 
 ### Shared Level Rules
 
@@ -26,6 +32,35 @@ Build eight reusable campaign levels. Each supports four escalating waves and a 
 - Spawns: four to six authored entrances using doors, hatches, vents, lifts, or perimeter gates.
 - Readability: one dominant landmark, one route color per lane, and protected space around objectives.
 - State change: every level needs an oppressed state and a visibly liberated state after victory.
+
+### Boss Arena Blockout Standard
+
+All dimensions below describe **clear traversable floor inside collision walls**, not the exterior architectural footprint. Treat one world unit as approximately one metre. Add wall thickness, facade depth, inaccessible dressing, and transition spaces outside these dimensions.
+
+| Boss | Recommended clear floor | Absolute minimum | Blockout requirement |
+|---|---:|---:|---|
+| Broodmaker | 54 x 48 m | 46 m short axis | Maintain two broad routes around the brood screen. The diagnostic recorded an approximately 43 x 33 m boss movement envelope. |
+| Commissioner Sanitizer | 52 x 52 m | 46 x 46 m | Preserve the 12 m Suppression Node ring, hazard bands reaching approximately 14 m, and reinforcement spawns at 16–19 m. |
+| Influencer Captain | 52 x 46 m | 44 m short axis | Reserve a separate aerial corridor approximately 96 m long for the Zeppelin's pass from X -44 to X +46. |
+| Algorithm Shard Avatar | 54 x 54 m | 48 x 48 m | Keep a large open center for radial barrages and use compact cover islands with two bypasses. |
+| Broodmaker Prime | 64 x 60 m | 56 x 56 m | Support a recorded 53 x 54 m boss envelope, ten concurrent auxiliaries, burrow relocation, goo, and Flyers. |
+| Echo Hydraclone | 52 x 52 m | 44 x 44 m | Support up to 36 active bodies and queued descendants without narrow crowd traps. |
+| Strike Adjudicator | 46 x 42 m | 38 x 38 m | Keep lateral escape lanes around Citation mine screens and readable access to every Purge Node. |
+| The Algorithm | 42 x 42 m | 36 x 36 m | Keep the anchored center clear; Control Nodes occupy an 11 m radius and Paradox echoes an 8.5 m radius. |
+
+Use **54 x 54 m** as the reusable standard boss module. Use the expanded **64 x 60 m** module for Broodmaker Prime and full-lineage Hydraclone encounters. The Algorithm may use the compact 42 x 42 m anchor module.
+
+Boss-arena construction rules:
+
+- Ground boss routes must be at least 7 m wide, or 8 m when adds share the route.
+- Keep 3–4 m of unobstructed perimeter space for retreat, flanking, and spawn recovery.
+- Full-height LOS cover should be 4–6 m wide and must have two bypass routes. Never use a continuous barrier to divide the arena into isolated halves.
+- Hard cover should occupy approximately 15–20% of the traversable floor. Shard needs a mostly open central pattern space; Sanitizer's objective and hazard rings must not overlap authored clutter.
+- Standard clear ceiling height is 10–12 m. Use 14–16 m for Sanitizer jumps, Flyers, and Zeppelin visibility. Captain's Zeppelin requires an exterior or overhead exit volume because its retreat can rise beyond the playable ceiling.
+- Expand navigation obstacles by the active boss collision radius. The largest current ground boss radius is approximately 2.45 m, so player-width validation alone is insufficient.
+- Place boss, objective, reinforcement, and relocation anchors before decorative cover. Validate every phase layout, not only the opening phase.
+
+Current technical constraint: Sanitizer objective/hazard placement, Broodmaker relocation, Adjudicator clamping, and Captain's Zeppelin route contain world-centered coordinates or bounds. Until encounters expose a local arena origin, boss rooms must remain centered near world XZ `(0, 0)`. The supported outer simulation bounds are approximately X/Z `-39..39`; the Zeppelin uses a wider external flight volume.
 
 ## Level 01 — Relay District
 
@@ -41,13 +76,15 @@ The default weather schedule is clear in Waves 1–2, rain in Waves 3–5, and c
 
 | Wave | Encounter | Authored roster and gate |
 |---:|---|---|
-| 1 | Break the Cordon | 6 Grunts from the north door and west gate. |
-| 2 | Clear the Blind Spots | 7 Grunts and 1 Shooter; the east alley enters the spawn rotation. |
-| 3 | Restore Both Feeds | 8 Grunts, 1 Shooter, and 1 Tank in three packages. Hold the west terminal and east power relay for 6 seconds each, in either order. |
-| 4 | Overcharge the Mast | 8 Grunts, 2 Shooters, and 1 Tank. Packages release at the start and at 33%/66% of a 24-second cumulative mast capture. |
+| 1 | Break the Cordon | 8 Grunts in two packages; active cap 8. The north door and west gate teach readable reinforcement entrances. |
+| 2 | Clear the Blind Spots | 9 Grunts and 2 Shooters in two packages; active cap 9. The east alley enters the spawn rotation. |
+| 3 | Restore Both Feeds | 10 Grunts, 3 Shooters, and 1 Tank in three packages; active cap 10. Hold the west terminal and east power relay for 6 seconds each, in either order. |
+| 4 | Overcharge the Mast | 11 Grunts, 4 Shooters, and 1 Tank in three packages; active cap 11. Packages release at the start and at 33%/66% of a 24-second cumulative mast capture. |
 | 5 | Nest at the Relay | Light Broodmaker at the fixed nest anchor. Infestation replaces normal objective dressing until liberation. |
 
-Capture time pauses while the player is outside or an enemy contests the zone. Progress never decays. A wave cannot advance until both its roster and its objective gate are complete. After the Wave 5 liberation beat, Relay District unloads and Wave 6 begins in the procedural arena until Level 02 is playable.
+The boss diagnostic's **Level 1 · Relay District** case targets this Wave 5 light Broodmaker, not Sanitizer. It loads the production Relay geometry and fixed boss anchor, moves the player through both side lanes and the civic court, and validates playable bounds, collision-safe navigation, the production 15–22 m working range, Gruntling placement, and whether the brood forms a real screen between boss and player.
+
+Capture time pauses while the player is outside or an enemy contests the zone. Progress never decays. A wave cannot advance until both its roster and its objective gate are complete. After the Wave 5 liberation beat, Relay District unloads and Wave 6 begins in Sanitizer Spire.
 
 ### Relay Spawn Network
 
@@ -78,6 +115,10 @@ The runtime validates each pad against Relay's simplified static colliders durin
 **Why:** Introduce suppression fields and force the player to destroy support targets before attacking the boss.  
 **What:** A sterile Bureau forecourt leading into a press-control floor. Three censorship stations control visibility, healing, and enemy reinforcement speed.
 
+The west clinic route now contains a short, two-ended stair and catwalk flank with solid rails, support collision, and authored walkable ramps. It creates a real high/low sightline decision without entering the 11 m boss-clear ring. Wave 8 activates three proximity suppression feeds—west censor, east censor, and press censor. Each feed pauses while contested, never loses progress, and releases the next committed reinforcement package when completed.
+
+Regular-wave roster totals are 14, 16, 18, and 20 for Waves 6–9, with active caps rising from 10 to 12. Wave 10 remains the fixed Commissioner Sanitizer encounter.
+
 ### Assets for This Level
 
 **Reuse from `src/assets`:**
@@ -100,6 +141,8 @@ The runtime validates each pad against Relay's simplified static colliders durin
 **Why:** Add moving cover, area denial, and rapidly changing combat lanes.  
 **What:** A commercial plaza seized by the Influencer Militia. Sponsor zones reward risky positions while billboard walls periodically reshape routes.
 
+Waves 11–14 commit 18, 20, 23, and 24 enemies, with active caps of 12–13. Reinforcement packages preserve the arena's moving-cover rhythm; Wave 13 binds its later packages to the Sponsor Window objective instead of releasing every unit at the opening bell.
+
 ### Assets for This Level
 
 **Reuse from `src/assets`:**
@@ -121,6 +164,8 @@ The runtime validates each pad against Relay's simplified static colliders durin
 **Waves:** 16–20  
 **Why:** Test navigation under poor visibility and give long-range weapons room to breathe.  
 **What:** A storm-damaged processing road with three wind lanes. Sand gusts close long sightlines, while sheltered cross-routes remain reliable.
+
+The playable floor combines a walkable dune shoulder, eroded-road transition, and dry-wash terrain module so the arena no longer reads as one flat plane. Four three-state windbreak groups create paired northern and southern shelter decisions while retaining the open Shard pattern space. Waves 16–19 commit 20, 23, 26, and 29 enemies with active caps of 13–14, delivered as staged pressure rather than one performance-heavy burst.
 
 ### Assets for This Level
 
@@ -293,13 +338,15 @@ The runtime validates each pad against Relay's simplified static colliders durin
 - **Storm siren tower** — warns of heavy gusts and serves as the arena's dominant landmark.
 - **Endurance relay monument** — activates after Wave 50 and records the completed sector.
 
-## Proposed Endless Sector 02 — Floodgate Continuity
+## Endless Sector 02 — Floodgate Continuity
 
 **Waves:** 51–71  
 **Unlock:** Complete Sandstorm Expanse.  
 **Story event:** The Greywater Protocol.  
 **Why:** Continue the post-game without reversing the victory over The Algorithm. The player fights a dormant Bureau failsafe rather than discovering that the main ending did not matter.  
 **What:** One large, transforming Floodgate Underpass level divided into three seven-wave chapters. Flood-control tunnels also cooled the old Bureau data network, so changing water levels reveal a sealed Continuity Archive beneath Echo City.
+
+**Implementation status:** Authored in `src/levels/floodgate-continuity.js` with Waves 51–71, persistent restart checkpoints at Waves 58 and 65, four water states, synchronized route locks and currents, three Archive Seed objectives, and the Wave 71 Greywater override finale.
 
 ### Story Setup
 
@@ -370,7 +417,7 @@ Twenty-one uninterrupted waves would create fatigue, so the level uses three cha
 - Floodgate and shortcut state restoration when a chapter is resumed.
 - Ending-specific helper lights and dialogue using the same objective logic.
 
-## Proposed Wave 72 — Blackout Cistern
+## Implemented Wave 72 — Blackout Cistern
 
 **Encounter name:** Last Light  
 **Unlock:** Shut down the Greywater core at Wave 71.  
@@ -495,5 +542,5 @@ Background placement rules:
 - **Campaign last boss:** The Algorithm at **Wave 40** in Server Cathedral.
 - **First post-game run:** Sandstorm Expanse at **Waves 41–50**, ending with an elite assault rather than a new boss.
 - **Proposed second post-game run:** Floodgate Continuity at **Waves 51–71**, ending with the Greywater core shutdown.
-- **Proposed Wave 72 climax:** Blackout Cistern, an enormous melee-and-drone swarm commanded by one Swarm Warden.
+- **Implemented Wave 72 climax:** Blackout Cistern, an enormous melee-and-drone swarm commanded by one Swarm Warden.
 - Waves 36–39 form the final gauntlet and Wave 40 now routes directly into the arena-centered Algorithm encounter.

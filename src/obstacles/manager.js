@@ -22,6 +22,8 @@ export class ObstacleManager {
     // hooks set later from main
     this.enemyManager = null;
     this.pickups = null;
+    this.effects = null;
+    this.sfx = null;
     this.onScore = null; // (points)=>void
     this.onPlayerDamage = null; // (amount)=>void
     this.onCollidersChanged = null; // (colliders: THREE.Object3D[])=>void
@@ -29,6 +31,7 @@ export class ObstacleManager {
     // debris pooling
     this._debrisPool = [];
     this._debrisActive = [];
+    this._barrelExplosionDepth = 0;
 
     // maze system
     // Maze system (disabled for now)
@@ -75,7 +78,7 @@ export class ObstacleManager {
     const arenaRadius = arenaRadiusSq ? Math.sqrt(arenaRadiusSq) : 35;
 
     const create = (type) => {
-      const y = type === 'barrel' ? 0.6 : (type === 'lowWall' ? 0.33 : 1);
+      const y = type === 'barrel' ? 0.73 : (type === 'lowWall' ? 0.33 : 1);
       return new Destructible({ THREE: this.THREE, mats: this.mats, type, position: new this.THREE.Vector3(0, y, 0) });
     };
 
@@ -168,7 +171,7 @@ export class ObstacleManager {
     const types = ['crate', 'barricade', 'lowWall', 'barrel'];
     for (let i = 0; i < missing; i++) {
       const type = types[(this.rng() * types.length) | 0];
-      const y = type === 'barrel' ? 0.6 : (type === 'lowWall' ? 0.33 : 1);
+      const y = type === 'barrel' ? 0.73 : (type === 'lowWall' ? 0.33 : 1);
       const inst = new Destructible({
         THREE: this.THREE,
         mats: this.mats,
@@ -238,7 +241,7 @@ export class ObstacleManager {
     if (Array.isArray(map.obstacles)) {
       for (const o of map.obstacles) {
         if (!o || !o.type) continue;
-        const yDefault = o.type === 'barrel' ? 0.6 : (o.type === 'lowWall' ? 0.33 : 1.0);
+        const yDefault = o.type === 'barrel' ? 0.73 : (o.type === 'lowWall' ? 0.33 : 1.0);
         const inst = new Destructible({ THREE: this.THREE, mats: this.mats, type: o.type, position: new this.THREE.Vector3(Number(o.x)||0, (o.y!=null?Number(o.y):yDefault), Number(o.z)||0) });
         if (inst && inst.root) {
           if (o.rotY) inst.root.rotation.y = Number(o.rotY) || 0;
@@ -265,6 +268,34 @@ export class ObstacleManager {
     // Notify consumers that colliders changed
     this._notifyCollidersChanged();
     return result;
+  }
+
+  // Populate an authored level with destructibles while keeping the same
+  // canonical collider list used by weapons, the player, and enemy AI.
+  loadPlacements(placements = [], objects = this.objects) {
+    this.clear();
+    this.objects = objects;
+    for (const placement of placements) {
+      if (!placement?.type) continue;
+      const yDefault = placement.type === 'barrel' ? 0.73 : (placement.type === 'lowWall' ? 0.33 : 1);
+      const inst = new Destructible({
+        THREE: this.THREE,
+        mats: this.mats,
+        type: placement.type,
+        position: new this.THREE.Vector3(
+          Number(placement.x) || 0,
+          placement.y == null ? yDefault : Number(placement.y),
+          Number(placement.z) || 0
+        )
+      });
+      if (!inst.root) continue;
+      inst.root.rotation.y = Number(placement.rotY) || 0;
+      inst.root.userData.authoredDestructibleId = placement.id || null;
+      this._addDestructible(inst, { defer: true });
+    }
+    this._flushDeferred();
+    this.initialObstacleCount = this.obstacles.size;
+    return this.obstacles.size;
   }
 
   _buildRamp({ w, steps = 6, stepH = 0.3, stepD = 1.0, rotY = 0, x = 0, y = 0, z = 0 }) {
@@ -294,7 +325,8 @@ export class ObstacleManager {
   clear() {
     if (!this.obstacles.size) return;
     for (const o of this.obstacles) {
-      if (this.scene) this.scene.remove(o);
+      this.rootToDestructible.get(o)?.dispose?.();
+      o.parent?.remove?.(o);
       // Remove from shared collidable list if present
       if (this.objects) {
         const idx = this.objects.indexOf(o);
@@ -434,13 +466,13 @@ export class ObstacleManager {
   }
 
   _addDestructible(inst, { defer = false } = {}) {
-    this.scene.add(inst.root);
+    if (!inst.root.parent) this.scene.add(inst.root);
     this.obstacles.add(inst.root);
     this.rootToDestructible.set(inst.root, inst);
     if (defer) {
       this._deferred.push(inst.root);
     } else {
-      if (this.objects) this.objects.push(inst.root);
+      if (this.objects && !this.objects.includes(inst.root)) this.objects.push(inst.root);
       this._notifyCollidersChanged();
     }
   }
@@ -483,6 +515,30 @@ export class ObstacleManager {
     return { handled: true, destroyed: !!res.destroyed, type: inst.type };
   }
 
+  registerAbilityDestructible(inst, objects = this.objects) {
+    if (!inst?.root || typeof inst.damage !== 'function') return false;
+    // Some authored levels populate the shared collider list without going
+    // through generate/loadFromMap. Dynamic ability props must still attach to
+    // that canonical list so hitscan, player collision, and enemy navigation
+    // all see the same obstacle.
+    if (Array.isArray(objects)) this.objects = objects;
+    inst.root.userData.destructible = inst;
+    this._addDestructible(inst);
+    return true;
+  }
+
+  removeAbilityDestructible(root) {
+    const inst = this.rootToDestructible.get(root);
+    if (!inst) return false;
+    root.parent?.remove?.(root);
+    const index = this.objects?.indexOf?.(root) ?? -1;
+    if (index >= 0) this.objects.splice(index, 1);
+    this.obstacles.delete(root);
+    this.rootToDestructible.delete(root);
+    this._notifyCollidersChanged();
+    return true;
+  }
+
   handleRadialHit(center, radius, damage) {
     if (!center || radius <= 0 || damage <= 0) return { handled: 0, destroyed: 0 };
     const bounds = new this.THREE.Box3();
@@ -509,7 +565,7 @@ export class ObstacleManager {
   _onDestroyed(inst) {
     // remove from scene + collisions
     const root = inst.root;
-    if (this.scene) this.scene.remove(root);
+    root.parent?.remove?.(root);
     if (this.objects) {
       const idx = this.objects.indexOf(root);
       if (idx !== -1) this.objects.splice(idx, 1);
@@ -520,27 +576,35 @@ export class ObstacleManager {
     // Notify consumers that colliders changed
     this._notifyCollidersChanged();
 
+    inst.onDestroyed?.();
+
     // score
-    if (this.onScore) this.onScore(10);
+    if (!inst.suppressScore && this.onScore) this.onScore(10);
 
     // debris burst
     this._spawnDebris(inst.root.position, inst.type);
 
-    // explosion for barrels
+    // Volatile barrels produce a real gameplay blast, including chain
+    // reactions with nearby destructibles.
     if (inst.type === 'barrel') {
-      const kills = this._barrelExplode(inst.root.position);
+      const kills = this._barrelExplode(inst.root.position.clone());
       if (kills >= 2 && this.onScore) this.onScore(25);
     }
 
     // drops rule: ≤1 per 6 destructions, block during boss waves
+    if (inst.suppressDefaultDrop) {
+      inst.dispose?.();
+      return;
+    }
     this.destroyCount++;
     const allowDropGate = Math.floor(this.destroyCount / 6);
     const bossActive = !!(this.enemyManager && this.enemyManager.bossManager && this.enemyManager.bossManager.active);
     const isBossWave = !!(this.enemyManager && (this.enemyManager.wave % 5 === 0));
     if (!bossActive && !isBossWave && this.pickups && allowDropGate > this.lastDropGate) {
       this.lastDropGate = allowDropGate;
-      this.pickups.maybeDrop(inst.root.position.clone());
+      this.pickups.maybeDrop(inst.root.position.clone(), { source: 'world' });
     }
+    inst.dispose?.();
   }
 
   // Allow external systems to remove a barrel from the world without triggering destruction side-effects
@@ -569,7 +633,8 @@ export class ObstacleManager {
 
   _spawnDebris(position, type) {
     const THREE = this.THREE;
-    const count = type === 'barricade' ? 16 : (type === 'lowWall' ? 12 : 10);
+    const isChainedBarrel = type === 'barrel' && this._barrelExplosionDepth > 0;
+    const count = isChainedBarrel ? 4 : (type === 'barricade' ? 16 : (type === 'lowWall' ? 12 : 10));
     const baseColor = (type === 'crate') ? 0xC6A15B : ((type === 'barricade' || type === 'lowWall') ? 0x8ecae6 : 0xCC3333);
     for (let i = 0; i < count; i++) {
       let item = this._debrisPool.pop();
@@ -606,20 +671,43 @@ export class ObstacleManager {
   }
 
   _barrelExplode(center) {
-    const THREE = this.THREE;
-    const radius = 3.0;
-    const damageEnemy = 80;
-    const damagePlayer = 25;
+    const radius = 4.2;
+    const damageEnemy = 140;
+    const damagePlayer = 30;
     let kills = 0;
+    const isChainReaction = this._barrelExplosionDepth > 0;
+    if (isChainReaction) {
+      this.effects?.spawnGroundRing?.(center, radius * 0.9, 0xff512f);
+    } else {
+      this.effects?.spawnExplosion?.(center, radius, 0xff512f);
+      this.effects?.shake?.(0.22, 0.28);
+      this.sfx?.explosion?.();
+    }
+
+    // The destroyed barrel is already out of the obstacle set, so this safely
+    // propagates to nearby barrels and creates deterministic chain reactions.
+    this._barrelExplosionDepth += 1;
+    try {
+      this.handleRadialHit(center, radius, 110);
+    } finally {
+      this._barrelExplosionDepth -= 1;
+    }
+
     // Damage enemies
     if (this.enemyManager) {
       for (const e of Array.from(this.enemyManager.enemies)) {
         const dx = e.position.x - center.x;
         const dz = e.position.z - center.z;
-        const d2 = dx*dx + dz*dz;
-        if (d2 <= radius * radius) {
-          e.userData.hp -= damageEnemy;
-          if (e.userData.hp <= 0) { this.enemyManager.remove(e); kills++; }
+        const distance = Math.hypot(dx, dz);
+        if (distance <= radius) {
+          const falloff = 0.4 + 0.6 * (1 - distance / radius);
+          const result = this.enemyManager.applyHit?.(e, false, Math.round(damageEnemy * falloff));
+          const killed = result ? result.killed : ((e.userData.hp -= Math.round(damageEnemy * falloff)) <= 0);
+          if (killed) {
+            this.effects?.enemyDeath?.(e.position.clone());
+            this.enemyManager.remove(e);
+            kills++;
+          }
         }
       }
     }
@@ -630,9 +718,10 @@ export class ObstacleManager {
       if (p) {
         const dx = p.x - center.x;
         const dz = p.z - center.z;
-        const d2 = dx*dx + dz*dz;
-        if (d2 <= radius * radius) {
-          this.onPlayerDamage(damagePlayer);
+        const distance = Math.hypot(dx, dz);
+        if (distance <= radius) {
+          const falloff = 0.5 + 0.5 * (1 - distance / radius);
+          this.onPlayerDamage(Math.round(damagePlayer * falloff));
         }
       }
     }

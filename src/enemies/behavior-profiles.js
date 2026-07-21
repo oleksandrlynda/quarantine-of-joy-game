@@ -49,6 +49,18 @@ const AIR_SCENARIOS = Object.freeze([
   'mixed_squad_attack'
 ]);
 
+const PELICAN_SCENARIOS = Object.freeze([
+  'open_pursuit',
+  'wall_occlusion',
+  'sight_reacquisition',
+  'moving_target',
+  'aerial_congestion',
+  'pelican_bombing_cycle',
+  'duo_attack',
+  'squad_attack',
+  'mixed_squad_attack'
+]);
+
 const SUPPORT_SCENARIOS = Object.freeze([
   'wall_occlusion',
   'sight_reacquisition',
@@ -108,7 +120,7 @@ export const ENEMY_BEHAVIOR_PROFILES = Object.freeze({
   shooter: freezeProfile({
     id: 'shooter', role: 'ranged', movementLayer: 'ground', collisionRadius: 0.55,
     collisionHeight: 1.7, bodyPriority: 1, preferredRange: [12, 18],
-    actions: ['range', 'route', 'peek', 'ally_cover', 'aim', 'burst', 'relocate'],
+    actions: ['range', 'route', 'peek', 'ally_cover', 'aim', 'burst', 'counter_aim_evade', 'gun_butt', 'relocate'],
     scenarios: Object.freeze([...RANGED_SCENARIOS, 'ally_cover_usage'])
   }),
   sniper: freezeProfile({
@@ -125,6 +137,11 @@ export const ENEMY_BEHAVIOR_PROFILES = Object.freeze({
     id: 'flyer', role: 'air', movementLayer: 'air', collisionRadius: 0.48,
     collisionHeight: 0.9, bodyPriority: 2, preferredRange: [8, 12],
     actions: ['orbit', 'windup', 'dive', 'recover'], scenarios: AIR_SCENARIOS
+  }),
+  pelican: freezeProfile({
+    id: 'pelican', role: 'air_bomber', movementLayer: 'air', collisionRadius: 1.05,
+    collisionHeight: 1.3, bodyPriority: 3, preferredRange: [5, 18],
+    actions: ['recharge', 'approach', 'drop_grenade', 'retreat'], scenarios: PELICAN_SCENARIOS
   }),
   healer: freezeProfile({
     id: 'healer', role: 'support', movementLayer: 'ground', collisionRadius: 0.55,

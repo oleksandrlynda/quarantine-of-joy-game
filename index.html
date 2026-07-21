@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Syne:wght@700;800&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="styles/styles.css" />
+<link rel="stylesheet" href="styles/styles.css?v=1.0.3&amp;rev=level-transition1" />
 </head>
 <body class="menu-open">
 <div id="hud" class="hud-blockjoy">
@@ -70,7 +70,7 @@
   </div>
 
   <section id="objectiveTracker" class="objective-tracker" hidden aria-live="polite">
-    <span class="objective-kicker" data-i18n="level.relay.name">Relay District</span>
+    <span id="objectiveKicker" class="objective-kicker" data-i18n="level.relay.name">Relay District</span>
     <strong id="objectiveTitle"></strong>
     <span id="objectiveDetail"></span>
     <div id="objectiveProgress" class="objective-progress"><i id="objectiveBar"></i></div>
@@ -88,6 +88,12 @@
   </div>
 
   <div id="desktopHelp" class="hud-help" data-i18n="hud.desktopHelp">WASD move • Mouse aim • Click shoot • R reload • Shift sprint • C crouch • Space jump • P pause</div>
+</div>
+
+<div id="levelTransition" hidden aria-hidden="true" role="status" aria-live="polite">
+  <div class="level-transition-depth" aria-hidden="true"></div>
+  <div class="level-transition-grain" aria-hidden="true"></div>
+  <div id="levelTransitionLabel" class="level-transition-label" data-i18n="transition.calibrating">Vision filter recalibrating</div>
 </div>
 
 <div id="zoomOverlay" aria-hidden="true"><div class="zoom-blur"></div></div>
@@ -109,6 +115,11 @@
 <div id="achievements"></div>
 
 <div id="newsTicker"></div>
+
+<div id="storyBroadcast" role="status" aria-live="polite" aria-atomic="true">
+  <div class="story-broadcast-label" data-i18n="story.signal">Transmission</div>
+  <div id="storyBroadcastText" class="story-broadcast-text"></div>
+</div>
 
 <div id="story" style="display:none">
   <div class="card">
@@ -173,12 +184,13 @@
           <button class="secondary" id="tutorialBtn" type="button"><span data-i18n="start.tutorial">Tutorial</span></button>
           <button class="secondary" id="openAchievements" type="button"><span data-i18n="achievements.title">Achievements</span></button>
         </div>
-        <button class="secondary menu-settings" id="openArchive" type="button" style="display:none"><span data-i18n="archive.title">Punchline Archive</span> <small id="archiveMenuBalance">0</small></button>
+        <button class="secondary menu-settings" id="openArchive" type="button" disabled><span data-i18n="archive.title">Punchline Archive</span> <small id="archiveMenuBalance">0</small></button>
         <button class="secondary menu-settings" id="openSettings" type="button"><span data-i18n="settings.title">Settings</span></button>
-        <button class="secondary menu-settings debug-only-control" id="openDebugLog" type="button"><span data-i18n="debugLog.open">Performance log</span></button>
+        <button class="secondary menu-settings debug-only-control" id="openDebugLog" type="button"><span data-i18n="debugLog.open">Support logs</span></button>
         <div class="menu-tip tiny" id="startTip" data-i18n="start.tipDesktop">Click Play, then click to lock the mouse.</div>
       </div>
       <div class="menu-foot">
+        <div class="tiny menu-playtime"><span data-i18n="playtime.label">Time played</span> <span class="playtimeValue">0 minutes</span></div>
         <div class="tiny appVersion"><span data-i18n="settings.version">Version</span> <span class="appVersionValue"></span></div>
         <div class="menu-links tiny">
           <a href="https://github.com/oleksandrlynda/quarantine-of-joy-game/issues" target="_blank" rel="noopener" data-i18n="start.bugs">Bugs</a>
@@ -211,13 +223,27 @@
     </div>
   </div>
 
+  <div id="tutorialCompleteMenu" class="menu-modal tutorial-complete-menu" style="display:none" role="dialog" aria-modal="true" aria-labelledby="tutorialCompleteTitle" aria-describedby="tutorialCompleteCopy">
+    <div class="menu-eyebrow" data-i18n="tutorial.completeEyebrow">Blind-room clearance</div>
+    <div class="tutorial-complete-mark" aria-hidden="true"><span>8</span><small>/8</small></div>
+    <h2 id="tutorialCompleteTitle" data-i18n="tutorial.completeTitle">Congratulations.</h2>
+    <p id="tutorialCompleteCopy" data-i18n="tutorial.completeReady">You completed the training. Ready for the real game?</p>
+    <div class="menu-modal-actions tutorial-complete-actions">
+      <button class="primary" id="tutorialCompleteYes" type="button"><span data-i18n="tutorial.completeYes">Yes</span></button>
+      <button class="secondary" id="tutorialCompleteAlsoYes" type="button"><span data-i18n="tutorial.completeYes">Yes</span></button>
+    </div>
+  </div>
+
   <div id="archiveMenu" class="menu-modal archive-menu" style="display:none" role="dialog" aria-modal="true" aria-labelledby="archiveTitle">
     <div class="archive-head">
       <div>
         <div class="menu-eyebrow" data-i18n="archive.eyebrow">Recovered possibilities</div>
         <h2 id="archiveTitle" data-i18n="archive.title">Punchline Archive</h2>
       </div>
-      <div class="fragment-balance"><span aria-hidden="true">◆</span><strong id="archiveBalance">0</strong></div>
+      <div class="archive-head-actions">
+        <div class="fragment-balance"><span aria-hidden="true">◆</span><strong id="archiveBalance">0</strong></div>
+        <button class="archive-close" id="archiveClose" type="button" aria-label="Close Archive" data-i18n-title="archive.close">&times;</button>
+      </div>
     </div>
     <p class="archive-copy" data-i18n="archive.copy">Unlock survival mutations for the run progression pool, build weapon mastery, and decrypt classified gear. Mutation ranks reset every run.</p>
     <div id="archiveGrid" class="archive-grid"></div>
@@ -248,7 +274,7 @@
         <button class="secondary" id="pauseRestart" type="button"><span data-i18n="start.retry">Retry</span></button>
         <button class="secondary" id="pauseAchievements" type="button"><span data-i18n="achievements.title">Achievements</span></button>
         <button class="secondary" id="pauseSettings" type="button"><span data-i18n="settings.title">Settings</span></button>
-        <button class="secondary debug-only-control" id="pauseDebugLog" type="button"><span data-i18n="debugLog.open">Performance log</span></button>
+        <button class="secondary debug-only-control" id="pauseDebugLog" type="button"><span data-i18n="debugLog.open">Support logs</span></button>
       </div>
       <button class="pause-main-menu" id="pauseMain" type="button"><span data-i18n="defeat.mainMenu">Main menu</span><small data-i18n="pause.mainHint">Leave current run</small></button>
     </div>
@@ -261,12 +287,12 @@
         <h2 id="achievementsTitle" data-i18n="achievements.title">Achievements</h2>
       </div>
       <div class="achievements-head-actions">
-        <div class="achievements-total" id="achievementsTotal">0 / 42</div>
+        <div class="achievements-total" id="achievementsTotal">0 / 58</div>
         <button class="achievements-close" id="achievementsClose" type="button" aria-label="Close achievements" data-i18n-title="achievements.close">×</button>
       </div>
     </div>
     <div class="achievements-progress" aria-hidden="true"><span id="achievementsProgress"></span></div>
-    <div class="achievements-summary" id="achievementsSummary">0 of 42 unlocked</div>
+    <div class="achievements-summary" id="achievementsSummary">0 of 58 unlocked</div>
     <div class="achievements-grid" id="achievementsGrid"></div>
     <div class="menu-modal-actions">
       <button class="secondary" id="achievementsBack" type="button"><span data-i18n="settings.back">Back</span></button>
@@ -287,46 +313,77 @@
     </div>
   </div>
 
-  <div id="settingsMenu" class="menu-modal" style="display:none">
-    <h2 data-i18n="settings.title">Settings</h2>
-    <div class="settingsGroup">
-      <h3 data-i18n="settings.quality">Quality</h3>
-      <div class="menu-quality-row">
-        <button class="secondary" id="qLow" data-i18n="quality.low" data-i18n-title="quality.lowTitle" title="aa=off, shadows=off, auto DPR">Low</button>
-        <button class="secondary" id="qMed" data-i18n="quality.medium" data-i18n-title="quality.medTitle" title="aa=off, shadows=off, auto DPR + ACES">Medium</button>
-        <button class="secondary" id="qHigh" data-i18n="quality.high" data-i18n-title="quality.highTitle" title="aa=on, shadows=on">High</button>
-        <button class="secondary" id="qUltra" data-i18n="quality.ultra" data-i18n-title="quality.ultraTitle" title="aa=on, shadows=on (max)">Ultra</button>
+  <div id="settingsMenu" class="menu-modal settings-menu" style="display:none" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <h2 id="settingsTitle" data-i18n="settings.title">Settings</h2>
+    <div class="settings-tabs" role="tablist" aria-label="Settings categories">
+      <button class="settings-tab" id="settingsTabVideo" type="button" role="tab" aria-selected="true" aria-controls="settingsPanelVideo" data-settings-tab="video" data-i18n="settings.video">Video</button>
+      <button class="settings-tab" id="settingsTabAudio" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelAudio" data-settings-tab="audio" data-i18n="settings.audio">Audio</button>
+      <button class="settings-tab" id="settingsTabControls" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelControls" data-settings-tab="controls" data-i18n="settings.controls">Controls</button>
+      <button class="settings-tab" id="settingsTabSupport" type="button" role="tab" aria-selected="false" aria-controls="settingsPanelSupport" data-settings-tab="support" data-i18n="settings.support">Support</button>
+    </div>
+
+    <div class="settings-panel" id="settingsPanelVideo" role="tabpanel" aria-labelledby="settingsTabVideo" data-settings-panel="video">
+      <div class="settingsGroup">
+        <h3 data-i18n="settings.quality">Quality</h3>
+        <div class="menu-quality-row">
+          <button class="secondary" id="qLow" data-i18n="quality.low" data-i18n-title="quality.lowTitle" title="aa=off, shadows=off, auto DPR">Low</button>
+          <button class="secondary" id="qMed" data-i18n="quality.medium" data-i18n-title="quality.medTitle" title="aa=off, shadows=off, auto DPR + ACES">Medium</button>
+          <button class="secondary" id="qHigh" data-i18n="quality.high" data-i18n-title="quality.highTitle" title="aa=on, shadows=on">High</button>
+          <button class="secondary" id="qUltra" data-i18n="quality.ultra" data-i18n-title="quality.ultraTitle" title="aa=on, shadows=on (max)">Ultra</button>
+        </div>
       </div>
     </div>
-    <div class="settingsGroup">
-      <h3 data-i18n="settings.sound">Sound</h3>
-      <div class="pill setting">
-        <label for="soundVolume" data-i18n="settings.volume">Volume</label>
-        <input type="range" id="soundVolume" min="0" max="1" step="0.05" />
-      </div>
-      <div class="pill setting">
-        <label for="musicSelect" data-i18n="settings.music">Music</label>
-        <select id="musicSelect" class="secondary">
-          <option value="library" data-i18n="music.library">chatGPT 5 music</option>
-          <option value="suno" data-i18n="music.suno">Suno Remix</option>
-        </select>
-      </div>
-    </div>
-    <div class="settingsGroup">
-      <h3 data-i18n="settings.mouse">Mouse</h3>
-      <div class="pill setting">
-        <label for="mouseSensitivity" data-i18n="settings.sensitivity">Sensitivity</label>
-        <input type="range" id="mouseSensitivity" min="0.2" max="2" step="0.1" />
-      </div>
-      <div class="pill setting">
-        <label for="invertLook" data-i18n="settings.invert">Invert look</label>
-        <input type="checkbox" id="invertLook" />
+
+    <div class="settings-panel" id="settingsPanelAudio" role="tabpanel" aria-labelledby="settingsTabAudio" data-settings-panel="audio" hidden>
+      <div class="settingsGroup">
+        <h3 data-i18n="settings.sound">Sound</h3>
+        <div class="pill setting">
+          <label for="sfxVolume" data-i18n="settings.effectsVolume">Sound effects</label>
+          <input type="range" id="sfxVolume" min="0" max="1" step="0.05" />
+        </div>
+        <div class="pill setting">
+          <label for="musicVolume" data-i18n="settings.musicVolume">Music volume</label>
+          <input type="range" id="musicVolume" min="0" max="1" step="0.05" />
+        </div>
+        <div class="pill setting">
+          <label for="musicSelect" data-i18n="settings.musicSource">Music source</label>
+          <select id="musicSelect" class="secondary">
+            <option value="library" data-i18n="music.library">chatGPT 5 music</option>
+            <option value="suno" data-i18n="music.suno">Suno Remix</option>
+          </select>
+        </div>
       </div>
     </div>
-    <div class="settingsGroup settings-danger-zone">
-      <h3 data-i18n="settings.dangerZone">Danger zone</h3>
-      <p data-i18n="settings.resetHint">Erase all saved settings, progress, achievements, and local game data.</p>
-      <button class="danger" id="resetStoredData" type="button"><span data-i18n="settings.resetData">Reset all saved data</span></button>
+
+    <div class="settings-panel" id="settingsPanelControls" role="tabpanel" aria-labelledby="settingsTabControls" data-settings-panel="controls" hidden>
+      <div class="settingsGroup">
+        <h3 data-i18n="settings.mouse">Mouse</h3>
+        <div class="pill setting">
+          <label for="mouseSensitivity" data-i18n="settings.sensitivity">Sensitivity</label>
+          <input type="range" id="mouseSensitivity" min="0.2" max="2" step="0.1" />
+        </div>
+        <div class="pill setting">
+          <label for="invertLook" data-i18n="settings.invert">Invert look</label>
+          <input type="checkbox" id="invertLook" />
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-panel" id="settingsPanelSupport" role="tabpanel" aria-labelledby="settingsTabSupport" data-settings-panel="support" hidden>
+      <div class="settingsGroup settings-support-group">
+        <h3 data-i18n="settings.diagnostics">Diagnostics</h3>
+        <div class="pill setting settings-toggle-row">
+          <label for="supportLogsEnabled" data-i18n="settings.supportLogs">Collect support logs</label>
+          <input type="checkbox" id="supportLogsEnabled" />
+        </div>
+        <p class="settings-hint" data-i18n="settings.supportLogsHint">Records performance and errors locally; nothing is sent automatically. It does not enable debug tools. Changing this restarts the game.</p>
+        <button class="secondary settings-log-button" id="settingsOpenLog" type="button"><span data-i18n="debugLog.open">Support logs</span></button>
+      </div>
+      <div class="settingsGroup settings-danger-zone">
+        <h3 data-i18n="settings.dangerZone">Danger zone</h3>
+        <p data-i18n="settings.resetHint">Erase all saved settings, progress, achievements, and local game data.</p>
+        <button class="danger" id="resetStoredData" type="button"><span data-i18n="settings.resetData">Reset all saved data</span></button>
+      </div>
     </div>
     <div class="menu-modal-actions">
       <button class="secondary" id="settingsBack" type="button"><span data-i18n="settings.back">Back</span></button>
@@ -358,7 +415,7 @@
 </div>
 
 <script type="module">
-  import { initI18n, setLanguage, applyTranslations, getLanguage } from './src/i18n/index.js?v=1.0.3';
+  import { initI18n, setLanguage, applyTranslations, getLanguage } from './src/i18n/index.js?v=1.0.3&rev=tutorial-complete1';
   await initI18n();
   applyTranslations();
   const langSelect = document.getElementById('langSelect');
@@ -373,7 +430,7 @@
 
 <!-- Mobile controls from main branch -->
 <script type="module">
-  import { t } from './src/i18n/index.js';
+  import { t } from './src/i18n/index.js?v=1.0.3&rev=tutorial-complete1';
   window.IS_MOBILE = window.matchMedia('(pointer:coarse)').matches;
   if (window.IS_MOBILE) {
     const m = document.createElement('div');
@@ -414,6 +471,6 @@
 </script>
 
 <!-- Paint the lightweight menu first, then request the full game. -->
-<script type="module" src="src/bootstrap.js?v=1.0.2"></script>
+<script type="module" src="src/bootstrap.js?v=1.0.3&amp;rev=level-transition1"></script>
 </body>
 </html>

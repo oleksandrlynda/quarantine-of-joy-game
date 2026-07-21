@@ -19,7 +19,9 @@ export function defineSpawnEntrance(entrance) {
 export function defineEncounterWave(wave) {
   return Object.freeze({
     ...wave,
-    packages: Object.freeze((wave.packages || []).map(pkg => Object.freeze([...pkg])))
+    packages: Object.freeze((wave.packages || []).map(pkg => Object.freeze([...pkg]))),
+    ammoPackages: Object.freeze((wave.ammoPackages || []).map(position => Object.freeze([...position]))),
+    healthPackages: Object.freeze((wave.healthPackages || []).map(position => Object.freeze([...position])))
   });
 }
 
@@ -29,6 +31,37 @@ export function defineCaptureObjective(objective) {
 
 export function defineLevel(level) {
   return Object.freeze({ ...level });
+}
+
+function shiftWaveRecord(record, offset) {
+  if (!record) return record;
+  return Object.freeze(Object.fromEntries(Object.entries(record).map(([wave, value]) => [Number(wave) + offset, value])));
+}
+
+/**
+ * Moves a complete authored level along the campaign timeline while preserving
+ * its local encounter design. This is intentionally centralized so entrances,
+ * objectives, weather, and checkpoint metadata cannot drift apart.
+ */
+export function shiftLevelWaves(level, offset = 0) {
+  const amount = Math.floor(Number(offset) || 0);
+  if (!amount) return level;
+  return defineLevel({
+    ...level,
+    waveOffset: (Number(level.waveOffset) || 0) + amount,
+    firstWave: level.firstWave + amount,
+    finalWave: level.finalWave + amount,
+    ...(Number.isFinite(level.bossWave) ? { bossWave: level.bossWave + amount } : {}),
+    entrances: Object.freeze((level.entrances || []).map(entrance => defineSpawnEntrance({
+      ...entrance,
+      activeWaves: entrance.activeWaves.map(wave => wave + amount)
+    }))),
+    waves: shiftWaveRecord(level.waves, amount),
+    weatherByWave: shiftWaveRecord(level.weatherByWave, amount),
+    stormByWave: shiftWaveRecord(level.stormByWave, amount),
+    waterByWave: shiftWaveRecord(level.waterByWave, amount),
+    checkpointStarts: shiftWaveRecord(level.checkpointStarts, amount)
+  });
 }
 
 export function entranceClearanceFor(entrance, enemyType) {

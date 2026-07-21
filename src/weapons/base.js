@@ -16,6 +16,9 @@ export class Weapon {
     this._nextFireAtMs = 0;
     this._triggerHeld = false;
     this._attackSequence = 0;
+    this._reserveLimitProvider = null;
+    this._reserveRegenElapsed = 0;
+    this._reserveRegenCarry = 0;
   }
 
   get name() { return this.cfg.name || 'Weapon'; }
@@ -29,9 +32,26 @@ export class Weapon {
     return Math.max(0, Math.floor(Number(resolved) || 0));
   }
 
-  getReserveCapacity() {
+  getBaseReserveCapacity() {
+    return Math.max(0, Math.floor(Number(this.cfg.reserve) || 0));
+  }
+
+  getWeaponReserveCapacity() {
     const resolved = typeof this.cfg.getReserveSize === 'function' ? this.cfg.getReserveSize() : this.cfg.reserve;
     return Math.max(0, Math.floor(Number(resolved) || 0));
+  }
+
+  getReserveCapacity() {
+    const base = this.getBaseReserveCapacity();
+    const weaponSpecific = this.getWeaponReserveCapacity();
+    const resolved = this._reserveLimitProvider?.(base, weaponSpecific, this);
+    return Math.max(0, Math.floor(Number(resolved ?? weaponSpecific) || 0));
+  }
+
+  setReserveLimitProvider(provider) {
+    this._reserveLimitProvider = typeof provider === 'function' ? provider : null;
+    this.reserveAmmo = Math.min(Math.max(0, this.reserveAmmo | 0), this.getReserveCapacity());
+    return this.getReserveCapacity();
   }
 
   canFire(nowMs) {
@@ -131,7 +151,40 @@ export class Weapon {
   }
 
   addReserve(amount) {
-    this.reserveAmmo = Math.max(0, (this.reserveAmmo || 0) + Math.max(0, amount | 0));
+    const before = Math.max(0, this.reserveAmmo | 0);
+    const requested = Math.max(0, amount | 0);
+    this.reserveAmmo = Math.min(this.getReserveCapacity(), before + requested);
+    return this.reserveAmmo - before;
+  }
+
+  advanceReserveRegeneration(dt, {
+    intervalSeconds = 10,
+    baseReserveRate = 0.05,
+    reserveCeiling = this.getReserveCapacity()
+  } = {}) {
+    const ceiling = Math.max(0, Math.min(this.getReserveCapacity(), Math.floor(Number(reserveCeiling) || 0)));
+    if (this.getBaseReserveCapacity() <= 0 || this.reserveAmmo >= ceiling) {
+      this._reserveRegenElapsed = 0;
+      this._reserveRegenCarry = 0;
+      return 0;
+    }
+    const interval = Math.max(0.001, Number(intervalSeconds) || 10);
+    this._reserveRegenElapsed += Math.max(0, Number(dt) || 0);
+    const ticks = Math.floor(this._reserveRegenElapsed / interval);
+    if (ticks <= 0) return 0;
+    this._reserveRegenElapsed -= ticks * interval;
+    this._reserveRegenCarry += ticks * this.getBaseReserveCapacity() * Math.max(0, Number(baseReserveRate) || 0);
+    const wholeRounds = Math.min(Math.floor(this._reserveRegenCarry + 1e-9), Math.max(0, ceiling - this.reserveAmmo));
+    if (wholeRounds <= 0) return 0;
+    const gained = this.addReserve(wholeRounds);
+    this._reserveRegenCarry = Math.max(0, this._reserveRegenCarry - gained);
+    if (this.reserveAmmo >= ceiling) this._reserveRegenCarry = 0;
+    return gained;
+  }
+
+  resetReserveRegeneration() {
+    this._reserveRegenElapsed = 0;
+    this._reserveRegenCarry = 0;
   }
 
   reset() {
@@ -140,6 +193,7 @@ export class Weapon {
     this._nextFireAtMs = 0;
     this._triggerHeld = false;
     this._attackSequence = 0;
+    this.resetReserveRegeneration();
   }
 }
 

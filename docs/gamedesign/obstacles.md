@@ -8,11 +8,12 @@ Goals: readable cover, movement choices, replayable layouts. Keep silhouettes si
 - Variants
   - Crate (HP 100): standard wood box; small chance to drop +ammo or +med.
   - Barricade (HP 180): wider cover; no drop; slower to destroy.
-  - Explosive Barrel (HP 50): on destroy → small AoE (radius ~3), damages enemies and player; telegraph decal.
+  - Explosive Barrel (HP 50): on destroy → 4.2-unit falloff blast, damages enemies and player, and chains into nearby destructibles; emissive warning label intensifies after a hit.
 - Rules
   - Never spawn within 2 units of player start; avoid within 1 unit of walls to prevent stuck debris.
   - Drops: ≤ 1 per 6 destructions; boss waves guarantee no drops from destructibles.
 - Scoring: +10 per destroy; +25 if multi‑kill via barrel.
+- Authored campaign arenas place six barrels in collider-validated combat pockets: one close pair for chain reactions and four isolated tactical opportunities. They stay clear of the player start, spawn pads, and objective routes.
 
 ### 2) Maze Segments (Dynamic Cover)
 - Purpose: vary sightlines each wave; create short flanks without dead‑ends.
@@ -55,6 +56,13 @@ Goals: readable cover, movement choices, replayable layouts. Keep silhouettes si
 - Boss Waves
   - Disable reconfiguration mid‑boss; lock maze layout for clarity.
   - Explosive barrels remain active; reduced barrel spawn density near boss center.
+  - Normal 1.5–1.8-unit corridors are not boss routes. Provide at least 7 units of clear width for a boss-only lane and 8 units when adds share it.
+  - Keep at least 3–4 units clear between the boss route and the arena boundary. A full-height cover island must leave two bypasses; each boss-capable bypass follows the same 7–8-unit rule.
+  - Limit full-height cover pieces to approximately 4–6 units of continuous width. A 16-unit diagnostic wall caused Shard to press against cover for 742 consecutive ticks instead of establishing a flank.
+  - Boss-wave hard-cover coverage should remain within 15–20% of traversable floor. This is a ceiling, not a target; radial-pattern bosses may require less.
+  - Mirages, telegraph-only projections, and non-physical decoys must never consume navigation clearance or body-block their owner.
+  - Reserve open mechanic rings before placing props: Sanitizer Nodes at radius 12, Algorithm Nodes at radius 11, Sanitizer reinforcement pockets at radius 16–19, and Hydraclone split lanes around the player.
+  - Cover cannot substitute for projectile collision. Every direct-line projectile still performs a swept world test before player damage is accepted.
 
 ## Metrics & Tuning
 - Corridor width target: 1.8 units (min 1.5); sightline breaks every ~10–14 units.

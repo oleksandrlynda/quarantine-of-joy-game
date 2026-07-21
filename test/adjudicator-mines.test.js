@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 
-import { StrikeAdjudicator } from '../src/bosses/adjudicator.js';
+import { ADJUDICATOR_DAMAGE, StrikeAdjudicator } from '../src/bosses/adjudicator.js';
 import { performHitscan } from '../src/weapons/hitscan.js';
 
 function makeHarness() {
@@ -96,7 +96,7 @@ test('an armed Citation Mine telegraphs then damages without clearing a Strike',
     assert.equal(damage.length, 0, 'the fuse should leave a dodge window');
 
     boss._tickNodes(0.61, ctx);
-    assert.deepEqual(damage, [{ amount: 24, source: 'mine' }]);
+    assert.deepEqual(damage, [{ amount: ADJUDICATOR_DAMAGE.citationMine, source: 'mine' }]);
     assert.equal(boss.strikes, 1, 'detonation is not a successful purge');
     assert.equal(enemyManager.enemies.has(node.root), false);
   } finally {

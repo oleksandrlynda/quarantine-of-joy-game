@@ -80,6 +80,20 @@ test('gravity well throws one containment sphere and activates its visible field
   assert.equal(well.wells[0].root.userData.field.visible, true);
 });
 
+test('simulation support can place one Gravity Well directly on an enemy cluster', () => {
+  const well = new GravityWell();
+  const ctx = makeContext();
+  ctx.abilityTargetPoint = new THREE.Vector3(7, 4, -3);
+
+  assert.equal(well.onFire(ctx), true);
+  assert.equal(well.wells.length, 1);
+  assert.equal(well.wells[0].state, 'active');
+  assert.deepEqual(well.wells[0].root.position.toArray(), [7, 0.24, -3]);
+  assert.equal(well.wells[0].root.userData.field.visible, true);
+  assert.equal(well.onFire(ctx), false, 'support casts must not stack active wells');
+  assert.equal(well.wells.length, 1);
+});
+
 test('active gravity field pulls regular enemies toward its center without tick damage', () => {
   const well = new GravityWell();
   const ctx = makeContext();
@@ -142,6 +156,17 @@ test('gravity field drags the player toward its center but preserves a safe inne
   ctx.playerPulls.length = 0;
   well.update(0.1, ctx);
   assert.equal(ctx.playerPulls.length, 0);
+});
+
+test('simulation support well does not drag the QA player off its combat route', () => {
+  const well = new GravityWell();
+  const ctx = makeContext();
+  ctx.suppressGravityPlayerPull = true;
+  activateWell(well, ctx);
+
+  well.update(0.1, ctx);
+  assert.equal(ctx.playerPulls.length, 0);
+  assert.deepEqual(ctx.playerPosition.toArray(), [6, 1.7, 0]);
 });
 
 test('gravity well collapses after 2.5 seconds, damages once, and clears its model', () => {

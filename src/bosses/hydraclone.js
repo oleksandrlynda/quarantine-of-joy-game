@@ -1,13 +1,27 @@
 // Echo Hydraclone (Fractal Replicator) — boss + clones logic
 import { createEnhancedHydracloneAsset } from '../assets/boss-retrofits.js';
 import { logError } from '../util/log.js';
+import { disposeOwnedObject3D } from './resource-lifecycle.js';
 
-const GEN = {
-  0: { scale: 1.00, hp: 12000, speed: 2.8, dps: 24, splitCount: 4 },
-  1: { scale: 0.55, hp:  1600, speed: 3.4, dps: 12, splitCount: 3 },
-  2: { scale: 0.35, hp:   650, speed: 4.0, dps:  8, splitCount: 2 },
-  3: { scale: 0.22, hp:   250, speed: 4.8, dps:  6, splitCount: 0 }, // no further splits
-};
+export const HYDRACLONE_GENERATION_PROFILES = Object.freeze({
+  // Keep the Wave 30 core as the durable skill check. Descendants trade health
+  // for numbers and speed so clearing a successful split remains demanding
+  // without repeating another boss-sized damage budget sixteen times.
+  0: Object.freeze({ scale: 1.00, hp: 12000, speed: 2.8, dps: 24, splitCount: 4 }),
+  1: Object.freeze({ scale: 0.55, hp:  1000, speed: 3.4, dps: 12, splitCount: 3 }),
+  2: Object.freeze({ scale: 0.35, hp:   250, speed: 4.0, dps:  8, splitCount: 2 }),
+  3: Object.freeze({ scale: 0.22, hp:   150, speed: 4.8, dps:  6, splitCount: 0 }) // no further splits
+});
+export const HYDRACLONE_MIRROR_DAMAGE = Object.freeze([12, 7, 4, 2]);
+export const HYDRACLONE_MIRROR_INTERCEPT = Object.freeze({
+  minimumSamples: 5,
+  velocitySamples: 5,
+  predictionSeconds: 1.5,
+  maximumPredictionDistance: 28,
+  pathSamples: 6,
+  echoSpeed: 34
+});
+const GEN = HYDRACLONE_GENERATION_PROFILES;
 
 const CORE_FRACTURE_THRESHOLDS = [0.7, 0.35];
 const CORE_FRACTURE_COUNT = 2;
@@ -211,7 +225,42 @@ export class Hydraclone {
   // --- Temporary mirror clones that retrace recent player path ---
   _spawnMirrorClones(ctx) {
     if (this._playerPath.length < 2) return;
-    const basePath = this._playerPath.map(p => p.clone().setY(0.8));
+    const config = HYDRACLONE_MIRROR_INTERCEPT;
+    const recentPath = this._playerPath.slice(-config.pathSamples);
+    const basePath = recentPath.map(p => p.clone().setY(0.8));
+    const last = basePath.at(-1);
+    const movement = new this.THREE.Vector3();
+    if (basePath.length >= config.minimumSamples) {
+      const latestStep = last.clone().sub(basePath.at(-2)).setY(0);
+      const priorStep = basePath.at(-2).clone().sub(basePath.at(-3)).setY(0);
+      movement.copy(latestStep).multiplyScalar(10);
+      if (latestStep.lengthSq() > 0.001) {
+        const cross = priorStep.x * latestStep.z - priorStep.z * latestStep.x;
+        const dot = priorStep.x * latestStep.x + priorStep.z * latestStep.z;
+        const turnPerStep = priorStep.lengthSq() > 0.001
+          ? Math.max(-0.25, Math.min(0.25, Math.atan2(cross, dot)))
+          : 0;
+        const forecast = last.clone();
+        const forecastStep = latestStep.clone();
+        const forecastSteps = Math.ceil(config.predictionSeconds / 0.1);
+        let forecastDistance = 0;
+        for (let index = 0; index < forecastSteps; index++) {
+          // atan2 above measures turn in the X/Z plane; Three's positive Y
+          // rotation uses the opposite sign for that projected heading.
+          forecastStep.applyAxisAngle(new this.THREE.Vector3(0, 1, 0), -turnPerStep);
+          const remainingDistance = config.maximumPredictionDistance - forecastDistance;
+          if (remainingDistance <= 0) break;
+          const stepDistance = Math.min(remainingDistance, forecastStep.length());
+          if (stepDistance <= 0.001) break;
+          forecast.addScaledVector(forecastStep, stepDistance / forecastStep.length());
+          forecastDistance += stepDistance;
+          basePath.push(forecast.clone());
+        }
+      }
+    }
+    const laneRight = movement.lengthSq() > 0.001
+      ? new this.THREE.Vector3(-movement.z, 0, movement.x).normalize()
+      : new this.THREE.Vector3(1, 0, 0);
     const count = 2;
     for (let i = 0; i < count; i++) {
       const built = createEnhancedHydracloneAsset({
@@ -230,9 +279,11 @@ export class Hydraclone {
         }
       });
       const side = i === 0 ? -1 : 1;
-      const path = basePath.map(point => point.clone().add(
-        new this.THREE.Vector3(side * 0.65, 0, 0)
-      ));
+      const path = basePath.map((point, index) => {
+        const progress = basePath.length > 1 ? index / (basePath.length - 1) : 1;
+        const laneOffset = 0.65 - progress * 0.4;
+        return point.clone().addScaledVector(laneRight, side * laneOffset);
+      });
       root.position.copy(path[0]);
       const fullScale = root.scale.clone();
       root.scale.copy(fullScale).multiplyScalar(0.08);
@@ -249,6 +300,13 @@ export class Hydraclone {
         fullScale
       });
     }
+  }
+
+  _disposeMirrorClone(clone, scene) {
+    const root = clone?.root;
+    if (!root) return;
+    scene?.remove?.(root);
+    disposeOwnedObject3D(root);
   }
 
   _updateMirrorClones(dt, ctx) {
@@ -268,7 +326,8 @@ export class Hydraclone {
         continue;
       }
 
-      const speed = 20;
+      const previous = clone.root.position.clone();
+      const speed = HYDRACLONE_MIRROR_INTERCEPT.echoSpeed;
       let remaining = speed * dt;
       while (remaining > 0 && clone.idx < clone.path.length - 1) {
         const curr = clone.root.position;
@@ -288,22 +347,31 @@ export class Hydraclone {
       if (clone.refs.rightArm) clone.refs.rightArm.rotation.x = 0.9;
 
       const player = ctx.player.position;
-      const dx = clone.root.position.x - player.x;
-      const dz = clone.root.position.z - player.z;
-      if (!clone.didDamage && Math.hypot(dx, dz) < 1.0) {
+      const travelX = clone.root.position.x - previous.x;
+      const travelZ = clone.root.position.z - previous.z;
+      const travelLengthSq = travelX * travelX + travelZ * travelZ;
+      const hitT = travelLengthSq > 0.0001
+        ? Math.max(0, Math.min(1, (
+          (player.x - previous.x) * travelX + (player.z - previous.z) * travelZ
+        ) / travelLengthSq))
+        : 0;
+      const closestX = previous.x + travelX * hitT;
+      const closestZ = previous.z + travelZ * hitT;
+      if (!clone.didDamage && Math.hypot(closestX - player.x, closestZ - player.z) < 1.0) {
+        const damage = HYDRACLONE_MIRROR_DAMAGE[this.gen];
         if (ctx.damagePlayer) {
-          ctx.damagePlayer(12, {
+          ctx.damagePlayer(damage, {
             sourceKind: 'hydraclone_echo',
             sourceRoot: this.root,
             ownerRoot: this.root
           });
         } else {
-          ctx.onPlayerDamage?.(12, 'hydraclone_echo');
+          ctx.onPlayerDamage?.(damage, 'hydraclone_echo');
         }
         clone.didDamage = true;
       }
       if (clone.idx >= clone.path.length - 1) {
-        ctx.scene.remove(clone.root);
+        this._disposeMirrorClone(clone, ctx.scene);
         this._mirrorClones.splice(i, 1);
       }
     }
@@ -443,7 +511,9 @@ export class Hydraclone {
         } else {
           ctx.onPlayerDamage?.(attack.damage, 'melee');
         }
-        if (direction.lengthSq() > 0) ctx.player.position.add(direction.multiplyScalar(attack.knockback));
+        if (direction.lengthSq() > 0) {
+          this._applyPlayerKnockback(ctx, direction.multiplyScalar(attack.knockback), 'echo_haymaker');
+        }
         ctx.emitAIEvent?.(this.root, 'melee_hit', { attack: 'echo_haymaker', damage: attack.damage });
         try {
           globalThis.window?._EFFECTS?.ring?.(
@@ -487,6 +557,15 @@ export class Hydraclone {
     this.root.rotation.y = this._yaw;
   }
 
+  _applyPlayerKnockback(ctx, vector, ability) {
+    if (!vector || vector.lengthSq() <= 0) return;
+    if (typeof ctx.applyPlayerKnockback === 'function') ctx.applyPlayerKnockback(vector);
+    else ctx.player.position.add(vector);
+    ctx.emitAIEvent?.(this.root, 'player_knockback', {
+      ability, vector: vector.clone(), magnitude: vector.length()
+    });
+  }
+
   _animateGait(distanceMoved, dt) {
     if (this._meleeState !== 'idle' || this._cloneCast) return;
     this._walkPhase += Math.min(12, 5 + distanceMoved * 8) * dt;
@@ -515,7 +594,7 @@ export class Hydraclone {
     if (pushDir.lengthSq() > 0) {
       pushDir.normalize();
       const knock = 1.4 + (this.gen * 0.2);
-      ctx.player.position.add(pushDir.multiplyScalar(knock));
+      this._applyPlayerKnockback(ctx, pushDir.multiplyScalar(knock), 'echo_split');
     }
     try { globalThis.window?._EFFECTS?.ring?.(origin.clone(), 1.8 + this.gen * 0.6, 0x22e3ef); } catch (e) { logError(e); }
 
@@ -692,15 +771,15 @@ export class Hydraclone {
       }
       HydraGlobal.registerDeath(this.bossId);
       this._didRegisterDeath = true;
-      for (const c of this._mirrorClones) { ctx.scene.remove(c.root); }
+      for (const clone of this._mirrorClones) this._disposeMirrorClone(clone, ctx.scene);
       this._mirrorClones.length = 0;
       const pos = this.root.position.clone();
       if (ctx.pickups) {
         if (this.gen === 0) {
-          ctx.pickups.dropMultiple('med', pos, 1);
-          ctx.pickups.dropMultiple('ammo', pos, 4);
+          ctx.pickups.dropMultiple('med', pos, 1, { source: 'boss' });
+          ctx.pickups.dropMultiple('ammo', pos, 4, { source: 'boss' });
         } else {
-          ctx.pickups.dropMultiple('random', pos, 1);
+          ctx.pickups.dropMultiple('random', pos, 1, { source: 'boss' });
         }
       }
       // removal is handled by EnemyManager; nothing else to do here
@@ -765,7 +844,7 @@ export class Hydraclone {
 
   // Called by EnemyManager on remove
   onRemoved(scene) {
-    for (const c of this._mirrorClones) { scene.remove(c.root); }
+    for (const clone of this._mirrorClones) this._disposeMirrorClone(clone, scene);
     this._mirrorClones.length = 0;
     this._castQueue.length = 0;
     this._cloneCast = null;
@@ -783,6 +862,7 @@ export class Hydraclone {
       HydraGlobal.registerDeath(this.bossId);
       this._didRegisterDeath = true;
     }
+    disposeOwnedObject3D(this.root);
   }
 
   _hasLineOfSight(fromPos, targetPos, objects) {

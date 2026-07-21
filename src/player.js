@@ -88,9 +88,10 @@ export class PlayerController {
 
     // Collision helpers (skip extruded walls)
     this.objectBBs = this.objects
-      .filter(o => !containsExtrudeGeometry(o) && !o?.userData?.walkableSurface)
+      .filter(o => !containsExtrudeGeometry(o) && !o?.userData?.walkableSurface && o?.userData?.blocksMovement !== false)
       .map(o => new THREE.Box3().setFromObject(o));
-    this.colliderHalf = new THREE.Vector3(0.35, 0.9, 0.35); // approx capsule half extents
+    this.collisionObjects = this.objects.filter(o => o?.userData?.blocksMovement !== false);
+    this.colliderHalf = new THREE.Vector3(0.45, 0.9, 0.45); // physical body, not a point camera
     this.fullHeight = this.colliderHalf.y * 2; // ~1.8m
     this._groundRaycaster = new THREE.Raycaster();
     this._forwardRaycaster = new THREE.Raycaster();
@@ -278,8 +279,9 @@ export class PlayerController {
     const THREE = this.THREE;
     this.objects = objects;
     this.objectBBs = this.objects
-      .filter(o => !containsExtrudeGeometry(o) && !o?.userData?.walkableSurface)
+      .filter(o => !containsExtrudeGeometry(o) && !o?.userData?.walkableSurface && o?.userData?.blocksMovement !== false)
       .map(o => new THREE.Box3().setFromObject(o));
+    this.collisionObjects = this.objects.filter(o => o?.userData?.blocksMovement !== false);
   }
 
   resetPosition(x=0, y=1.7, z=8){
@@ -415,6 +417,26 @@ export class PlayerController {
       t.pbb.min.copy(t.min); t.pbb.max.copy(t.max);
       for(const obb of this.objectBBs){
         if(t.pbb.intersectsBox(obb)){
+          // A collider can become active while the player is already touching
+          // it (objective variants do this), and floating-point/axis-separated
+          // movement can also leave a tiny overlap at a rounded prop. Blocking
+          // every still-intersecting step traps the player permanently. Permit
+          // only steps that strictly reduce the existing overlap volume; steps
+          // that hold or increase penetration remain blocked.
+          const currentMinX = pos.x - this.colliderHalf.x;
+          const currentMaxX = pos.x + this.colliderHalf.x;
+          const currentMinZ = pos.z - this.colliderHalf.z;
+          const currentMaxZ = pos.z + this.colliderHalf.z;
+          const currentOverlapX = Math.min(currentMaxX, obb.max.x) - Math.max(currentMinX, obb.min.x);
+          const currentOverlapY = Math.min(t.max.y, obb.max.y) - Math.max(t.min.y, obb.min.y);
+          const currentOverlapZ = Math.min(currentMaxZ, obb.max.z) - Math.max(currentMinZ, obb.min.z);
+          if (currentOverlapX > 0 && currentOverlapY > 0 && currentOverlapZ > 0) {
+            const nextOverlapX = Math.min(t.max.x, obb.max.x) - Math.max(t.min.x, obb.min.x);
+            const nextOverlapZ = Math.min(t.max.z, obb.max.z) - Math.max(t.min.z, obb.min.z);
+            const currentPenetration = currentOverlapX * currentOverlapY * currentOverlapZ;
+            const nextPenetration = Math.max(0, nextOverlapX) * currentOverlapY * Math.max(0, nextOverlapZ);
+            if (nextPenetration < currentPenetration - 1e-8) continue;
+          }
           // Collision detected - completely block this axis movement
           return false;
         }
@@ -485,6 +507,27 @@ export class PlayerController {
     const groundNow = resolvedGround;
     const desiredEyeY = groundNow + eyeHeight;
     this.velocityY -= this.gravity * dt; o.position.y += this.velocityY * dt;
+    // Resolve upward movement against solid overhead slabs. Horizontal AABB
+    // collision already protects walls, but without this pass a jump could
+    // move the player's head through a low authored ceiling.
+    if (this.velocityY > 0) {
+      const feetY = o.position.y - eyeHeight;
+      const headY = feetY + this.fullHeight;
+      const minX = o.position.x - this.colliderHalf.x;
+      const maxX = o.position.x + this.colliderHalf.x;
+      const minZ = o.position.z - this.colliderHalf.z;
+      const maxZ = o.position.z + this.colliderHalf.z;
+      let ceilingBottom = Infinity;
+      for (const obb of this.objectBBs) {
+        if (maxX < obb.min.x || minX > obb.max.x || maxZ < obb.min.z || minZ > obb.max.z) continue;
+        if (obb.min.y <= feetY + .05 || headY < obb.min.y) continue;
+        ceilingBottom = Math.min(ceilingBottom, obb.min.y);
+      }
+      if (Number.isFinite(ceilingBottom)) {
+        o.position.y = ceilingBottom - (this.fullHeight - eyeHeight) - .01;
+        this.velocityY = 0;
+      }
+    }
     if (o.position.y <= desiredEyeY) { o.position.y = desiredEyeY; this.velocityY = 0; this.canJump = true; }
     const speed2D = this.velXZ.lengthSq();
     if (this.headBobEnabled !== false && this.canJump && speed2D > 0.04) {
@@ -622,6 +665,13 @@ export class PlayerController {
     const cache = this._groundCache;
     const o = this.controls.getObject();
     const eye = this.crouching ? 1.25 : 1.7;
+    // A top face is valid ground only when the player's feet can actually
+    // reach it. Without this guard, the downward ray can see the roof of a
+    // tall prop while the body is still beside it and snap the player onto
+    // that roof. The same allowance used by the movement step/jump assist
+    // keeps genuinely reachable ledges and landing surfaces valid.
+    const feetY = o.position.y - eye;
+    const maxReachableTop = feetY + 0.30 * this.fullHeight + 0.001;
     // Decide whether to skip raycast based on movement and airborne state
     let movedXZ = true;
     if (cache.x !== Infinity) {
@@ -641,10 +691,12 @@ export class PlayerController {
     try {
       this._groundRaycaster.set(t.pos, t.down);
       this._groundRaycaster.far = 20;
-      const hits = this._groundRaycaster.intersectObjects(this.objects, false);
+      const hits = this._groundRaycaster.intersectObjects(this.collisionObjects, false);
       if (hits && hits.length) {
         let top = 0;
-        for (const h of hits) { if (h.point && h.point.y > top) top = h.point.y; }
+        for (const h of hits) {
+          if (h.point && h.point.y <= maxReachableTop && h.point.y > top) top = h.point.y;
+        }
         cache.x = x; cache.z = z; cache.y = top;
         return top;
       }
@@ -661,6 +713,7 @@ export class PlayerController {
       if (probeMaxX < obb.min.x || probeMinX > obb.max.x) continue;
       if (probeMaxZ < obb.min.z || probeMinZ > obb.max.z) continue;
       const top = obb.max.y;
+      if (top > maxReachableTop) continue;
       if (top > maxTop) maxTop = top;
     }
     cache.x = x; cache.z = z; cache.y = maxTop;

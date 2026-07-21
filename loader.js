@@ -18,6 +18,7 @@ import { MeshoptDecoder } from 'https://unpkg.com/three@0.159.0/examples/jsm/lib
 import * as SkeletonUtils from 'https://unpkg.com/three@0.159.0/examples/jsm/utils/SkeletonUtils.js?module';
 import { mergeGeometries } from 'https://unpkg.com/three@0.159.0/examples/jsm/utils/BufferGeometryUtils.js?module';
 import { createRuntimeAssetManifest, GENERATED_ASSET_ROOT } from './src/assets/runtime-manifest.js';
+import { batchStaticPrefab } from './src/assets/static-batching.js';
 
 // ---------- Manifest ----------
 const ASSET_MANIFEST = createRuntimeAssetManifest();
@@ -38,6 +39,24 @@ const _materialsByName = new Map(); // optional dedupe by mat.name
 let _prewarmed = false;
 let _generatedManifestPromise = null;
 
+function loadGeneratedManifest() {
+  if (!_generatedManifestPromise) {
+    // The manifest is the cache-invalidation authority. Always revalidate it;
+    // individual GLBs remain cacheable under their content revision URLs.
+    _generatedManifestPromise = fetch(`${GENERATED_ASSET_ROOT}/asset-manifest.json`, { cache: 'no-store' })
+      .then(response => {
+        if (!response.ok) throw new Error(`Generated asset manifest returned ${response.status}`);
+        return response.json();
+      });
+  }
+  return _generatedManifestPromise;
+}
+
+function versionedGeneratedUrl(file, revision) {
+  const url = `${GENERATED_ASSET_ROOT}/${file}`;
+  return revision ? `${url}?v=${encodeURIComponent(revision)}` : url;
+}
+
 // Defensive: some materials may carry stray flags from mismatched libs (e.g., isNodeMaterial)
 // or an "onBuild" property that isn't a function. Strip those to avoid renderer errors.
 function sanitizeMaterialForCompile(mat){
@@ -55,6 +74,54 @@ function sanitizeMaterialForCompile(mat){
 }
 
 /**
+ * Repairs non-callable material build hooks anywhere below an Object3D root.
+ *
+ * Imported prefabs are sanitized when cloned, but runtime-created boss/effect
+ * meshes do not pass through that boundary. Keep this traversal out of the hot
+ * render path; callers use it at level/boss boundaries or once after a renderer
+ * reports the specific material.onBuild failure.
+ */
+export function repairInvalidMaterialBuildHooks(root, { maxEvidence = 24 } = {}) {
+  const seen = new Set();
+  const repairs = [];
+  let repairedCount = 0;
+
+  root?.traverse?.(object => {
+    const materials = Array.isArray(object?.material)
+      ? object.material
+      : [object?.material];
+
+    materials.forEach((material, materialIndex) => {
+      if (!material || seen.has(material) || typeof material.onBuild === 'function') return;
+      seen.add(material);
+      const onBuildType = typeof material.onBuild;
+      const wasNodeMaterial = !!material.isNodeMaterial;
+      sanitizeMaterialForCompile(material);
+      if (typeof material.onBuild !== 'function') return;
+
+      repairedCount++;
+      if (repairs.length < maxEvidence) {
+        repairs.push({
+          objectName: object.name || null,
+          objectType: object.type || null,
+          materialName: material.name || null,
+          materialType: material.type || null,
+          materialIndex,
+          onBuildType,
+          wasNodeMaterial
+        });
+      }
+    });
+  });
+
+  return {
+    repairedCount,
+    repairs,
+    evidenceOmitted: Math.max(0, repairedCount - repairs.length)
+  };
+}
+
+/**
  * Load all models in ASSET_MANIFEST. Resolves when everything is in registry.
  * @param {object} options
  * @param {THREE.WebGLRenderer} options.renderer - used for shader prewarm (recommended)
@@ -63,6 +130,10 @@ function sanitizeMaterialForCompile(mat){
  */
 export async function loadAllModels({ renderer, onProgress, skipWarmup } = {}) {
   const loader = makeLoader();
+  const generatedManifest = await loadGeneratedManifest().catch(() => null);
+  const revisionByFile = new Map(
+    (generatedManifest?.assets || []).map(entry => [entry.file, entry.revision])
+  );
 
   const keys = Object.keys(ASSET_MANIFEST);
   let done = 0;
@@ -86,7 +157,12 @@ export async function loadAllModels({ renderer, onProgress, skipWarmup } = {}) {
     );
   });
 
-  await Promise.all(keys.map(k => loadOne(k, ASSET_MANIFEST[k])));
+  await Promise.all(keys.map(k => {
+    const url = ASSET_MANIFEST[k];
+    const prefix = `${GENERATED_ASSET_ROOT}/`;
+    const file = url.startsWith(prefix) ? url.slice(prefix.length) : null;
+    return loadOne(k, file ? versionedGeneratedUrl(file, revisionByFile.get(file)) : url);
+  }));
 
   // Optional: pre-warm shader programs to avoid first-use hitch
   if (renderer && !_prewarmed && !skipWarmup) {
@@ -104,15 +180,7 @@ export async function loadAllModels({ renderer, onProgress, skipWarmup } = {}) {
  * from dozens of small meshes to a handful of renderer draw calls.
  */
 export async function loadGeneratedModels({ ids = [], onProgress, optimizeStatic = true } = {}) {
-  if (!_generatedManifestPromise) {
-    _generatedManifestPromise = fetch(`${GENERATED_ASSET_ROOT}/asset-manifest.json`)
-      .then(response => {
-        if (!response.ok) throw new Error(`Generated asset manifest returned ${response.status}`);
-        return response.json();
-      });
-  }
-
-  const manifest = await _generatedManifestPromise;
+  const manifest = await loadGeneratedManifest();
   const requested = new Set(ids);
   const entries = (manifest.assets || []).filter(entry => requested.has(entry.id));
   const loader = makeLoader();
@@ -123,12 +191,20 @@ export async function loadGeneratedModels({ ids = [], onProgress, optimizeStatic
       done++; onProgress?.(done, entries.length); resolve(); return;
     }
     loader.load(
-      `${GENERATED_ASSET_ROOT}/${entry.file}`,
+      versionedGeneratedUrl(entry.file, entry.revision),
       gltf => {
         let prefab = gltf.scene || gltf.scenes?.[0];
         normalizePrefab(prefab);
         dedupeMaterialsByName(prefab);
-        if (optimizeStatic) prefab = mergeStaticPrefabByMaterial(prefab);
+        if (optimizeStatic) {
+          prefab = batchStaticPrefab({
+            THREE,
+            mergeGeometries,
+            entry,
+            root: prefab,
+            hasAnimations: !!gltf.animations?.length
+          }).root;
+        }
         _registry.set(entry.id, prefab);
         done++; onProgress?.(done, entries.length); resolve();
       },
@@ -159,7 +235,7 @@ export function clonePrefab(key) {
   // Sanitize at the final clone boundary as well as at import time because a
   // bad value otherwise fails only when WebGLRenderer first sees the mesh.
   inst.traverse(object => {
-    if (!object.isMesh && !object.isSkinnedMesh) return;
+    if (!object.material) return;
     if (Array.isArray(object.material)) object.material.forEach(sanitizeMaterialForCompile);
     else sanitizeMaterialForCompile(object.material);
   });
@@ -203,7 +279,7 @@ export async function prewarmAllShaders(
     const addRep = (root) => {
       if (!root) return;
       root.traverse((o) => {
-        if (!(o.isMesh || o.isSkinnedMesh || o.isInstancedMesh || o.isLine || o.isLineSegments || o.isPoints) || !o.material) return;
+        if (!(o.isMesh || o.isSkinnedMesh || o.isInstancedMesh || o.isLine || o.isLineSegments || o.isPoints || o.isSprite) || !o.material) return;
         const mats = Array.isArray(o.material) ? o.material : [o.material];
         for (const m of mats) {
           if (!m) continue;
@@ -316,82 +392,18 @@ function normalizePrefab(root) {
         // give the material a stable name for dedup
         o.material.name = o.material.type + '_' + (o.material.color?.getHexString?.() || 'mat');
       }
-      // sanitize materials proactively
-      if (o.material) {
-        if (Array.isArray(o.material)) {
-          for (let i=0;i<o.material.length;i++) { o.material[i] = sanitizeMaterialForCompile(o.material[i]); }
-        } else {
-          o.material = sanitizeMaterialForCompile(o.material);
-        }
+    }
+    // Lines and points are rendered too. Sanitize their materials at import so
+    // a bad GLTF extra cannot force the production renderer to throw, traverse
+    // the full scene, and retry during a level transition.
+    if (o.material) {
+      if (Array.isArray(o.material)) {
+        for (let i=0;i<o.material.length;i++) { o.material[i] = sanitizeMaterialForCompile(o.material[i]); }
+      } else {
+        o.material = sanitizeMaterialForCompile(o.material);
       }
     }
   });
-}
-
-function mergeStaticPrefabByMaterial(root) {
-  if (!root) return root;
-  root.updateMatrixWorld(true);
-  const batches = new Map();
-
-  root.traverse(object => {
-    if (!object.isMesh || object.isSkinnedMesh || !object.geometry || !object.material) return;
-    const materials = Array.isArray(object.material) ? object.material : [object.material];
-    // Generated environment primitives currently use one material per mesh.
-    // Keep uncommon multi-material meshes intact instead of risking group loss.
-    if (materials.length !== 1) return;
-    const material = materials[0];
-    let geometry = object.geometry.clone();
-    geometry.applyMatrix4(object.matrixWorld);
-    // BufferGeometryUtils requires every geometry in a batch to agree on
-    // indexed state and on its complete attribute schema. Generated GLBs can
-    // legally mix indexed boxes with non-indexed decorative meshes while
-    // sharing one material, so normalize indices and split by schema.
-    if (geometry.index) {
-      const nonIndexed = geometry.toNonIndexed();
-      geometry.dispose();
-      geometry = nonIndexed;
-    }
-    const attributeSignature = Object.keys(geometry.attributes)
-      .sort()
-      .map(name => {
-        const attribute = geometry.attributes[name];
-        return `${name}:${attribute.itemSize}:${attribute.normalized ? 1 : 0}:${attribute.array?.constructor?.name || 'array'}`;
-      })
-      .join('|');
-    const morphSignature = Object.keys(geometry.morphAttributes || {})
-      .sort()
-      .map(name => `${name}:${geometry.morphAttributes[name]?.length || 0}`)
-      .join('|');
-    const key = `${material.uuid}::${attributeSignature}::${morphSignature}::${geometry.morphTargetsRelative ? 1 : 0}`;
-    if (!batches.has(key)) batches.set(key, { material, geometries: [] });
-    batches.get(key).geometries.push(geometry);
-  });
-
-  if (!batches.size) return root;
-  const mergedRoot = new THREE.Group();
-  mergedRoot.name = `${root.name || 'generated-prefab'}_merged`;
-  for (const { material, geometries } of batches.values()) {
-    const mergedGeometry = geometries.length === 1 ? geometries[0] : mergeGeometries(geometries, false);
-    if (!mergedGeometry) {
-      // Defensive preservation: a future Three.js compatibility rule should
-      // reduce batching efficiency, never remove visible asset geometry.
-      for (const geometry of geometries) {
-        const mesh = new THREE.Mesh(geometry, sanitizeMaterialForCompile(material));
-        mesh.name = `${mergedRoot.name}_${material.name || material.type}_part`;
-        mesh.castShadow = true;
-        mesh.receiveShadow = true;
-        mergedRoot.add(mesh);
-      }
-      continue;
-    }
-    if (geometries.length > 1) geometries.forEach(geometry => geometry.dispose());
-    const mesh = new THREE.Mesh(mergedGeometry, sanitizeMaterialForCompile(material));
-    mesh.name = `${mergedRoot.name}_${material.name || material.type}`;
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    mergedRoot.add(mesh);
-  }
-  return mergedRoot.children.length ? mergedRoot : root;
 }
 
 // Re-point equal-named materials to the same instance.

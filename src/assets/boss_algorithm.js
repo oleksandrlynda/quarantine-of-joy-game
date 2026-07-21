@@ -2,6 +2,8 @@
 // The gameplay contract deliberately exposes the eye/head pivots so visual aim,
 // telegraph direction and damage collision can share one source of truth.
 
+import { batchRigidAsset } from './rigid-batching.js';
+
 function materialSet(THREE, mats, palette = {}) {
   const colors = {
     shell: 0x20352e,
@@ -164,7 +166,7 @@ export function createAlgorithmAsset({ THREE, mats, scale = 1, palette } = {}) {
   body.add(weakHalo);
 
   root.scale.setScalar(scale);
-  return {
+  const built = {
     root,
     head: faceLens,
     refs: {
@@ -174,6 +176,8 @@ export function createAlgorithmAsset({ THREE, mats, scale = 1, palette } = {}) {
       weakRoot, weakHalo, beamLength
     }
   };
+  batchRigidAsset({ THREE, built });
+  return built;
 }
 
 export function createAlgorithmNodeAsset({ THREE, mats, color = 0x43e8df } = {}) {

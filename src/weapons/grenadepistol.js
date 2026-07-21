@@ -73,6 +73,7 @@ export class GrenadePistol extends Weapon {
     // VFX (ground or enemy): full composite explosion
     effects?.spawnExplosion?.(pos, this.explodeRadius) || effects?.spawnBulletImpact?.(pos, new THREE.Vector3(0,1,0));
     if (S && S.explosion) S.explosion();
+    ctx.obstacleManager?.handleRadialHit?.(pos, this.explodeRadius, this.baseDamage * 0.75);
     // Damage enemies with falloff
     for (const root of Array.from(enemyManager?.enemies || [])){
       const d = root.position.distanceTo(pos);

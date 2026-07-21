@@ -1,14 +1,15 @@
 import { MeleeEnemy } from './melee.js';
 import { ShooterEnemy } from './shooter.js';
 import { FlyerEnemy } from './flyer.js';
+import { PropagandaPelicanEnemy } from './pelican.js';
 import { HealerEnemy } from './healer.js';
 import { SniperEnemy } from './sniper.js';
 import { logError } from '../util/log.js';
-import { RusherEnemy } from './rusher.js';
+import { RusherEnemy } from './rusher.js?rev=campaign-aim-resource-recovery1';
 import { BailiffEnemy } from './bailiff.js';
 import { SwarmWarden } from './warden.js';
-import { BossManager } from '../bosses/manager.js';
-import { Hydraclone } from '../bosses/hydraclone.js';
+import { BossManager } from '../bosses/manager.js?rev=boss-pressure7';
+import { Hydraclone } from '../bosses/hydraclone.js?rev=mirror-intercept2';
 import { nextWaypoint as pathNext, recomputeIfStale as pathRecompute, clear as pathClear } from '../path.js';
 import { ARENA_RADIUS } from '../world.js';
 import { ENEMY_BEHAVIOR_PROFILES, resolveBehaviorId, resolveBehaviorProfile } from './behavior-profiles.js';
@@ -16,6 +17,7 @@ import { EnemySpatialIndex, segmentIntersectsBody, verticalSpansOverlap } from '
 import { EnemyPerceptionMemory } from './perception.js';
 import { expandWaveRoster, getSpecialWaveDefinition } from './wave-definitions.js';
 import { resolveBossBehaviorProfile } from '../bosses/behavior-profiles.js';
+import { CrowdSummonController } from './crowd-summon.js';
 
 function containsExtrudeGeometry(obj){
   if (obj.geometry?.isExtrudeGeometry) return true;
@@ -68,8 +70,21 @@ export class EnemyManager {
     this.encounterHooks = null;
     this._authoredSpawnQueue = [];
     this._authoredSpawnCooldown = 0;
+    // The campaign QA bridge opts into synchronous materialization so a full
+    // 72-wave matrix can exercise production entities without waiting for the
+    // presentation spawn cadence. Normal gameplay always leaves this false.
+    this.qaImmediateSpawns = false;
 
     this.objectBBs = this.objects
+      .filter(o => !containsExtrudeGeometry(o) && !o?.userData?.walkableSurface && o?.userData?.blocksMovement !== false)
+      .map(o => new this.THREE.Box3().setFromObject(o));
+    this.movementObjects = this.objects.filter(o => o?.userData?.blocksMovement !== false);
+    this.groundingObjects = this.movementObjects.filter(o => o?.userData?.blocksGrounding !== false);
+    this.groundObjectBBs = this.groundingObjects
+      .filter(o => !containsExtrudeGeometry(o) && !o?.userData?.walkableSurface)
+      .map(o => new this.THREE.Box3().setFromObject(o));
+    this.shotBlockers = this.objects.filter(o => o?.userData?.blocksShots !== false);
+    this.shotObjectBBs = this.shotBlockers
       .filter(o => !containsExtrudeGeometry(o) && !o?.userData?.walkableSurface)
       .map(o => new this.THREE.Box3().setFromObject(o));
     this.raycaster = new this.THREE.Raycaster();
@@ -85,11 +100,19 @@ export class EnemyManager {
     this._lastAmbientVocalAt = 0;
     // In sandbox/test harness we may want to stop automatic wave spawning
     this.suspendWaves = false;
+    this.combatVisibilityRange = Infinity;
     // Heal VFX state
     this._healSprites = [];
     this._healTexture = null;
     this._lastHealVfxAt = new WeakMap();
     this._healVfxCooldown = 0.28; // seconds between bursts per target
+    this.engagementBait = null;
+    this._activeAITargetIsBait = false;
+    this.crowdSummon = new CrowdSummonController({
+      THREE: this.THREE,
+      manager: this,
+      rng: this.rng
+    });
 
     // Stats/colors; note type names map to classes below
     this.typeConfig = {
@@ -101,6 +124,7 @@ export class EnemyManager {
       tank:   { type: 'tank',   hp: 450, speedMin: 1.6, speedMax: 2.4, color: 0x2563eb, kind: 'melee' },
       shooter:{ type: 'shooter',hp:   80, speedMin: 2.6, speedMax: 3.8, color: 0x10b981, kind: 'shooter' },
       flyer:  { type: 'flyer',  hp:  40, speedMin: 12.4, speedMax: 16.7, color: 0xa855f7, kind: 'flyer' },
+      pelican:{ type: 'pelican', hp: 100, speedMin: 7.0, speedMax: 8.5, color: 0xf2a12c, kind: 'pelican' },
       healer: { type: 'healer', hp:   90, speedMin: 2.2, speedMax: 2.6, color: 0x84cc16, kind: 'healer' },
       sniper: { type: 'sniper', hp:   135, speedMin: 2.0, speedMax: 2.4, color: 0x444444, kind: 'sniper' },
       warden: { type: 'warden', hp: 420, speedMin: 1.9, speedMax: 2.2, color: 0x22d3ee, kind: 'warden' },
@@ -124,6 +148,15 @@ export class EnemyManager {
   refreshColliders(objects = this.objects) {
     this.objects = objects;
     this.objectBBs = this.objects
+      .filter(o => !containsExtrudeGeometry(o) && !o?.userData?.walkableSurface && o?.userData?.blocksMovement !== false)
+      .map(o => new this.THREE.Box3().setFromObject(o));
+    this.movementObjects = this.objects.filter(o => o?.userData?.blocksMovement !== false);
+    this.groundingObjects = this.movementObjects.filter(o => o?.userData?.blocksGrounding !== false);
+    this.groundObjectBBs = this.groundingObjects
+      .filter(o => !containsExtrudeGeometry(o) && !o?.userData?.walkableSurface)
+      .map(o => new this.THREE.Box3().setFromObject(o));
+    this.shotBlockers = this.objects.filter(o => o?.userData?.blocksShots !== false);
+    this.shotObjectBBs = this.shotBlockers
       .filter(o => !containsExtrudeGeometry(o) && !o?.userData?.walkableSurface)
       .map(o => new this.THREE.Box3().setFromObject(o));
   }
@@ -135,6 +168,11 @@ export class EnemyManager {
       const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95 });
       const mesh = new THREE.InstancedMesh(geo, mat, max);
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      // Projectile instances start empty and move every frame. Three.js does
+      // not automatically refresh an InstancedMesh's cached bounds when only
+      // instance matrices/count change, which can leave live bullets culled at
+      // the pool's old (or empty) bounds.
+      mesh.frustumCulled = false;
       mesh.count = 0;
       this.scene.add(mesh);
       const ray = new THREE.Raycaster();
@@ -243,7 +281,7 @@ export class EnemyManager {
           const maxZ = Math.max(b.pz, nz) + 0.12;
   
           let broadHit = false;
-          const list = this.objectBBs;
+          const list = this.shotObjectBBs;
           for (let k = 0, L = list.length; k < L; k++) {
             const obb = list[k];
             if (obb.max.x < minX || obb.min.x > maxX) continue;
@@ -259,7 +297,7 @@ export class EnemyManager {
             pool._dir.set(dx / len, dy / len, dz / len);
             pool.ray.set(pool._orig, pool._dir);
             pool.ray.far = len;
-            const hits = pool.ray.intersectObjects(this.objects, false);
+            const hits = pool.ray.intersectObjects(this.shotBlockers, false);
             if (hits && hits.length > 0) hit = true;
           }
         }
@@ -380,8 +418,24 @@ export class EnemyManager {
     dir.multiplyScalar(1 / distance);
     this.raycaster.set(origin, dir);
     this.raycaster.far = Math.max(0, distance - 0.05);
-    const hits = this.raycaster.intersectObjects(this.objects, false);
+    const hits = this.raycaster.intersectObjects(this.shotBlockers, false);
     return !(hits && hits.length);
+  }
+
+  hasWorldLineOfSight(root, targetPosition) {
+    if (!root?.position || !targetPosition) return false;
+    const profile = this._profileForRoot(root);
+    const origin = new this.THREE.Vector3(
+      root.position.x,
+      root.position.y + profile.collisionHeight * 0.25,
+      root.position.z
+    );
+    const target = new this.THREE.Vector3(
+      targetPosition.x,
+      Number.isFinite(targetPosition.y) ? targetPosition.y : 1.7,
+      targetPosition.z
+    );
+    return this._hasImmediateWorldLOS(origin, target);
   }
 
   _locomotionCorridorClear(root, targetPosition) {
@@ -611,13 +665,20 @@ export class EnemyManager {
   _isVisibleFromPlayer(target) {
     const THREE = this.THREE;
     const { position: playerPos } = this.getPlayer();
-    const origin = new THREE.Vector3(playerPos.x, 1.7, playerPos.z);
+    // Elevated-player checks must begin at the actual camera position. A
+    // fixed ground-level origin can sit inside the very prop supporting the
+    // player, making every clear rally/spawn location appear occluded.
+    const origin = new THREE.Vector3(
+      playerPos.x,
+      Number.isFinite(playerPos.y) ? playerPos.y : 1.7,
+      playerPos.z
+    );
     const dir = target.clone().sub(origin); const dist = dir.length();
     if (dist <= 0.0001) return true;
     dir.normalize();
     this.raycaster.set(origin, dir);
     this.raycaster.far = dist - 0.1;
-    const hits = this.raycaster.intersectObjects(this.objects, false);
+    const hits = this.raycaster.intersectObjects(this.shotBlockers, false);
     return !(hits && hits.length > 0);
   }
 
@@ -741,7 +802,7 @@ export class EnemyManager {
   _rayHitDistance(origin, dir, maxDist) {
     this.raycaster.set(origin, dir);
     this.raycaster.far = maxDist;
-    const hits = this.raycaster.intersectObjects(this.objects, false);
+    const hits = this.raycaster.intersectObjects(this.movementObjects, false);
     if (!hits || hits.length === 0) return Infinity;
     return hits[0].distance;
   }
@@ -756,7 +817,7 @@ export class EnemyManager {
     if (enemy.userData?.knockbackImmune) return;
     const step = vector.clone ? vector.clone() : new this.THREE.Vector3(vector.x || 0, vector.y || 0, vector.z || 0);
     const type = enemy.userData?.type || '';
-    if (type === 'swarm_warden' || type.startsWith('flyer')) {
+    if (type === 'swarm_warden' || type === 'pelican' || type.startsWith('flyer')) {
       const horiz = step.clone();
       horiz.y = 0;
       const oldY = enemy.position.y;
@@ -797,6 +858,54 @@ export class EnemyManager {
       affected.push(root);
     }
     return affected;
+  }
+
+  setEngagementBait({ root, radius = 10, hp = 50, onDestroyed = null, onAffected = null } = {}) {
+    if (!root?.position) return false;
+    this.engagementBait = {
+      root,
+      radius: Math.max(0, Number(radius) || 0),
+      hp: Math.max(1, Number(hp) || 1),
+      onDestroyed: typeof onDestroyed === 'function' ? onDestroyed : null,
+      onAffected: typeof onAffected === 'function' ? onAffected : null,
+      affected: new Set()
+    };
+    return true;
+  }
+
+  clearEngagementBait(root = null) {
+    if (!this.engagementBait || (root && this.engagementBait.root !== root)) return false;
+    this.engagementBait = null;
+    this._activeAITargetIsBait = false;
+    return true;
+  }
+
+  damageEngagementBait(amount) {
+    const bait = this.engagementBait;
+    if (!bait) return { damaged: false, destroyed: false, hp: 0 };
+    bait.hp -= Math.max(0, Number(amount) || 0);
+    const destroyed = bait.hp <= 0;
+    if (destroyed) {
+      const callback = bait.onDestroyed;
+      this.engagementBait = null;
+      this._activeAITargetIsBait = false;
+      callback?.();
+    }
+    return { damaged: true, destroyed, hp: Math.max(0, bait.hp) };
+  }
+
+  _engagementBaitTargetFor(root) {
+    const bait = this.engagementBait;
+    if (!bait?.root?.position || !root?.position) return null;
+    if (root === this.bossManager?.boss?.root) return null;
+    const dx = root.position.x - bait.root.position.x;
+    const dz = root.position.z - bait.root.position.z;
+    if (dx * dx + dz * dz > bait.radius * bait.radius) return null;
+    if (!bait.affected.has(root)) {
+      bait.affected.add(root);
+      bait.onAffected?.(bait.affected.size, root);
+    }
+    return bait.root;
   }
 
   applyRadialKnockback(origin, {
@@ -883,16 +992,27 @@ export class EnemyManager {
       blockedBy: null,
       blockerRoot: null
     };
+    if (enemy?.userData?.movementLocked) return result;
 
     const tryAxis = (dx, dz) => {
+      const ox = px;
+      const oz = pz;
       const nx = px + dx;
       const nz = pz + dz;
       const bodyBottom = profile.movementLayer === 'ground' ? py - profile.groundOffset : py - halfHeight;
-      this._tmp.min.set(nx - radius, bodyBottom + 0.05, nz - radius);
-      this._tmp.max.set(nx + radius, bodyBottom + profile.collisionHeight, nz + radius);
-      this._tmp.boxA.set(this._tmp.min, this._tmp.max);
+      const bodyTop = bodyBottom + profile.collisionHeight;
+      let earliestHitT = null;
       for (const obstacle of this.objectBBs) {
-        if (!this._tmp.boxA.intersectsBox(obstacle)) continue;
+        if (obstacle.max.y < bodyBottom + 0.05 || obstacle.min.y > bodyTop) continue;
+        const hitT = firstExpandedAabbSweepT(ox, oz, nx, nz, obstacle, radius);
+        if (hitT == null) continue;
+        if (earliestHitT == null || hitT < earliestHitT) earliestHitT = hitT;
+      }
+      if (earliestHitT != null) {
+        const moveLength = Math.hypot(nx - ox, nz - oz) || 1;
+        const safeT = Math.max(0, earliestHitT - 0.025 / moveLength);
+        px = ox + (nx - ox) * safeT;
+        pz = oz + (nz - oz) * safeT;
         result.blockedBy ||= 'world';
         return false;
       }
@@ -916,6 +1036,8 @@ export class EnemyManager {
     });
     let earliest = null;
     for (const entry of nearby) {
+      const entryOwner = entry.root?.userData?.bossOwnerRoot || entry.root?.userData?.summonerRoot || null;
+      if (entryOwner === enemy) continue;
       if (!verticalSpansOverlap(enemy, profile, entry.root, entry.profile)) continue;
       const combined = radius + entry.profile.collisionRadius;
       const startDistance = Math.hypot(startX - entry.root.position.x, startZ - entry.root.position.z);
@@ -1073,7 +1195,7 @@ export class EnemyManager {
     try {
       this.raycaster.set(origin, dir);
       this.raycaster.far = 20;
-      const hits = this.raycaster.intersectObjects(this.objects, false);
+      const hits = this.raycaster.intersectObjects(this.groundingObjects, false);
       if (hits && hits.length) {
         let top = 0;
         for (const h of hits) { if (h.point && h.point.y > top) top = h.point.y; }
@@ -1082,7 +1204,7 @@ export class EnemyManager {
     } catch (e) { logError(e); }
     // Fallback: check AABB tops overlapping footprint center
     let maxTop = 0;
-    for (const obb of this.objectBBs) {
+    for (const obb of this.groundObjectBBs) {
       if (x < obb.min.x || x > obb.max.x) continue;
       if (z < obb.min.z || z > obb.max.z) continue;
       if (obb.max.y > maxTop) maxTop = obb.max.y;
@@ -1155,6 +1277,7 @@ export class EnemyManager {
     switch (cfg.kind) {
       case 'shooter': return new ShooterEnemy(args);
       case 'flyer':   return new FlyerEnemy(args);
+      case 'pelican': return new PropagandaPelicanEnemy(args);
       case 'healer':  return new HealerEnemy(args);
       case 'sniper':  return new SniperEnemy(args);
       case 'warden':  return new SwarmWarden(args);
@@ -1190,6 +1313,7 @@ export class EnemyManager {
 
   _specialWaveRole(type) {
     if (type === 'flyer' || type === 'flyer_swarm') return 'flyer';
+    if (type === 'pelican') return 'pelican';
     if (type === 'swarm_warden' || type === 'warden') return 'warden';
     return type;
   }
@@ -1227,9 +1351,9 @@ export class EnemyManager {
     if (!this.pickups?.dropMultiple) return;
     const ammoPosition = new this.THREE.Vector3(4.2, 0, 0.4);
     const medPosition = new this.THREE.Vector3(-4.2, 0, 0.4);
-    this.pickups.dropMultiple('ammo', ammoPosition, packageNumber === 1 ? 2 : 3);
+    this.pickups.dropMultiple('ammo', ammoPosition, packageNumber === 1 ? 2 : 3, { source: 'supply' });
     if (packageNumber === 1 || packageNumber % 2 === 0) {
-      this.pickups.dropMultiple('med', medPosition, 1);
+      this.pickups.dropMultiple('med', medPosition, 1, { source: 'supply' });
     }
   }
 
@@ -1268,6 +1392,13 @@ export class EnemyManager {
       packageSize: types.length,
       committedTotal: state.committedTotal
     });
+    if (packageIndex + 1 === state.definition.packageCount && !state.finalSearchlight) {
+      state.finalSearchlight = true;
+      this._emitSpecialWave('final-searchlight', {
+        surge: packageIndex + 1,
+        totalSurges: state.definition.packageCount
+      });
+    }
     return true;
   }
 
@@ -1281,7 +1412,9 @@ export class EnemyManager {
       reserve: [],
       spawnCooldown: 0,
       pendingSurgeAt: null,
-      lastCommitAt: this._aiClock
+      lastCommitAt: this._aiClock,
+      nextLocatorPulseAt: this._aiClock + 9,
+      finalSearchlight: false
     };
     this._commitSpecialWavePackage(0);
   }
@@ -1299,6 +1432,18 @@ export class EnemyManager {
     if (!state?.active) return;
     const definition = state.definition;
     state.spawnCooldown = Math.max(0, state.spawnCooldown - dt);
+
+    if (this._aiClock >= state.nextLocatorPulseAt) {
+      const warden = [...this.enemies].find(root => this._specialWaveRole(root?.userData?.type) === 'warden');
+      if (warden?.position) {
+        this._emitSpecialWave('locator-pulse', {
+          position: [warden.position.x, warden.position.y, warden.position.z],
+          surge: state.packagesCommitted,
+          totalSurges: definition.packageCount
+        });
+      }
+      state.nextLocatorPulseAt = this._aiClock + 9;
+    }
 
     let spawnBudget = 2;
     while (spawnBudget > 0 && state.spawnCooldown <= 0 && state.reserve.length) {
@@ -1367,31 +1512,85 @@ export class EnemyManager {
     return types.length;
   }
 
+  /**
+   * Materializes one real queued enemy for every incoming type while a level
+   * transition is fully occluded. The remaining roster keeps its normal
+   * staggered spawn cadence, but all first-use model/shader variants can be
+   * compiled before the player regains control.
+   */
+  primeAuthoredSpawnTypes() {
+    if (!this._authoredSpawnQueue.length) return { spawnedTypes: [], remaining: 0 };
+    const seen = new Set();
+    const representatives = [];
+    for (let index = 0; index < this._authoredSpawnQueue.length; index++) {
+      const item = this._authoredSpawnQueue[index];
+      if (item?.wave !== this.wave || seen.has(item.type)) continue;
+      seen.add(item.type);
+      representatives.push(item);
+    }
+
+    const spawnedTypes = [];
+    for (const item of representatives) {
+      const index = this._authoredSpawnQueue.indexOf(item);
+      if (index < 0) continue;
+      const root = this.spawn(item.type);
+      if (!root) continue;
+      this._authoredSpawnQueue.splice(index, 1);
+      spawnedTypes.push(item.type);
+    }
+    if (spawnedTypes.length) this._authoredSpawnCooldown = 0.16;
+    return { spawnedTypes, remaining: this._authoredSpawnQueue.length };
+  }
+
   _updateAuthoredSpawnQueue(dt) {
     if (!this._authoredSpawnQueue.length) return;
     this._authoredSpawnCooldown = Math.max(0, this._authoredSpawnCooldown - dt);
     if (this._authoredSpawnCooldown > 0) return;
-    let budget = 2;
-    while (budget-- > 0 && this._authoredSpawnQueue.length) {
+    let budget = this.qaImmediateSpawns ? this._authoredSpawnQueue.length : 2;
+    let attemptsRemaining = this._authoredSpawnQueue.length;
+    while (budget > 0 && attemptsRemaining-- > 0 && this._authoredSpawnQueue.length) {
       const item = this._authoredSpawnQueue[0];
       if (item.wave !== this.wave) {
         this._authoredSpawnQueue.shift();
         this.alive = Math.max(0, this.alive - 1);
         continue;
       }
-      const root = this.spawn(item.type);
-      if (!root) {
-        // Authored levels never escape to random coordinates. Keeping the
-        // reserved alive count makes wave completion wait for this retry.
-        this._authoredSpawnCooldown = 0.28;
+      const activeCap = Number(this.encounterHooks?.getWaveDefinition?.(this.wave)?.activeCap);
+      if (!this.qaImmediateSpawns && Number.isFinite(activeCap) && activeCap > 0 && this.enemies.size >= activeCap) {
+        this._authoredSpawnCooldown = 0.16;
         break;
       }
+      const root = this.spawn(item.type);
+      if (!root) {
+        // Keep authored enemies reserved, but rotate a temporarily invalid
+        // entrance to the tail so one type cannot poison the whole FIFO.
+        const authoredCandidates = this.encounterHooks?.getSpawnCandidates?.({ wave: this.wave, type: item.type });
+        item.spawnAttempts = Math.max(0, Number(item.spawnAttempts) || 0) + 1;
+        this._lastAuthoredSpawnFailure = {
+          wave: this.wave,
+          type: item.type,
+          attempts: item.spawnAttempts,
+          reason: Array.isArray(authoredCandidates) && authoredCandidates.length === 0
+            ? 'no_eligible_authored_entrance'
+            : 'authored_entrances_blocked_or_too_close',
+          candidateEntrances: Array.isArray(authoredCandidates)
+            ? authoredCandidates.map(candidate => candidate?.entranceId || null).filter(Boolean)
+            : [],
+          queueOrder: this._authoredSpawnQueue.map(queued => queued.type)
+        };
+        this._authoredSpawnQueue.push(this._authoredSpawnQueue.shift());
+        this._authoredSpawnCooldown = 0.28;
+        budget--;
+        continue;
+      }
       this._authoredSpawnQueue.shift();
-      this._authoredSpawnCooldown = 0.16;
+      this._lastAuthoredSpawnFailure = null;
+      this._authoredSpawnCooldown = this.qaImmediateSpawns ? 0 : 0.16;
+      budget--;
     }
   }
 
-  tryAdvanceWave() {
+  tryAdvanceWave({ beforeStart } = {}) {
     if (this.suspendWaves || this._advancingWave) return false;
     const bossActive = !!(this.bossManager?.active && this.bossManager?.boss);
     if (this.alive > 0 || bossActive || Hydraclone.hasPending()) return false;
@@ -1399,9 +1598,13 @@ export class EnemyManager {
     if (this.encounterHooks?.canCompleteWave?.(this.wave) === false) return false;
     if (this.specialWaveState?.active) this._finishSpecialWave();
     this._advancingWave = true;
-    this.wave++;
-    this.startWave();
-    this._advancingWave = false;
+    try {
+      this.wave++;
+      beforeStart?.(this.wave);
+      this.startWave();
+    } finally {
+      this._advancingWave = false;
+    }
     return true;
   }
 
@@ -1410,6 +1613,11 @@ export class EnemyManager {
     const spawnEpoch = ++this._waveSpawnEpoch;
     const scheduledWave = this.wave;
     const authoredWave = this.encounterHooks?.getWaveDefinition?.(this.wave);
+    const specialDefinition = getSpecialWaveDefinition(this.wave);
+    if (specialDefinition && (!authoredWave || authoredWave.specialEncounter === specialDefinition.id)) {
+      this._startSpecialWave(specialDefinition);
+      return;
+    }
     if (authoredWave) {
       if (authoredWave.boss) {
         const started = this.bossManager.startBoss(this.wave);
@@ -1421,11 +1629,6 @@ export class EnemyManager {
       const initialTypes = [...(authoredWave.packages?.[0] || [])];
       this.queueAuthoredEnemies(initialTypes, { initial: true });
       if (this.onWave) this.onWave(this.wave, initialTypes.length, initialTypes);
-      return;
-    }
-    const specialDefinition = getSpecialWaveDefinition(this.wave);
-    if (specialDefinition) {
-      this._startSpecialWave(specialDefinition);
       return;
     }
     if (this.obstacleManager && this.wave % 5 === 0) {
@@ -1450,6 +1653,10 @@ export class EnemyManager {
     if (this.onRemaining) this.onRemaining(this.alive);
 
     for (let i = 0; i < types.length; i++) {
+      if (this.qaImmediateSpawns) {
+        this.spawn(types[i]);
+        continue;
+      }
       const delay = 200 + this.rng() * 200;
       setTimeout(() => {
         if (spawnEpoch !== this._waveSpawnEpoch || this.wave !== scheduledWave) return;
@@ -1474,6 +1681,8 @@ export class EnemyManager {
     this._senseCache = new WeakMap();
     this._allyBypass = new WeakMap();
     this._airAttackReservations.clear();
+    this.crowdSummon?.reset?.();
+    this.clearEngagementBait();
     const requestedWave = Math.floor(Number(wave));
     this.wave = Number.isFinite(requestedWave) ? Math.max(1, requestedWave) : 1;
     this.alive = 0;
@@ -1519,6 +1728,8 @@ export class EnemyManager {
         },
         blackboard: {
           playerForward: null,
+          playerAimOrigin: null,
+          playerAimDirection: null,
           playerSpeed: 0,
           suppression: false,
           regroup: false,
@@ -1576,8 +1787,13 @@ export class EnemyManager {
     // 2) Per-frame basics
     ctx.player = playerObject;
     ctx.objects = this.objects;
+    ctx.combatVisibilityRange = this.combatVisibilityRange;
     ctx.scene = this.scene;
     ctx.damagePlayer = (amount, metadata = {}) => {
+      if (this._activeAITargetIsBait && this.engagementBait) {
+        this.damageEngagementBait(amount);
+        return;
+      }
       const sourceKind = metadata.sourceKind || metadata.source || 'enemy';
       const sourceRoot = metadata.sourceRoot || null;
       const ownerRoot = metadata.ownerRoot
@@ -1588,7 +1804,11 @@ export class EnemyManager {
       onPlayerDamage?.(amount, sourceKind, { ...metadata, sourceKind, sourceRoot, ownerRoot });
     };
     ctx.onPlayerDamage = (amount, source = 'enemy', metadata = {}) =>
-      ctx.damagePlayer(amount, { ...metadata, sourceKind: source, sourceRoot: metadata.sourceRoot || null });
+      ctx.damagePlayer(amount, {
+        ...metadata,
+        sourceKind: metadata.sourceKind || source,
+        sourceRoot: metadata.sourceRoot || null
+      });
     ctx.pickups = this.pickups;
 
     // 3) One-time helper wiring (from main). Create once.
@@ -1687,11 +1907,15 @@ export class EnemyManager {
     // 5) Blackboard (merge of both)
     const info = this.getPlayer ? this.getPlayer() : null;
     const forward = info && info.forward ? info.forward.clone() : null;
+    const aimOrigin = info?.aimOrigin?.clone?.() || null;
+    const aimDirection = info?.aimDirection?.clone?.() || null;
     const bossActive = !!(this.bossManager && this.bossManager.active && this.bossManager.boss);
 
     // Create or reuse bb object so other code can stash things on it
     const bb = ctx.blackboard || (ctx.blackboard = {});
     bb.playerForward       = forward;
+    bb.playerAimOrigin     = aimOrigin;
+    bb.playerAimDirection  = aimDirection;
     bb.playerSpeed         = this._playerSpeedEMA || 0;
     bb.suppression         = bb.suppression || false; // keep if already set by combat logic
     bb.regroup             = !bossActive
@@ -1702,6 +1926,7 @@ export class EnemyManager {
     bb.time                = this._aiClock;
     bb.sniperLastFireAt    = this._sniperLastFireAt;
     if (this.bossManager) this.bossManager.update(dt, ctx);
+    this.crowdSummon?.update?.(dt, { player: playerObject, bossActive });
   
     // time-sliced AI
     this._aiFrame = (this._aiFrame || 0) + 1;
@@ -1714,6 +1939,7 @@ export class EnemyManager {
       // lifecycle bookkeeping, but updating it here a second time accelerates
       // every boss state machine, telegraph, projectile, and cooldown.
       if (bossActive && inst === this.bossManager.boss) continue;
+      if (this.crowdSummon?.controls?.(inst?.root)) continue;
       i++;
       if ((inst?.root?.userData?.stunnedUntil || 0) > this._aiClock) continue;
       if (!playerPos || !inst || !inst.root || !inst.root.position) { inst.update(dt, ctx); continue; }
@@ -1729,13 +1955,20 @@ export class EnemyManager {
           for (const detail of detailNodes) detail.visible = nextVisible;
         }
       }
+      let updateDt = dt;
       if (d2 > (25*25)) {
         if (((i + this._aiFrame) % 3) !== 0) continue;
-        inst.update(dt * 3, ctx);
-      } else {
-        inst.update(dt, ctx);
+        updateDt = dt * 3;
       }
+      const baitTarget = this._engagementBaitTargetFor(inst.root);
+      ctx.player = baitTarget || playerObject;
+      this._activeAITargetIsBait = !!baitTarget;
+      inst.update(updateDt, ctx);
+      ctx.player = playerObject;
+      this._activeAITargetIsBait = false;
     }
+    ctx.player = playerObject;
+    this._activeAITargetIsBait = false;
   
     // bullets
     try { this._updateBulletPools(dt, ctx); } catch (e) { logError(e); }
@@ -1855,8 +2088,22 @@ export class EnemyManager {
     return true;
   }
 
+  isSupportOnlyWaveLeader(enemyRoot, supportTypes = ['healer']) {
+    if (!this.enemies.has(enemyRoot) || this._nonWaveEnemies.has(enemyRoot)) return false;
+    if (this._authoredSpawnQueue.length > 0) return false;
+    if (this.specialWaveState?.active && this._specialWaveBlocksCompletion()) return false;
+    const allowed = new Set(supportTypes);
+    const waveEnemies = this._enemyRootsArr.filter(root => (
+      this.enemies.has(root) && !this._nonWaveEnemies.has(root) && Number(root.userData?.hp) > 0
+    ));
+    return waveEnemies.length > 0
+      && waveEnemies[0] === enemyRoot
+      && waveEnemies.every(root => allowed.has(root.userData?.type));
+  }
+
   remove(enemyRoot) {
     if (!this.enemies.has(enemyRoot)) return;
+    this.crowdSummon?.onEnemyRemoved?.(enemyRoot);
     const countsTowardWave = !this._nonWaveEnemies.has(enemyRoot);
     this._nonWaveEnemies.delete(enemyRoot);
   
@@ -1878,7 +2125,14 @@ export class EnemyManager {
   
     const inst = this.instanceByRoot.get(enemyRoot);
     if (inst) {
-      if (typeof inst.onRemoved === 'function') inst.onRemoved(this.scene);
+      // Cleanup must never abort the main frame loop. A broken cosmetic or
+      // projectile teardown can be logged, but the enemy still has to leave
+      // manager state and tutorial/wave progression must continue.
+      if (typeof inst.onRemoved === 'function') {
+        try { inst.onRemoved(this.scene); } catch (e) {
+          logError(e, { system: 'enemy', action: 'remove', type: enemyRoot.userData?.type || 'unknown' });
+        }
+      }
       this.instances.delete(inst);
     }
   
@@ -1944,6 +2198,7 @@ export class EnemyManager {
       inst.root.userData.aiState = inst.root.userData.aiState || 'idle';
       if (inst.root.userData.maxHp == null && inst.root.userData.hp != null) inst.root.userData.maxHp = inst.root.userData.hp;
     }
+    this.encounterHooks?.configureSpawnedEnemy?.({ root: inst.root, instance: inst, type, wave: this.wave });
     this.scene.add(inst.root);
     this.enemies.add(inst.root);
     this.instances.add(inst);
@@ -1976,8 +2231,11 @@ export class EnemyManager {
     const pctRusher  = wave >= 6 ? 0.12 : 0.0;
     // Shooters appear starting wave 2 at a lower proportion
     const pctShooter = wave >= 2 ? 0.08 : 0.0;
-    // Flyers now appear starting at wave 1 with a gentle ramp
+    // Flyers become a regular wave ingredient at wave 5.
     const pctFlyer   = Math.min(0.6, 0.10 + 0.05 * (wave - 1));
+    // Propaganda Pelicans arrive five waves later and replace a small slice of
+    // the air roster instead of increasing total aerial density.
+    const pctPelican = wave >= 10 ? 0.05 : 0.0;
     const pctTank    = wave >= 3 ? 0.10 : 0.0;
     const pctHealer  = wave >= 7 ? 0.08 : 0.0;
     const pctSniper  = wave >= 8 ? 0.05 : 0.0;
@@ -1985,6 +2243,9 @@ export class EnemyManager {
 
     const minFlyer  = wave >= 5 ? 2 : 0;
     let needFlyer   = wave >= 5 ? Math.max(minFlyer, Math.floor(total * pctFlyer)) : 0;
+    let needPelican = wave >= 10 ? Math.max(1, Math.floor(total * pctPelican)) : 0;
+    needPelican = Math.min(wave >= 25 ? 2 : 1, needPelican, needFlyer);
+    needFlyer = Math.max(0, needFlyer - needPelican);
     // Base rusher pool, later split into variant tiers
     let totalRusher = Math.floor(total * pctRusher);
     let needRusher = totalRusher;           // commons
@@ -2009,10 +2270,11 @@ export class EnemyManager {
     let needWarden  = Math.floor(total * pctWarden);
 
     // Cap total replacements to total count
-    let requested = needFlyer + needRusher + needRusherElite + needRusherExplosive + needShooter + needTank + needHealer + needSniper + needWarden;
+    let requested = needFlyer + needPelican + needRusher + needRusherElite + needRusherExplosive + needShooter + needTank + needHealer + needSniper + needWarden;
     if (requested > total) {
       const scale = total / requested;
       needFlyer = Math.floor(needFlyer * scale);
+      needPelican = Math.floor(needPelican * scale);
       needRusher = Math.floor(needRusher * scale);
       needRusherElite = Math.floor(needRusherElite * scale);
       needRusherExplosive = Math.floor(needRusherExplosive * scale);
@@ -2049,6 +2311,7 @@ export class EnemyManager {
     assignRandom(needRusherElite, 'rusher_elite');
     assignRandom(needRusherExplosive, 'rusher_explosive');
     assignRandom(needRusher, 'rusher');
+    assignRandom(needPelican, 'pelican');
     assignRandom(needFlyer, 'flyer');
 
     // mild shuffle
@@ -2084,6 +2347,44 @@ function segmentIntersectsExpandedAabbXZ(start, end, box, padding = 0) {
     if (tMin > tMax) return false;
   }
   return tMax >= 0 && tMin <= 1;
+}
+
+// Earliest contact between a moving circular body and a world AABB in XZ.
+// Endpoint-only overlap checks let accelerated/far-tick enemies jump completely
+// across thin doors. Starting overlaps may still move toward an exit so a bad
+// spawn or moving prop cannot permanently imprison an actor.
+function firstExpandedAabbSweepT(startX, startZ, endX, endZ, box, padding = 0) {
+  const minX = box.min.x - padding;
+  const maxX = box.max.x + padding;
+  const minZ = box.min.z - padding;
+  const maxZ = box.max.z + padding;
+  const startInside = startX >= minX && startX <= maxX && startZ >= minZ && startZ <= maxZ;
+  if (startInside) {
+    const endInside = endX >= minX && endX <= maxX && endZ >= minZ && endZ <= maxZ;
+    if (!endInside) return null;
+    const startDepth = Math.min(startX - minX, maxX - startX, startZ - minZ, maxZ - startZ);
+    const endDepth = Math.min(endX - minX, maxX - endX, endZ - minZ, maxZ - endZ);
+    return endDepth <= startDepth + 1e-6 ? null : 0;
+  }
+
+  let tMin = 0;
+  let tMax = 1;
+  for (const [origin, delta, min, max] of [
+    [startX, endX - startX, minX, maxX],
+    [startZ, endZ - startZ, minZ, maxZ]
+  ]) {
+    if (Math.abs(delta) < 1e-9) {
+      if (origin < min || origin > max) return null;
+      continue;
+    }
+    let near = (min - origin) / delta;
+    let far = (max - origin) / delta;
+    if (near > far) [near, far] = [far, near];
+    tMin = Math.max(tMin, near);
+    tMax = Math.min(tMax, far);
+    if (tMin > tMax) return null;
+  }
+  return tMax >= 0 && tMin <= 1 ? Math.max(0, tMin) : null;
 }
 
 function firstCircleSweepT(startX, startZ, endX, endZ, centerX, centerZ, radius) {

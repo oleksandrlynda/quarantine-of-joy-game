@@ -2,12 +2,12 @@
 // API: startBoss(wave), update(dt, ctx), onDeath(cb), active
 
 import { Broodmaker } from './broodmaker.js';
-import { Sanitizer } from './sanitizer.js';
-import { Captain } from './captain.js';
-import { ShardAvatar } from './shard.js';
-import { Hydraclone } from './hydraclone.js';
+import { Sanitizer } from './sanitizer.js?rev=beam-cover2';
+import { Captain } from './captain.js?rev=readable-ballistic-rocket2';
+import { ShardAvatar } from './shard.js?rev=campaign-aim-resource-recovery1';
+import { Hydraclone } from './hydraclone.js?rev=mirror-intercept2';
 import { StrikeAdjudicator } from './adjudicator.js';
-import { AlgorithmBoss } from './algorithm.js';
+import { AlgorithmBoss } from './algorithm.js?rev=outer-cover-ring1';
 import { ReusablePool } from './reusable-pool.js';
 import { getBossSharedGeometry } from './visual-cache.js';
 

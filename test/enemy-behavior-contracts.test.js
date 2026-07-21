@@ -22,11 +22,13 @@ const root = (id, x, y, z) => ({ position: point(x, y, z), userData: { behaviorI
 test('shared profiles cover every EnemyManager archetype and preserve role ranges', () => {
   assert.deepEqual(Object.keys(ENEMY_BEHAVIOR_PROFILES), [
     'grunt', 'gruntling', 'tank', 'rusher', 'rusher_elite', 'rusher_explosive',
-    'bailiff', 'shooter', 'sniper', 'flyer', 'healer', 'warden'
+    'bailiff', 'shooter', 'sniper', 'flyer', 'pelican', 'healer', 'warden'
   ]);
   assert.deepEqual(ENEMY_BEHAVIOR_PROFILES.shooter.preferredRange, [12, 18]);
   assert.deepEqual(ENEMY_BEHAVIOR_PROFILES.sniper.preferredRange, [22, 30]);
   assert.equal(ENEMY_BEHAVIOR_PROFILES.shooter.actions.includes('ally_cover'), true);
+  assert.equal(ENEMY_BEHAVIOR_PROFILES.shooter.actions.includes('counter_aim_evade'), true);
+  assert.equal(ENEMY_BEHAVIOR_PROFILES.shooter.actions.includes('gun_butt'), true);
   assert.equal(isScenarioApplicable('shooter', 'ally_cover_usage'), true);
   assert.equal(isScenarioApplicable('sniper', 'ally_cover_usage'), false);
   assert.equal(ENEMY_BEHAVIOR_PROFILES.healer.actions.includes('heal'), true);
@@ -36,6 +38,10 @@ test('shared profiles cover every EnemyManager archetype and preserve role range
   assert.equal(isScenarioApplicable('healer', 'alone_retreat'), false);
   assert.equal(ENEMY_BEHAVIOR_PROFILES.healer.actions.includes('fire'), false);
   assert.equal(isScenarioApplicable('flyer', 'barrel_navigation'), false);
+  assert.deepEqual(ENEMY_BEHAVIOR_PROFILES.pelican.preferredRange, [5, 18]);
+  assert.equal(ENEMY_BEHAVIOR_PROFILES.pelican.actions.includes('drop_grenade'), true);
+  assert.equal(isScenarioApplicable('pelican', 'pelican_bombing_cycle'), true);
+  assert.equal(isScenarioApplicable('pelican', 'dive_corridor'), false);
   assert.equal(isScenarioApplicable('warden', 'outer_ring_retreat'), true);
 });
 
@@ -49,6 +55,85 @@ test('Shooter range hysteresis has no non-firing gap outside 12-18m', () => {
   assert.equal(shooter._updateRangeMovementMode(17.5), 'hold');
   assert.equal(shooter._updateRangeMovementMode(11.9), 'retreat');
   assert.equal(shooter._updateRangeMovementMode(12.5), 'hold');
+});
+
+test('Shooter prioritizes a ready clear shot and uses hiding during cooldown', () => {
+  const shooter = Object.create(ShooterEnemy.prototype);
+  shooter.preferredRange = { min: 12, max: 18 };
+  shooter.inBurst = false;
+  shooter.windupTime = 0;
+  shooter.cooldown = 0;
+  shooter.evasiveTimer = 0;
+
+  assert.equal(shooter._shouldPrioritizeShot(15, true, true), true);
+  assert.equal(shooter._shouldPrioritizeShot(15, false, true), false, 'world cover must still force repositioning');
+  assert.equal(shooter._shouldPrioritizeShot(15, true, false), false, 'an allied blocker must still force a peek');
+  assert.equal(shooter._shouldPrioritizeShot(19, true, true), false, 'Shooter must first close into its authored firing band');
+
+  shooter.cooldown = 0.8;
+  assert.equal(shooter._shouldPrioritizeShot(15, true, true), false, 'post-burst cooldown is the hiding window');
+  shooter.inBurst = true;
+  assert.equal(shooter._shouldPrioritizeShot(15, true, true), true, 'an active burst must finish before hiding');
+});
+
+test('Shooter detects the full camera ray crossing its body instead of broad facing', () => {
+  const shooter = new ShooterEnemy({
+    THREE,
+    mats: { head: new THREE.MeshLambertMaterial({ color: 0x111827 }) },
+    cfg: { type: 'shooter', hp: 80, speedMin: 3, speedMax: 3 },
+    spawnPos: new THREE.Vector3(0, 0.8, 15),
+    rng: () => 0.5
+  });
+  const aimOrigin = new THREE.Vector3(0, 1.7, 0);
+  const directAim = shooter.root.position.clone().sub(aimOrigin).normalize();
+  const ctx = { blackboard: { playerAimOrigin: aimOrigin, playerAimDirection: directAim } };
+
+  assert.equal(shooter._isUnderPlayerAim(ctx, true), true);
+  ctx.blackboard.playerAimDirection = new THREE.Vector3(0.2, 0, 1).normalize();
+  assert.equal(shooter._isUnderPlayerAim(ctx, true), false, 'general facing must not count as crosshair pressure');
+  ctx.blackboard.playerAimDirection = directAim;
+  assert.equal(shooter._isUnderPlayerAim(ctx, false), false, 'cover must prevent psychic counter-aim reactions');
+});
+
+test('Shooter evades after sustained crosshair pressure, then keeps a reaction cooldown', () => {
+  const shooter = new ShooterEnemy({
+    THREE,
+    mats: { head: new THREE.MeshLambertMaterial({ color: 0x111827 }) },
+    cfg: { type: 'shooter', hp: 80, speedMin: 3, speedMax: 3 },
+    spawnPos: new THREE.Vector3(0, 0.8, 15),
+    rng: () => 0.5
+  });
+  const aimOrigin = new THREE.Vector3(0, 1.7, 0);
+  const events = [];
+  const ctx = {
+    scene: new THREE.Scene(),
+    blackboard: {
+      playerAimOrigin: aimOrigin,
+      playerAimDirection: shooter.root.position.clone().sub(aimOrigin).normalize()
+    },
+    positionClear: () => true,
+    emitAIEvent: (_root, type, data) => events.push({ type, ...data })
+  };
+  shooter.inBurst = true;
+  shooter.shotsThisBurst = 2;
+  shooter.windupTime = 0.2;
+
+  assert.equal(shooter._updateCounterAimThreat(0.1, ctx, true, aimOrigin), false);
+  assert.equal(shooter._updateCounterAimThreat(0.1, ctx, true, aimOrigin), false);
+  assert.equal(shooter._updateCounterAimThreat(0.1, ctx, true, aimOrigin), true);
+
+  assert.equal(shooter._counterAimActive, true);
+  assert.equal(shooter.inBurst, false);
+  assert.equal(shooter.shotsThisBurst, 0);
+  assert.equal(shooter.windupTime, 0);
+  assert.equal(shooter.relocating, true);
+  assert.ok(Math.abs(shooter._counterAimDir.x) > 0.9, 'evasion should primarily break the aim laterally');
+  assert.ok(events.some(event => event.type === 'counter_aim_evade_started'));
+
+  shooter._counterAimActive = false;
+  shooter.evasiveTimer = 0;
+  assert.equal(shooter._updateCounterAimThreat(0.5, ctx, true, aimOrigin), false);
+  assert.equal(shooter._aimThreatTime, 0, 'cooldown must prevent immediate dodge chaining');
 });
 
 test('Shooter performs a final tactical obstruction check before every projectile', () => {
@@ -79,6 +164,105 @@ test('Shooter performs a final tactical obstruction check before every projectil
   assert.deepEqual(events.map(event => [event.type, event.reason, event.blockerRoot]), [
     ['shot_withheld', 'ally_blocked', blocker]
   ]);
+});
+
+test('Shooter firing preserves the authored showcase gun pose and front muzzle', () => {
+  const shooter = new ShooterEnemy({
+    THREE,
+    mats: { head: new THREE.MeshLambertMaterial({ color: 0x111827 }) },
+    cfg: { type: 'shooter', hp: 80, speedMin: 3, speedMax: 3 },
+    spawnPos: new THREE.Vector3(0, 0.8, 0),
+    rng: () => 0.5
+  });
+  const target = new THREE.Vector3(0, 1.7, 15);
+  const origins = [];
+  const ctx = {
+    tacticalLineClear: () => ({ clear: true, worldClear: true, blockerRoot: null }),
+    _spawnBullet: (_kind, origin) => { origins.push(origin.clone()); return true; }
+  };
+
+  shooter.root.updateMatrixWorld(true);
+  const authoredGunRotation = shooter._refs.gun.quaternion.clone();
+  shooter._fireProjectile(target, ctx);
+  shooter.root.updateMatrixWorld(true);
+  shooter._fireProjectile(target, ctx);
+  shooter.root.updateMatrixWorld(true);
+
+  const gunOrigin = shooter._refs.gun.getWorldPosition(new THREE.Vector3());
+  const barrelPoint = shooter._refs.gun.localToWorld(new THREE.Vector3(0, 0, -1));
+  const barrelDirection = barrelPoint.sub(gunOrigin).normalize();
+  const targetDirection = target.clone().sub(origins[1]).normalize();
+  assert.ok(shooter._refs.gun.quaternion.angleTo(authoredGunRotation) < 1e-8, 'firing must not overwrite the showcased hold');
+  assert.ok(barrelDirection.dot(targetDirection) > 0.995, 'authored barrel must remain in the target-facing hemisphere');
+  assert.ok(origins[0].z > shooter.root.position.z, 'first shot must originate in front of the body');
+  assert.ok(origins[1].z > shooter.root.position.z, 'repeated shots must remain in front of the body');
+  assert.ok(origins[1].distanceTo(shooter._refs.muzzle.getWorldPosition(new THREE.Vector3())) < 1e-6);
+});
+
+test('Shooter uses a telegraphed gun-butt after blocked escape and creates retreat space', () => {
+  const shooter = new ShooterEnemy({
+    THREE,
+    mats: { head: new THREE.MeshLambertMaterial({ color: 0x111827 }) },
+    cfg: { type: 'shooter', hp: 80, speedMin: 3, speedMax: 3 },
+    spawnPos: new THREE.Vector3(0, 0.8, 0),
+    rng: () => 0.5
+  });
+  shooter.evasiveTimer = 0.5;
+  assert.equal(shooter._shouldStartGunButt(0.016, 1.6, true, {
+    requestedDistance: 0.08, appliedDistance: 0, blockedBy: 'world'
+  }), true);
+
+  const events = [];
+  const damage = [];
+  const pushes = [];
+  const states = [];
+  const ctx = {
+    scene: new THREE.Scene(),
+    damagePlayer: (amount, metadata) => damage.push({ amount, metadata }),
+    applyPlayerKnockback: vector => pushes.push(vector.clone()),
+    emitAIEvent: (_root, type, data) => events.push({ type, ...data }),
+    setAIState: (_root, state) => states.push(state)
+  };
+  const playerPos = new THREE.Vector3(0, 1.7, 1.6);
+  const sense = { rawWorldLOS: true, locomotionClear: true };
+  const authoredGunRotation = shooter._refs.gun.quaternion.clone();
+
+  shooter._startGunButt(ctx);
+  assert.equal(damage.length, 0, 'windup must not deal immediate damage');
+  shooter._updateGunButt(0.38, ctx, playerPos, sense);
+
+  assert.equal(damage.length, 1);
+  assert.equal(damage[0].amount, 16);
+  assert.equal(damage[0].metadata.sourceKind, 'shooter_gun_butt');
+  assert.equal(pushes.length, 1);
+  assert.ok(Math.abs(pushes[0].length() - 1.35) < 1e-8);
+  assert.ok(events.some(event => event.type === 'melee_started'));
+  assert.ok(events.some(event => event.type === 'melee_hit'));
+  assert.ok(states.includes('gun_butt_active'));
+  assert.ok(shooter._refs.gun.quaternion.angleTo(authoredGunRotation) < 1e-8, 'melee swing must keep the gun correctly mounted');
+
+  shooter._updateGunButt(0.12, ctx, playerPos, sense);
+  shooter._updateGunButt(0.48, ctx, playerPos, sense);
+  assert.equal(shooter._meleePhase, 'idle');
+  assert.equal(shooter.evasiveTimer, 0.75);
+  assert.equal(shooter.relocating, true);
+  assert.ok(Math.abs(shooter._refs.rightArm.rotation.x - shooter._rightArmRestRotation.x) < 1e-8);
+  assert.ok(Math.abs(shooter._refs.rightArm.rotation.y - shooter._rightArmRestRotation.y) < 1e-8);
+  assert.ok(Math.abs(shooter._refs.rightArm.rotation.z - shooter._rightArmRestRotation.z) < 1e-8);
+});
+
+test('Shooter requires sustained point-blank pressure when its escape remains clear', () => {
+  const shooter = Object.create(ShooterEnemy.prototype);
+  shooter.meleeRange = 2.2;
+  shooter._closePressureTime = 0;
+  shooter._meleeCooldown = 0;
+  shooter.evasiveTimer = 0.6;
+  const clearEscape = { requestedDistance: 0.08, appliedDistance: 0.08, blockedBy: null };
+
+  assert.equal(shooter._shouldStartGunButt(0.2, 1.8, true, clearEscape), false);
+  assert.equal(shooter._shouldStartGunButt(0.16, 1.8, true, clearEscape), true);
+  assert.equal(shooter._shouldStartGunButt(0.1, 3, true, clearEscape), false);
+  assert.equal(shooter._closePressureTime, 0);
 });
 
 test('Shooter uses only frontline Grunts and Tanks as mobile cover and calculates a safe side-peek', () => {

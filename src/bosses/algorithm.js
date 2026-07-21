@@ -149,6 +149,10 @@ export class AlgorithmBoss {
     this._sweepEndYaw = 0;
     this._sweepPitch = 0;
     this._beamHitCooldown = 0;
+    this._sweepHitPlayer = false;
+    this._logicPulse = null;
+    this._logicPulseCooldown = 5.2;
+    this._logicPulseIndex = 0;
     this._lastUpdateTime = null;
     this._raycaster = new THREE.Raycaster();
     this._tmpOrigin = new THREE.Vector3();
@@ -260,7 +264,7 @@ export class AlgorithmBoss {
   _dropAmmo(position, count) {
     const pickups = this.enemyManager?.pickups;
     if (!pickups?.dropMultiple || !position) return;
-    pickups.dropMultiple('ammo', position.clone(), count);
+    pickups.dropMultiple('ammo', position.clone(), count, { source: 'boss' });
   }
 
   _setWeakpoint(open) {
@@ -297,7 +301,12 @@ export class AlgorithmBoss {
     this._attackState = 'windup';
     this._attackTimer = 0;
     this._beamHitCooldown = 0;
+    this._sweepHitPlayer = false;
     this._attackIndex++;
+    ctx.emitAIEvent?.(this.root, 'ability_started', {
+      ability: 'algorithm_eye_sweep', phase: this.phase,
+      telegraphSeconds: this.phase === 3 ? 0.3 : 0.45
+    });
   }
 
   _updateEyeSweep(dt, ctx) {
@@ -325,6 +334,9 @@ export class AlgorithmBoss {
       if (t >= 1) {
         this._attackState = 'sweep';
         this._attackTimer = 0;
+        ctx.emitAIEvent?.(this.root, 'ability_released', {
+          ability: 'algorithm_eye_sweep', phase: this.phase
+        });
       }
       return;
     }
@@ -346,6 +358,9 @@ export class AlgorithmBoss {
         this.refs.beamCore.visible = false;
         this.refs.eyeLight.intensity = 0;
         this.refs.faceLens.scale.set(1, 0.68, 0.35);
+        ctx.emitAIEvent?.(this.root, 'ability_resolved', {
+          ability: 'algorithm_eye_sweep', phase: this.phase, hitPlayer: this._sweepHitPlayer
+        });
       }
       return;
     }
@@ -378,7 +393,141 @@ export class AlgorithmBoss {
       sourceRoot: this.root,
       ownerRoot: this.root
     });
+    this._sweepHitPlayer = true;
     this._beamHitCooldown = 0.7;
+  }
+
+  _beginLogicPulse(ctx) {
+    const THREE = this.THREE;
+    const visuals = [];
+    const playerSnapshot = ctx.player.position.clone().setY(0.08);
+    let variant = 'control_lanes';
+    let origins = [];
+    let radius = 0;
+    let inward = false;
+
+    if (this.phase === 1) {
+      origins = Array.from(this.nodes).map(node => node.root.position.clone());
+      if (origins.length === 0) origins = [this.root.position.clone()];
+    } else if (this.phase === 2) {
+      variant = 'offbeat_echo';
+      const offBeat = Array.from(this.echoes).find(echo => echo.correct) || Array.from(this.echoes)[0];
+      origins = [(offBeat?.root?.position || this.root.position).clone()];
+    } else {
+      variant = 'collapse_ring';
+      inward = this._logicPulseIndex % 2 === 1;
+      // The central cathedral floor is open, but the processional edge has
+      // real cover and combat pickups around 21-25 m. Reach that outer ring so
+      // Phase 3 evicts a stationary hiding player without ignoring cover.
+      radius = Math.max(5, Math.min(30, Math.hypot(
+        playerSnapshot.x - this.root.position.x,
+        playerSnapshot.z - this.root.position.z
+      )));
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(Math.max(0.2, radius - 1.15), radius + 1.15, 48),
+        new THREE.MeshBasicMaterial({ color: inward ? 0xff4fd8 : 0xd7ff3f, transparent: true, opacity: 0.48, side: THREE.DoubleSide, depthWrite: false })
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.set(this.root.position.x, 0.08, this.root.position.z);
+      ctx.scene.add(ring);
+      visuals.push(ring);
+    }
+
+    if (variant !== 'collapse_ring') {
+      const color = variant === 'offbeat_echo' ? 0xff4fd8 : 0x43e8df;
+      for (const origin of origins) {
+        const delta = playerSnapshot.clone().sub(origin).setY(0);
+        const length = Math.max(1, Math.min(26, delta.length() + 3));
+        if (delta.lengthSq() <= 0.001) delta.set(0, 0, 1);
+        delta.normalize();
+        const end = origin.clone().addScaledVector(delta, length);
+        const lane = new THREE.Mesh(
+          new THREE.BoxGeometry(2.2, 0.05, length),
+          new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.38, depthWrite: false })
+        );
+        lane.position.copy(origin).add(end).multiplyScalar(0.5);
+        lane.position.y = 0.08;
+        lane.rotation.y = Math.atan2(delta.x, delta.z);
+        ctx.scene.add(lane);
+        visuals.push(lane);
+      }
+    }
+
+    this._logicPulse = {
+      variant, origins, target: playerSnapshot, radius, inward,
+      visuals, timer: 0, windup: this.phase === 3 ? 0.72 : 0.9
+    };
+    this._logicPulseIndex++;
+    ctx.emitAIEvent?.(this.root, 'ability_started', {
+      ability: variant === 'collapse_ring' ? 'algorithm_collapse_ring' : 'algorithm_logic_pulse',
+      variant, phase: this.phase,
+      telegraphSeconds: this._logicPulse.windup
+    });
+  }
+
+  _updateLogicPulse(dt, ctx) {
+    if (!this._logicPulse) {
+      this._logicPulseCooldown -= dt;
+      if (this._logicPulseCooldown <= 0 && this._attackState === 'idle') this._beginLogicPulse(ctx);
+      return;
+    }
+
+    const pulse = this._logicPulse;
+    pulse.timer += dt;
+    const progress = Math.min(1, pulse.timer / pulse.windup);
+    for (const visual of pulse.visuals) {
+      if (visual.material) visual.material.opacity = 0.25 + progress * 0.45;
+      if (pulse.variant === 'collapse_ring') {
+        const scale = pulse.inward ? 1.35 - progress * 0.35 : 0.65 + progress * 0.35;
+        visual.scale.setScalar(scale);
+      }
+    }
+    if (progress < 1) return;
+
+    const playerPos = ctx.player.position;
+    let hitPlayer = false;
+    if (pulse.variant === 'collapse_ring') {
+      const distance = Math.hypot(playerPos.x - this.root.position.x, playerPos.z - this.root.position.z);
+      hitPlayer = Math.abs(distance - pulse.radius) <= 1.4;
+    } else {
+      hitPlayer = pulse.origins.some(origin => {
+        if (!this._hasLineOfSight(origin, playerPos, ctx.objects || [])) return false;
+        const end = pulse.target;
+        const vx = end.x - origin.x;
+        const vz = end.z - origin.z;
+        const lengthSq = vx * vx + vz * vz;
+        const t = lengthSq > 0
+          ? Math.max(0, Math.min(1.25, ((playerPos.x - origin.x) * vx + (playerPos.z - origin.z) * vz) / lengthSq))
+          : 0;
+        const closestX = origin.x + vx * t;
+        const closestZ = origin.z + vz * t;
+        return Math.hypot(playerPos.x - closestX, playerPos.z - closestZ) <= 1.25;
+      });
+    }
+    if (hitPlayer) {
+      ctx.damagePlayer?.(this.phase === 3 ? 20 : this.phase === 2 ? 18 : 16, {
+        sourceKind: `algorithm_logic_pulse_${pulse.variant}`,
+        sourceRoot: this.root, ownerRoot: this.root
+      });
+    }
+    ctx.emitAIEvent?.(this.root, 'ability_released', {
+      ability: pulse.variant === 'collapse_ring' ? 'algorithm_collapse_ring' : 'algorithm_logic_pulse',
+      variant: pulse.variant,
+      phase: this.phase, hitPlayer
+    });
+    this._clearLogicPulse(ctx.scene);
+    this._logicPulseCooldown = this.phase === 3 ? 4.2 + this.rng() : 6.2 + this.rng() * 1.4;
+    this._attackCooldown = Math.max(this._attackCooldown, 0.8);
+  }
+
+  _clearLogicPulse(scene) {
+    if (!this._logicPulse) return;
+    for (const visual of this._logicPulse.visuals) {
+      scene?.remove?.(visual);
+      visual.geometry?.dispose?.();
+      visual.material?.dispose?.();
+    }
+    this._logicPulse = null;
   }
 
   _hasLineOfSight(origin, target, objects) {
@@ -424,7 +573,8 @@ export class AlgorithmBoss {
       if (this._echoRespawnTimer <= 0) this._spawnEchoPack();
     }
 
-    this._updateEyeSweep(dt, ctx);
+    this._updateLogicPulse(dt, ctx);
+    if (!this._logicPulse) this._updateEyeSweep(dt, ctx);
     this._animateAsset(dt, ctx.blackboard?.time || performance.now() * 0.001);
     this.invuln = this._damageLocked();
     if (this._hp <= 0) this.onRemoved(ctx.scene);
@@ -452,6 +602,7 @@ export class AlgorithmBoss {
     this.refs.beam.visible = false;
     this.refs.beamCore.visible = false;
     this.refs.eyeLight.intensity = 0;
+    this._clearLogicPulse(scene);
     this._clearNodes();
     this._clearEchoes();
     scene?.remove?.(this.root);

@@ -11,7 +11,12 @@ function sharedGeometry(THREE, key, factory) {
 }
 
 export class GooPuddle {
-  constructor({ THREE, mats, position, enemyManager = null, radius = 2.2, telegraphTime = 0.4, lifeMin = 18, lifeMax = 24 }) {
+  constructor({
+    THREE, mats, position, enemyManager = null, radius = 2.2,
+    telegraphTime = 0.4, lifeMin = 18, lifeMax = 24,
+    playerSlowMultiplier = 0.7, damagePerSecond = 0, damageTickSeconds = 0.75,
+    sourceRoot = null, sourceKind = 'goo', toxic = false
+  }) {
     this.THREE = THREE;
     this.mats = mats;
     this.enemyManager = enemyManager;
@@ -26,6 +31,13 @@ export class GooPuddle {
     this._telegraphTime = 0;
     this._expired = false;
     this._lastSlowAppliedFrame = -1;
+    this.playerSlowMultiplier = playerSlowMultiplier;
+    this.damagePerSecond = Math.max(0, damagePerSecond);
+    this.damageTickSeconds = Math.max(0.1, damageTickSeconds);
+    this._damageTickTimer = 0;
+    this.sourceRoot = sourceRoot;
+    this.sourceKind = sourceKind;
+    this.toxic = toxic;
 
     // Root group
     this.root = new THREE.Group();
@@ -34,7 +46,7 @@ export class GooPuddle {
     this.root.userData = { type: 'hazard_goo' };
 
     // Telegraph ring (faint)
-    const ringMat = new THREE.MeshBasicMaterial({ color: 0x77ffcc, transparent: true, opacity: 0.3, side: THREE.DoubleSide });
+    const ringMat = new THREE.MeshBasicMaterial({ color: toxic ? 0xc7ff32 : 0x77ffcc, transparent: true, opacity: 0.3, side: THREE.DoubleSide });
     const ring = new THREE.Mesh(
       sharedGeometry(THREE, `ring:${this.radius}`, () => new THREE.RingGeometry(this.radius * 0.82, this.radius * 1.05, 32)),
       ringMat
@@ -45,7 +57,7 @@ export class GooPuddle {
     this.telegraph = ring;
 
     // Puddle disc (hidden until active)
-    const discMat = new THREE.MeshBasicMaterial({ color: 0x44ccaa, transparent: true, opacity: 0.0 });
+    const discMat = new THREE.MeshBasicMaterial({ color: toxic ? 0x7fbf16 : 0x44ccaa, transparent: true, opacity: 0.0 });
     const disc = new THREE.Mesh(
       sharedGeometry(THREE, `disc:${this.radius}`, () => new THREE.CircleGeometry(this.radius, 28)),
       discMat
@@ -62,6 +74,7 @@ export class GooPuddle {
   // Static: capture click shots to process next update (decoupled from main loop)
   static _installGlobalShotListener() {
     if (GooPuddle._installed) return;
+    if (typeof window === 'undefined') return;
     GooPuddle._installed = true;
     GooPuddle._shotFlag = false;
     window.addEventListener('mousedown', () => {
@@ -117,12 +130,35 @@ export class GooPuddle {
       const now = p.position;
       const dx = now.x - this.root.position.x;
       const dz = now.z - this.root.position.z;
-      if (dx*dx + dz*dz <= this.radius * this.radius) {
+      const playerInside = dx*dx + dz*dz <= this.radius * this.radius;
+      if (playerInside) {
         const mvx = now.x - lastPlayerPos.x;
         const mvz = now.z - lastPlayerPos.z;
-        now.x = lastPlayerPos.x + mvx * 0.7;
-        now.z = lastPlayerPos.z + mvz * 0.7;
+        now.x = lastPlayerPos.x + mvx * this.playerSlowMultiplier;
+        now.z = lastPlayerPos.z + mvz * this.playerSlowMultiplier;
         this._lastSlowAppliedFrame = frameIndex;
+      }
+
+      if (playerInside && this.damagePerSecond > 0) {
+        this._damageTickTimer += dt;
+        while (this._damageTickTimer >= this.damageTickSeconds) {
+          this._damageTickTimer -= this.damageTickSeconds;
+          const damage = this.damagePerSecond * this.damageTickSeconds;
+          const attribution = {
+            sourceRoot: this.sourceRoot,
+            ownerRoot: this.sourceRoot,
+            sourceOrigin: this.root.position.clone(),
+            sourceKind: this.sourceKind
+          };
+          if (ctx.damagePlayer) ctx.damagePlayer(damage, attribution);
+          else ctx.onPlayerDamage?.(damage, this.sourceKind, attribution);
+          ctx.emitAIEvent?.(this.sourceRoot, 'ability_resolved', {
+            ability: this.sourceKind, hitPlayer: true, damage,
+            radius: this.radius, persistent: true
+          });
+        }
+      } else if (!playerInside) {
+        this._damageTickTimer = 0;
       }
     }
 

@@ -16,28 +16,28 @@ function createMaterials(THREE) {
   });
 
   return {
-    acid: standard(0xd7ff3f, { emissive: 0x435d0d, emissiveIntensity: 1.1, roughness: .5 }),
-    asphalt: standard(0x2c3531, { roughness: 1 }),
-    black: standard(0x101613, { roughness: .95 }),
-    blue: standard(0x376d79),
-    bone: standard(0xd6d4bc, { roughness: 1 }),
-    brown: standard(0x5c4734, { roughness: 1 }),
-    cyan: standard(0x61ded2, { emissive: 0x164c47, emissiveIntensity: .8, roughness: .48 }),
-    cyanGlass: standard(0x4bbeb7, { emissive: 0x123b38, emissiveIntensity: .5, transparent: true, opacity: .55, roughness: .25 }),
-    dark: standard(0x26312c, { roughness: .92 }),
-    glass: standard(0x9bb8ad, { transparent: true, opacity: .34, roughness: .22, metalness: .12 }),
-    gold: standard(0xd4a936, { metalness: .14, roughness: .65 }),
-    green: standard(0x54703e, { roughness: 1 }),
-    lime: standard(0x8ebd42, { roughness: .9 }),
-    metal: standard(0x647169, { metalness: .24, roughness: .68 }),
-    orange: standard(0xe06a36, { emissive: 0x4e1708, emissiveIntensity: .35 }),
-    pale: standard(0xaeb8ac, { roughness: .95 }),
-    plaster: standard(0xb9bbad, { roughness: 1 }),
-    purple: standard(0x7654a7, { emissive: 0x26163b, emissiveIntensity: .55 }),
-    red: standard(0xff5c52, { emissive: 0x69130e, emissiveIntensity: 1 }),
-    sand: standard(0xa38e68, { roughness: 1 }),
-    white: standard(0xe4e8de, { roughness: .9 }),
-    yellow: standard(0xe4b638, { roughness: .7 })
+    acid: standard(0xa6c844, { emissive: 0x28350f, emissiveIntensity: .42, roughness: .58 }),
+    asphalt: standard(0x303936, { roughness: 1 }),
+    black: standard(0x181f1c, { roughness: .96 }),
+    blue: standard(0x315e68),
+    bone: standard(0xb9b8a5, { roughness: 1 }),
+    brown: standard(0x51402f, { roughness: 1 }),
+    cyan: standard(0x4ea9a3, { emissive: 0x0d2f2d, emissiveIntensity: .38, roughness: .55 }),
+    cyanGlass: standard(0x438f8b, { emissive: 0x0d2b29, emissiveIntensity: .28, transparent: true, opacity: .5, roughness: .3 }),
+    dark: standard(0x29332f, { roughness: .93 }),
+    glass: standard(0x8fa9a0, { transparent: true, opacity: .3, roughness: .28, metalness: .02 }),
+    gold: standard(0xad8a32, { metalness: .06, roughness: .7 }),
+    green: standard(0x465e39, { roughness: 1 }),
+    lime: standard(0x718f3d, { roughness: .92 }),
+    metal: standard(0x626e67, { metalness: .08, roughness: .68 }),
+    orange: standard(0xb65c36, { emissive: 0x351308, emissiveIntensity: .16 }),
+    pale: standard(0x979f97, { roughness: .97 }),
+    plaster: standard(0x9fa299, { roughness: 1 }),
+    purple: standard(0x644c82, { emissive: 0x1b1228, emissiveIntensity: .22 }),
+    red: standard(0xd24f48, { emissive: 0x450e0b, emissiveIntensity: .55 }),
+    sand: standard(0x8c7b5e, { roughness: 1 }),
+    white: standard(0xc2c8bf, { roughness: .94 }),
+    yellow: standard(0xba9333, { roughness: .78 })
   };
 }
 
@@ -1322,7 +1322,9 @@ export function createLevelAssetRegistry({ THREE } = {}) {
     ['cathedralbackdrop', 'Server Cathedral megastructure', 'backdrops', 'Five server spires, nested data arches, and luminous stack bands for the final horizon.', 'Distant background', buildServerCathedralBackdrop, 3.8]
   ];
 
-  const cloneMaterials = (root) => {
+  const emissiveSignalCategories = new Set(['access', 'ground', 'hazards', 'landmarks', 'objectives']);
+
+  const cloneMaterials = (root, { category = 'environment' } = {}) => {
     const clones = new Map();
     root.traverse((object) => {
       if (!object.material) return;
@@ -1331,6 +1333,23 @@ export function createLevelAssetRegistry({ THREE } = {}) {
         return clones.get(material);
       };
       object.material = Array.isArray(object.material) ? object.material.map(clone) : clone(object.material);
+    });
+    const isBackdrop = category === 'backdrops';
+    const preserveSignal = emissiveSignalCategories.has(category);
+    clones.forEach((material) => {
+      if (isBackdrop && material.color) {
+        const hsl = {};
+        material.color.getHSL(hsl);
+        material.color.setHSL(hsl.h, hsl.s * .86, hsl.l * .88);
+      }
+      if (isBackdrop && material.emissive) {
+        const hsl = {};
+        material.emissive.getHSL(hsl);
+        material.emissive.setHSL(hsl.h, hsl.s * .85, hsl.l * .86);
+      }
+      if (material.emissive && !preserveSignal) {
+        material.emissiveIntensity = isBackdrop ? 0 : Math.min(material.emissiveIntensity, .08);
+      }
     });
     return root;
   };
@@ -1348,7 +1367,7 @@ export function createLevelAssetRegistry({ THREE } = {}) {
     targetY,
     source: 'level-plan',
     factoryName: build.name,
-    build: () => cloneMaterials(build())
+    build: () => cloneMaterials(build(), { category })
   }));
 
   if (assets.length !== CAMPAIGN_LEVEL_ASSET_COUNT) {

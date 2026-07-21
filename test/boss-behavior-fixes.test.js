@@ -41,6 +41,98 @@ test('Broodmaker retreats from close pressure and relocates into its ranged band
   assert.ok(relocateDistance >= 17 && relocateDistance <= 22);
 });
 
+test('Broodmaker routes its body around visible world obstacles to a ranged anchor', () => {
+  const boss = new Broodmaker({
+    THREE,
+    mats,
+    spawnPos: new THREE.Vector3(0, 0.8, -11.5),
+    enemyManager: null,
+    rng: () => 0.5
+  });
+  boss._broodCooldown = 999;
+  boss._burrowCooldown = 999;
+  const player = { position: new THREE.Vector3(0, 1.7, 22) };
+  const routeRequests = [];
+  let pathClears = 0;
+
+  boss.update(0.1, {
+    player,
+    objects: [],
+    locomotionClear: () => false,
+    pathfind: {
+      recomputeIfStale(_subject, goal, options) {
+        routeRequests.push({ goal: goal.clone(), options });
+        return Promise.resolve([]);
+      },
+      nextWaypoint: () => ({ x: 4, z: -10.5 }),
+      clear: () => { pathClears++; }
+    },
+    moveWithCollisions(root, step) {
+      root.position.add(step);
+      return { requestedDistance: step.length(), appliedDistance: step.length(), blockedBy: null };
+    },
+    scene: new THREE.Scene()
+  });
+
+  assert.equal(routeRequests.length, 1);
+  assert.equal(routeRequests[0].options.cacheFor, 1.2);
+  assert.ok(routeRequests[0].goal.distanceTo(player.position) >= 18);
+  assert.ok(boss.root.position.x > 0, 'the waypoint should override direct movement into the visible obstacle');
+  assert.equal(pathClears, 0);
+  assert.equal(boss._routingToRange, true);
+});
+
+test('Broodmaker relocation respects authored level walls and rejects blocked candidates', () => {
+  const bounds = { minX: -31.5, maxX: 31.5, minZ: -21.5, maxZ: 27.5 };
+  const enemyManager = {
+    encounterHooks: { getBossArenaBounds: () => bounds }
+  };
+  const boss = new Broodmaker({
+    THREE,
+    mats,
+    spawnPos: new THREE.Vector3(0, .8, -11.5),
+    enemyManager,
+    rng: () => .5
+  });
+  let probes = 0;
+  const relocate = boss._pickRelocatePos(new THREE.Vector3(28, 1.7, 24), {
+    positionClear(_root, position) {
+      probes += 1;
+      return probes > 1 && position.x >= bounds.minX && position.x <= bounds.maxX;
+    }
+  });
+
+  const margin = 2.15 + .35;
+  assert.ok(probes >= 2);
+  assert.ok(relocate.x >= bounds.minX + margin && relocate.x <= bounds.maxX - margin);
+  assert.ok(relocate.z >= bounds.minZ + margin && relocate.z <= bounds.maxZ - margin);
+
+  const before = boss.root.position.clone();
+  const rejected = boss._pickRelocatePos(new THREE.Vector3(0, 1.7, 0), { positionClear: () => false });
+  assert.deepEqual(rejected.toArray(), before.toArray());
+});
+
+test('Broodmaker keeps its brood screen inside authored arena bounds', () => {
+  const bounds = { minX: -31.5, maxX: 31.5, minZ: -21.5, maxZ: 27.5 };
+  const boss = Object.assign(Object.create(Broodmaker.prototype), {
+    THREE,
+    root: new THREE.Group(),
+    enemyManager: {
+      encounterHooks: { getBossArenaBounds: () => bounds },
+      _isSpawnAreaClear: () => true
+    }
+  });
+  boss.root.position.set(0, .8, 26.8);
+
+  const positions = boss._computeSpawnWallBetweenBossAndPlayer({
+    player: { position: new THREE.Vector3(10, 1.7, 27.2) }
+  }, 4);
+
+  assert.ok(positions.length > 0);
+  assert.ok(positions.every(position => position.x >= bounds.minX + .45 && position.x <= bounds.maxX - .45));
+  assert.ok(positions.every(position => position.z >= bounds.minZ + .45 && position.z <= bounds.maxZ - .45));
+});
+
 test('Broodmaker creates owned Gruntlings in a boss-player wall', () => {
   const bossRoot = new THREE.Group();
   bossRoot.position.set(0, 0.8, 20);

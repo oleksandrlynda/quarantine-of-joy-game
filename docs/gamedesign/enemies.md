@@ -24,6 +24,14 @@
   - Speed: 3.2–3.8 units/s; altitude 1.8–3.2 units; arcs/swoops
   - Behavior: dive near player and attempt touch damage; ignores ground obstacles
 
+- **Propaganda Pelican (Aerial Bombardier)**: deliberate attack-run enemy that denies a small patch of ground.
+  - Silhouette: long horizontal body, oversized wings, weapon beak, and three visible spherical grenades; cream/gunmetal/orange palette separates it from the compact purple Flyer.
+  - Health: 100 HP (three Rifle body shots or one headshot).
+  - Attack run: recharges at standoff, flies toward the player, releases one grenade from 5–7 units away, retreats about 16 units, then recharges for 3.5–4.5s.
+  - Grenade: ballistic sphere with a ground warning ring; 2.6-unit blast radius; 22 centre damage falling to 6 at the edge.
+  - Introduction: systemic unlock at Wave 10, five waves after Flyers. Because Wave 10 is the Sanitizer boss, its first authored regular-wave appearance is the Wave 11 reinforcement package.
+  - Limits: one Pelican per procedural wave through Wave 24; at most two afterward. Pelicans replace part of the Flyer allocation instead of increasing total air density.
+
 - **Healer (Support)**: sustains nearby enemies with a periodic AoE pulse.
   - Health: 90 HP; Speed: 2.2–2.6 units/s (keeps backline)
   - Heal aura: green ring pulse every 3.5s, radius ~6 units, heals 12 HP/s for 2s (total ~24), does not affect bosses or reduced 50% on elites.
@@ -38,7 +46,7 @@
 
 ### Waves
 - Initial wave size: `3 + currentWave`
-- Composition scales by wave: introduces Rusher (W≥3), Shooter (W≥4), Tank (W≥6), Flyer (W≥5)
+- Composition scales by wave: introduces Rusher (W≥3), Shooter (W≥4), Tank (W≥6), Flyer (W≥5), Propaganda Pelican (W≥10)
 - Clearing all enemies increments the wave and immediately spawns the next
  - Healer unlocks at W≥7 (cap per notes); Sniper unlocks at W≥8 (staggered firing windows)
 

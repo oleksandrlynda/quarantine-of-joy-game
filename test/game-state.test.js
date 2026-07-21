@@ -158,7 +158,7 @@ test('wave start resets pickups, records counts, and triggers injected hooks', (
   ]);
 });
 
-test('emergency ammo only appears with no non-pistol ammo, at most one map ammo, and elapsed cooldown', () => {
+test('emergency ammo appears when non-pistol ammo is empty regardless of distant loose pickups', () => {
   const session = new GameSession({ emergencyAmmoCooldown: 22 });
   const pickups = { active: new Set([{ userData: { type: 'ammo' } }]) };
   const emptyWeapons = makeWeaponSystem({ ammo: 0, reserve: 0 });
@@ -177,10 +177,25 @@ test('emergency ammo only appears with no non-pistol ammo, at most one map ammo,
   const weaponAmmoBlocks = session.getEmergencyAmmoDrops({ weaponSystem: hasAmmo, pickups, gameTime: 23 });
   assert.deepEqual(weaponAmmoBlocks, []);
 
-  const tooManyMapAmmo = { active: new Set([{ userData: { type: 'ammo' } }, { userData: { type: 'ammo' } }]) };
-  const mapAmmoBlocks = session.getEmergencyAmmoDrops({ weaponSystem: emptyWeapons, pickups: tooManyMapAmmo, gameTime: 23 });
-  assert.deepEqual(mapAmmoBlocks, []);
+  const distantMapAmmo = { active: new Set([{ userData: { type: 'ammo' } }, { userData: { type: 'ammo' } }]) };
+  const distantPickupsDoNotBlock = session.getEmergencyAmmoDrops({ weaponSystem: emptyWeapons, pickups: distantMapAmmo, gameTime: 23 });
+  assert.equal(distantPickupsDoNotBlock.length, 3);
 
-  const afterCooldown = session.getEmergencyAmmoDrops({ weaponSystem: emptyWeapons, pickups, gameTime: 23 });
+  const secondCooldown = session.getEmergencyAmmoDrops({ weaponSystem: emptyWeapons, pickups, gameTime: 44 });
+  assert.deepEqual(secondCooldown, []);
+
+  const afterCooldown = session.getEmergencyAmmoDrops({ weaponSystem: emptyWeapons, pickups, gameTime: 45 });
   assert.equal(afterCooldown.length, 3);
+});
+
+test('emergency ammo cooldown is committed only after the crate spawn succeeds', () => {
+  const session = new GameSession({ emergencyAmmoCooldown: 22 });
+  const emptyWeapons = makeWeaponSystem({ ammo: 0, reserve: 0 });
+
+  assert.equal(session.getEmergencyAmmoDrops({ weaponSystem: emptyWeapons, gameTime: 5, commit: false }).length, 3);
+  assert.equal(session.getEmergencyAmmoDrops({ weaponSystem: emptyWeapons, gameTime: 6, commit: false }).length, 3);
+
+  session.markEmergencyAmmoDrop(6);
+  assert.deepEqual(session.getEmergencyAmmoDrops({ weaponSystem: emptyWeapons, gameTime: 7, commit: false }), []);
+  assert.equal(session.getEmergencyAmmoDrops({ weaponSystem: emptyWeapons, gameTime: 28, commit: false }).length, 3);
 });

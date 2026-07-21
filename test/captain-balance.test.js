@@ -126,6 +126,37 @@ test('Captain volley visibly impacts cover before it can damage the player', () 
   }
 });
 
+test('Captain volley mixes intact bolts with delayed three-way splits', () => {
+  const harness = makeHarness();
+  const captain = makeCaptain(harness);
+
+  try {
+    captain._burstActive = true;
+    captain._burstTotalShots = 4;
+    captain._burstShotsLeft = 4;
+    captain._burstTimer = 0;
+    captain._burstFiredCount = 0;
+    captain._burstWithheldCount = 0;
+    captain._burstBaseDir.set(0, 0, 1);
+    for (let shot = 0; shot < 4; shot++) captain._tickVolley(0.13, harness.ctx);
+    assert.deepEqual(captain._volleyProjectiles.map(projectile => projectile.splitEligible), [true, false, true, false]);
+
+    while (captain._volleyProjectiles.length) captain._releaseVolleyProjectile(captain._volleyProjectiles.length - 1, harness.scene);
+    captain._fireVolleyBolt(new THREE.Vector3(0, 0, 1), harness.ctx, {
+      splitEligible: true, splitAfter: 0.1
+    });
+    captain._updateVolleyProjectiles(0.11, harness.ctx);
+    assert.equal(captain._volleyProjectiles.length, 3);
+    assert.ok(captain._volleyProjectiles.every(projectile => projectile.kind === 'captain_volley_fragment'));
+    assert.ok(captain._volleyProjectiles.every(projectile => projectile.damage === 6 && projectile.bolt.root.scale.x === 0.55));
+    assert.ok(harness.events.some(event => event.type === 'projectile_split' && event.spawnedCount === 3));
+    assert.equal(harness.events.filter(event => event.type === 'projectile_fired'
+      && event.ability === 'captain_volley_fragment').length, 3);
+  } finally {
+    captain.onRemoved(harness.scene);
+  }
+});
+
 test('Captain withholds a volley when world cover or an ally blocks the muzzle line', () => {
   const harness = makeHarness();
   const captain = makeCaptain(harness);
@@ -178,7 +209,90 @@ test('Captain ad zone counts down before damaging inside its displayed radius', 
   }
 });
 
-test('Zeppelin adds no duplicate ground hazards during the generator objective', () => {
+test('Captain earns one eight-cluster rocket after 10-20 volleys and suppresses it during Zeppelin support', () => {
+  const harness = makeHarness();
+  const captain = makeCaptain(harness);
+
+  try {
+    assert.ok(captain._rocketCycleTarget >= 10 && captain._rocketCycleTarget <= 20);
+    captain._rocketVolleyCycles = captain._rocketCycleTarget;
+    captain._zeppelin = { cleaned: false };
+    assert.equal(captain._rocketReady(), false, 'active Zeppelin must suppress the rocket');
+
+    captain._zeppelin = null;
+    assert.equal(captain._beginClusterRocket(harness.ctx), true);
+    captain._updateClusterRocket(0.9, harness.ctx);
+    assert.ok(captain._clusterRocket, 'windup should launch one visible rocket');
+    assert.ok(captain._clusterRocket.ascentSeconds >= 2.2, 'the climb must remain readable');
+    assert.ok(captain._clusterRocket.duration >= 3, 'the full flight must leave time to react');
+    assert.ok(captain._clusterLandingMarker, 'the full impact area should be marked during flight');
+    captain._updateClusterRocket(0.5, harness.ctx);
+    assert.ok(captain._clusterRocket, 'the rocket should still be climbing after half a second');
+
+    const flight = captain._clusterRocket;
+    const apex = captain._clusterRocketPosition(flight, flight.ascentSeconds);
+    const earlyDescent = captain._clusterRocketPosition(flight,
+      flight.ascentSeconds + flight.descentSeconds * 0.25);
+    const lateDescent = captain._clusterRocketPosition(flight,
+      flight.ascentSeconds + flight.descentSeconds * 0.75);
+    assert.ok(earlyDescent.y > lateDescent.y);
+    assert.ok((earlyDescent.y - lateDescent.y) > (apex.y - earlyDescent.y) * 2,
+      'the fall should accelerate after its slow apex departure');
+    for (let step = 0; step < 100 && captain._clusterRocket; step++) {
+      captain._updateClusterRocket(0.05, harness.ctx);
+    }
+
+    assert.equal(captain._clusterRocket, null);
+    assert.equal(captain._clusterLandingMarker, null);
+    assert.equal(captain._clusterZones.length, 8);
+    assert.ok(captain._clusterZones.some(cluster => Math.hypot(
+      cluster.position.x - harness.player.position.x,
+      cluster.position.z - harness.player.position.z
+    ) < 0.1));
+    captain._updateClusterZones(1.5, harness.ctx);
+    assert.equal(captain._clusterZones.length, 0);
+    assert.equal(harness.damage.filter(hit => hit.attribution.sourceKind === 'captain_cluster_rocket').length, 1);
+    assert.ok(harness.events.some(event => event.type === 'ability_released'
+      && event.ability === 'captain_cluster_rocket' && event.clusterCount === 8));
+    assert.ok(harness.events.some(event => event.type === 'projectile_fired'
+      && event.ability === 'captain_cluster_rocket'
+      && event.indirectFire === true && event.trajectory === 'ballistic'));
+  } finally {
+    captain.onRemoved(harness.scene);
+  }
+});
+
+test('Captain heavy rocket follows a ballistic path over normal-height cover', () => {
+  const harness = makeHarness();
+  harness.player.position.set(0, 0.8, 18);
+  const wall = new THREE.Mesh(new THREE.BoxGeometry(8, 4, 0.6), new THREE.MeshBasicMaterial());
+  wall.position.set(0, 2, 8);
+  harness.scene.add(wall);
+  wall.updateMatrixWorld(true);
+  harness.ctx.objects.push(wall);
+  const captain = makeCaptain(harness);
+
+  try {
+    captain._rocketVolleyCycles = captain._rocketCycleTarget;
+    assert.equal(captain._beginClusterRocket(harness.ctx), true);
+    captain._updateClusterRocket(0.9, harness.ctx);
+    let maximumHeight = captain._clusterRocket.mesh.position.y;
+    for (let step = 0; step < 120 && captain._clusterRocket; step++) {
+      captain._updateClusterRocket(0.04, harness.ctx);
+      if (captain._clusterRocket) maximumHeight = Math.max(maximumHeight, captain._clusterRocket.mesh.position.y);
+    }
+    assert.ok(maximumHeight > wall.geometry.parameters.height, 'rocket should visibly clear ordinary cover');
+    assert.equal(captain._clusterRocket, null);
+    assert.ok(captain._clusterZones.some(cluster => cluster.position.z > wall.position.z + 5),
+      'rocket should burst at the target beyond the wall');
+  } finally {
+    captain.onRemoved(harness.scene);
+    wall.geometry.dispose();
+    wall.material.dispose();
+  }
+});
+
+test('Zeppelin follows the player lane and resolves a telegraphed overhead bomb', () => {
   const harness = makeHarness();
   const zeppelin = new ZeppelinSupport({
     THREE,
@@ -189,11 +303,24 @@ test('Zeppelin adds no duplicate ground hazards during the generator objective',
   });
 
   try {
-    for (let index = 0; index < 8; index++) zeppelin.update(0.5, harness.ctx);
-    assert.equal(zeppelin._dropPod, undefined);
-    assert.equal(zeppelin.bombs, undefined);
-    assert.equal(harness.scene.children.some(child => child.userData?.type === 'boss_bomb'), false);
-    assert.equal(harness.damage.length, 0, 'Zeppelin support should not duplicate the Captain ad-zone attack');
+    zeppelin.root.position.set(-20, 7, -10);
+    zeppelin.update(0.25, harness.ctx);
+    assert.ok(zeppelin.root.position.z > -10, 'the flyover lane should track the player on Z');
+
+    zeppelin.root.position.set(-1, 7, harness.player.position.z);
+    zeppelin._bombCooldown = 0;
+    zeppelin.update(0.01, harness.ctx);
+    assert.equal(zeppelin._bombStrikes.length, 1);
+    assert.ok(harness.events.some(event => event.type === 'zeppelin_bomb_dropped'));
+    assert.equal(harness.damage.length, 0, 'the ground marker must provide time to evade');
+
+    zeppelin.update(1.2, harness.ctx);
+    assert.equal(zeppelin._bombStrikes.length, 0);
+    assert.equal(harness.damage.length, 1);
+    assert.equal(harness.damage[0].amount, 22);
+    assert.equal(harness.damage[0].attribution.sourceKind, 'zeppelin_overhead_bomb');
+    assert.ok(harness.events.some(event => event.type === 'ability_resolved'
+      && event.ability === 'zeppelin_overhead_bomb' && event.hitPlayer === true));
   } finally {
     for (const pod of [...zeppelin.enginePods]) harness.enemyManager.remove(pod);
     zeppelin.cleanup();

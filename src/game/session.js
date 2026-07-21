@@ -202,20 +202,16 @@ export class GameSession {
     return total;
   }
 
-  countAmmoPickups(pickups) {
-    let ammoOnMap = 0;
-    for (const g of (pickups?.active || [])) {
-      if (g?.userData?.type === 'ammo') ammoOnMap++;
-    }
-    return ammoOnMap;
-  }
-
-  getEmergencyAmmoDrops({ weaponSystem, pickups, gameTime }) {
-    if (!weaponSystem || !pickups?.active) return [];
+  getEmergencyAmmoDrops({ weaponSystem, gameTime, commit = true }) {
+    if (!weaponSystem) return [];
     if (this.totalNonPistolAmmo(weaponSystem) > 0) return [];
     if ((Number(gameTime) || 0) - this.lastEmergencyAmmoAt < this.emergencyAmmoCooldown) return [];
-    if (this.countAmmoPickups(pickups) > 1) return [];
-    this.lastEmergencyAmmoAt = Number(gameTime) || 0;
+    if (commit) this.markEmergencyAmmoDrop(gameTime);
     return this.emergencyAmmoOffsets.map(o => ({ ...o }));
+  }
+
+  markEmergencyAmmoDrop(gameTime) {
+    this.lastEmergencyAmmoAt = Number(gameTime) || 0;
+    return this.lastEmergencyAmmoAt;
   }
 }

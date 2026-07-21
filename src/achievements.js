@@ -1,5 +1,5 @@
 import { logError } from './util/log.js';
-import { t } from './i18n/index.js?v=1.0.6';
+import { t } from './i18n/index.js?v=1.0.3&rev=archive-achievements4-i18n-shared1';
 import { getJSON, setJSON } from './util/storage.js';
 
 const STORAGE_KEY = 'achievements_v2';
@@ -13,11 +13,13 @@ export const WEATHER_MODES = Object.freeze([
   'clear', 'rain', 'rain+fog', 'snow', 'fog', 'sandstorm', 'windy'
 ]);
 
-function definition(id, badge, { hidden = false, progress = null } = {}) {
+function definition(id, badge, { hidden = false, progress = null, reward = null } = {}) {
   return {
     id,
     badge,
+    icon: `assets/icons/achievements/${id}.svg?v=1.0.3&rev=archive-icons1`,
     hidden,
+    reward,
     titleKey: `ach.${id}.name`,
     descKey: `ach.${id}.desc`,
     progress
@@ -101,6 +103,11 @@ export const ACHIEVEMENT_DEFINITIONS = [
   definition('untouchable', 'B0', { progress: unlockedProgress('untouchable') }),
   definition('factChecker', 'HYD', { progress: unlockedProgress('factChecker') }),
   definition('threePartExpose', 'B×3', { progress: countProgress(m => m.run.bossKills, 3) }),
+  definition('cleanSweep', 'B3/0', { progress: countProgress(m => m.run.flawlessBossWaves.size, 3) }),
+  definition('hostileTakeover', 'B15', {
+    progress: unlockedProgress('hostileTakeover'),
+    reward: Object.freeze({ type: 'weapon', weaponId: 'grenade' })
+  }),
 
   // Weapons
   definition('termsOfEngagement', '5W', { hidden: true, progress: countProgress(m => m.run.weaponOnlyStreaks.BeamSaber, 5) }),
@@ -114,8 +121,32 @@ export const ACHIEVEMENT_DEFINITIONS = [
   definition('remoteWork', '25m', { progress: unlockedProgress('remoteWork') }),
   definition('algorithmicBoost', '10/5', { progress: countProgress(m => m.run.minigunKillTimes.length, 10) }),
 
+  // Abilities
+  definition('executiveFunction', 'Q×5', { progress: countProgress(m => m.run.maxAbilityAttackKills, 5) }),
+  definition('appliedResearch', 'Q25', { progress: countProgress(m => m.career.abilityKills, 25) }),
+  definition('controlledDemolition', 'Q100', {
+    progress: countProgress(m => m.career.abilityKills, 100),
+    reward: Object.freeze({ type: 'weapon', weaponId: 'grenade' })
+  }),
+  definition('baitAndSwitch', 'B8', { progress: countProgress(m => m.run.maxBaitAffected, 8) }),
+  definition('eventHorizon', 'G8', { progress: countProgress(m => m.run.maxGravityWellAttackKills, 8) }),
+  definition('specialDelivery', 'HP25', { progress: unlockedProgress('specialDelivery') }),
+
   // World mastery
-  definition('allWeatherAudience', 'WX', { progress: countProgress(m => m.career.weatherClears.size, 7) })
+  definition('allWeatherAudience', 'WX', { progress: countProgress(m => m.career.weatherClears.size, 7) }),
+
+  // Punchline Archive
+  definition('openTheFiles', 'OPEN', { progress: countProgress(m => m.career.archiveVisits, 1) }),
+  definition('paperTrail', 'A3', { progress: countProgress(m => m.career.archivePurchases, 3) }),
+  definition('masterCopy', 'GIII', { progress: countProgress(m => m.career.archiveMaxGrade, 3) }),
+  definition('fragmented', '◆25', { progress: countProgress(m => m.career.archiveFragmentsEarned, 25) }),
+  definition('archiveAuthority', 'A5', { progress: countProgress(m => m.career.archiveCategoriesOwned.size, 5) }),
+  definition('fullClearance', 'C3', { progress: countProgress(m => m.career.classifiedWeaponsOwned, 3) }),
+  definition('finalDraft', 'MAX5', { progress: countProgress(m => m.career.maxedArchiveUpgrades, 5) }),
+  definition('blackBudget', '◆120', {
+    progress: countProgress(m => m.career.archiveFragmentsSpent, 120),
+    reward: Object.freeze({ type: 'weapon', weaponId: 'grenade' })
+  })
 ];
 
 function emptyWeaponCounts() {
@@ -136,7 +167,16 @@ function emptyCareer() {
     weatherClears: new Set(),
     bossesDefeated: new Set(),
     fastestWave: null,
-    fastestNonBossWave: null
+    fastestNonBossWave: null,
+    archiveVisits: 0,
+    archivePurchases: 0,
+    archiveFragmentsSpent: 0,
+    archiveMaxGrade: 0,
+    archiveFragmentsEarned: 0,
+    abilityKills: 0,
+    archiveCategoriesOwned: new Set(),
+    classifiedWeaponsOwned: 0,
+    maxedArchiveUpgrades: 0
   };
 }
 
@@ -178,7 +218,12 @@ function emptyRun() {
     minigunKillTimes: [],
     hydraMaxGeneration: 0,
     attackKills: new Map(),
-    maxShotgunAttackKills: 0
+    maxShotgunAttackKills: 0,
+    abilityAttackKills: new Map(),
+    maxAbilityAttackKills: 0,
+    maxGravityWellAttackKills: 0,
+    maxBaitAffected: 0,
+    flawlessBossWaves: new Set()
   };
 }
 
@@ -197,6 +242,15 @@ function hydrateCareer(raw = {}) {
   career.bossesDefeated = new Set(Array.isArray(raw.bossesDefeated) ? raw.bossesDefeated : []);
   career.fastestWave = raw.fastestWave != null && Number.isFinite(Number(raw.fastestWave)) ? Number(raw.fastestWave) : null;
   career.fastestNonBossWave = raw.fastestNonBossWave != null && Number.isFinite(Number(raw.fastestNonBossWave)) ? Number(raw.fastestNonBossWave) : null;
+  career.archiveVisits = Math.max(0, Number(raw.archiveVisits) || 0);
+  career.archivePurchases = Math.max(0, Number(raw.archivePurchases) || 0);
+  career.archiveFragmentsSpent = Math.max(0, Number(raw.archiveFragmentsSpent) || 0);
+  career.archiveMaxGrade = Math.max(0, Number(raw.archiveMaxGrade) || 0);
+  career.archiveFragmentsEarned = Math.max(0, Number(raw.archiveFragmentsEarned) || 0);
+  career.abilityKills = Math.max(0, Number(raw.abilityKills) || 0);
+  career.archiveCategoriesOwned = new Set(Array.isArray(raw.archiveCategoriesOwned) ? raw.archiveCategoriesOwned : []);
+  career.classifiedWeaponsOwned = Math.max(0, Number(raw.classifiedWeaponsOwned) || 0);
+  career.maxedArchiveUpgrades = Math.max(0, Number(raw.maxedArchiveUpgrades) || 0);
   return career;
 }
 
@@ -205,11 +259,12 @@ function serialiseCareer(career) {
     ...career,
     weaponsUsed: [...career.weaponsUsed],
     weatherClears: [...career.weatherClears],
-    bossesDefeated: [...career.bossesDefeated]
+    bossesDefeated: [...career.bossesDefeated],
+    archiveCategoriesOwned: [...career.archiveCategoriesOwned]
   };
 }
 
-export function showAchievement({ title, description, badge }) {
+export function showAchievement({ title, description, badge, icon }) {
   const container = globalThis.document?.getElementById?.('achievements');
   if (!container) return;
 
@@ -218,7 +273,15 @@ export function showAchievement({ title, description, badge }) {
 
   const badgeEl = document.createElement('div');
   badgeEl.className = 'achievement-badge';
-  badgeEl.textContent = badge || 'NEW';
+  if (icon) {
+    const iconEl = document.createElement('img');
+    iconEl.className = 'achievement-icon';
+    iconEl.src = icon;
+    iconEl.alt = '';
+    badgeEl.appendChild(iconEl);
+  } else {
+    badgeEl.textContent = badge || 'NEW';
+  }
 
   const text = document.createElement('div');
   text.className = 'achievement-copy';
@@ -294,9 +357,13 @@ export class AchievementsManager {
       return {
         id: achievement.id,
         badge: redacted ? '???' : achievement.badge,
+        icon: redacted
+          ? 'assets/icons/achievements/secret.svg?v=1.0.3&rev=archive-icons1'
+          : achievement.icon,
         title: t(redacted ? 'achievements.secret.name' : achievement.titleKey),
         description: t(redacted ? 'achievements.secret.desc' : achievement.descKey),
         hidden: achievement.hidden,
+        reward: achievement.reward,
         unlocked,
         progressCurrent: progress?.current ?? null,
         progressTarget: progress?.target ?? null,
@@ -304,6 +371,12 @@ export class AchievementsManager {
         progressLabel: progress?.label ?? null
       };
     });
+  }
+
+  getUnlockedRewards() {
+    return this.achievements
+      .filter(achievement => achievement.reward && this.unlocked.has(achievement.id))
+      .map(achievement => ({ achievementId: achievement.id, ...achievement.reward }));
   }
 
   unlock(id) {
@@ -315,9 +388,11 @@ export class AchievementsManager {
     const payload = {
       id,
       badge: achievement.badge,
+      icon: achievement.icon,
       title: t(achievement.titleKey),
       description: t(achievement.descKey)
     };
+    if (achievement.reward) payload.reward = achievement.reward;
     try { this.onUnlock?.(payload); } catch (error) { logError(error); }
     if (typeof globalThis.CustomEvent === 'function') {
       try { globalThis.document?.dispatchEvent?.(new CustomEvent('achievementUnlocked', { detail: payload })); }
@@ -331,7 +406,38 @@ export class AchievementsManager {
       this.startRun(event);
       return;
     }
-    if (!this.run.active || event.source === 'debug') return;
+    if (event.source === 'debug') return;
+    if (event.type === 'archiveOpen') {
+      this.career.archiveVisits += 1;
+      this._evaluateCounters();
+      this.save();
+      return;
+    }
+    if (event.type === 'archivePurchase') {
+      this.career.archivePurchases += 1;
+      if (event.category !== 'classified') {
+        this.career.archiveFragmentsSpent += Math.max(0, Math.floor(Number(event.cost) || 0));
+      }
+      this.career.archiveMaxGrade = Math.max(this.career.archiveMaxGrade, Math.max(0, Math.floor(Number(event.grade) || 0)));
+      this._evaluateCounters();
+      this.save();
+      return;
+    }
+    if (event.type === 'archiveFragmentsEarned') {
+      this.career.archiveFragmentsEarned += Math.max(0, Math.floor(Number(event.amount) || 0));
+      this._evaluateCounters();
+      this.save();
+      return;
+    }
+    if (event.type === 'archiveState') {
+      this.career.archiveCategoriesOwned = new Set(Array.isArray(event.categoriesOwned) ? event.categoriesOwned : []);
+      this.career.classifiedWeaponsOwned = Math.max(0, Math.floor(Number(event.classifiedWeaponsOwned) || 0));
+      this.career.maxedArchiveUpgrades = Math.max(0, Math.floor(Number(event.maxedUpgrades) || 0));
+      this._evaluateCounters();
+      this.save();
+      return;
+    }
+    if (!this.run.active) return;
 
     switch (event.type) {
       case 'score':
@@ -374,6 +480,13 @@ export class AchievementsManager {
       case 'combo':
       case 'comboTier':
         this._recordCombo(event);
+        break;
+      case 'engagementBaitAffected':
+        this.run.maxBaitAffected = Math.max(this.run.maxBaitAffected, Math.max(0, Math.floor(Number(event.count) || 0)));
+        if (this.run.maxBaitAffected >= 8) this.unlock('baitAndSwitch');
+        break;
+      case 'supplyDropOpened':
+        if (Number(event.hp) <= 25) this.unlock('specialDelivery');
         break;
       case 'bossStart':
         this.bossFight = {
@@ -488,6 +601,20 @@ export class AchievementsManager {
       if (killedTargets.size >= 3) this.unlock('replyAll');
     }
 
+    if (weapon.startsWith('Ability:') && event.attackId != null) {
+      this.career.abilityKills += 1;
+      const key = String(event.attackId);
+      const killedTargets = this.run.abilityAttackKills.get(key) || new Set();
+      killedTargets.add(String(event.targetId ?? `${key}:${killedTargets.size}`));
+      this.run.abilityAttackKills.set(key, killedTargets);
+      this.run.maxAbilityAttackKills = Math.max(this.run.maxAbilityAttackKills, killedTargets.size);
+      if (killedTargets.size >= 5) this.unlock('executiveFunction');
+      if (weapon === 'Ability:gravity_well') {
+        this.run.maxGravityWellAttackKills = Math.max(this.run.maxGravityWellAttackKills, killedTargets.size);
+        if (killedTargets.size >= 8) this.unlock('eventHorizon');
+      }
+    }
+
     if (this.run.maxComboActive) {
       this.run.hotMicKills += 1;
       if (this.run.hotMicKills >= 15) this.unlock('hotMic');
@@ -539,6 +666,9 @@ export class AchievementsManager {
     this.career.bossesDefeated.add(id);
     if (wave === 5) this.unlock('breakTheBureau');
     if (fight.damageTaken <= 0) this.unlock('untouchable');
+    if ([5, 10, 15].includes(wave) && fight.damageTaken <= 0) this.run.flawlessBossWaves.add(wave);
+    if (this.run.flawlessBossWaves.size >= 3) this.unlock('cleanSweep');
+    if (wave === 15 && fight.damageTaken <= 0) this.unlock('hostileTakeover');
     if (this.run.bossKills >= 3) this.unlock('threePartExpose');
     this.bossFight = null;
     this.save();
@@ -567,6 +697,16 @@ export class AchievementsManager {
     if (this.career.weaponsUsed.size >= CORE_WEAPONS.length) this.unlock('fullSpectrum');
     if (this.career.weatherClears.size >= WEATHER_MODES.length) this.unlock('allWeatherAudience');
     if (CORE_WEAPONS.every(weapon => this.career.weaponKills[weapon] >= 50)) this.unlock('omnichannel');
+    if (this.career.archiveVisits >= 1) this.unlock('openTheFiles');
+    if (this.career.archivePurchases >= 3) this.unlock('paperTrail');
+    if (this.career.archiveMaxGrade >= 3) this.unlock('masterCopy');
+    if (this.career.archiveFragmentsEarned >= 25) this.unlock('fragmented');
+    if (this.career.archiveFragmentsSpent >= 120) this.unlock('blackBudget');
+    if (this.career.abilityKills >= 25) this.unlock('appliedResearch');
+    if (this.career.abilityKills >= 100) this.unlock('controlledDemolition');
+    if (this.career.archiveCategoriesOwned.size >= 5) this.unlock('archiveAuthority');
+    if (this.career.classifiedWeaponsOwned >= 3) this.unlock('fullClearance');
+    if (this.career.maxedArchiveUpgrades >= 5) this.unlock('finalDraft');
   }
 
   reset() {

@@ -21,14 +21,15 @@ function afterPaint() {
 
 async function start() {
   const params = new URL(window.location.href).searchParams;
-  const shouldPaintMenu = params.get('editor') !== '1' && params.get('relayView') !== 'top';
+  const relayView = params.get('relayView');
+  const shouldPaintMenu = params.get('editor') !== '1' && relayView !== 'top' && relayView !== 'player';
   setBootstrapProgress(.02, initialLoadingLabel);
 
   try {
     if (!shouldPaintMenu) throw new Error('Menu bootstrap skipped for this view');
     const [THREE, modelModule, menuModule] = await Promise.all([
       import('https://unpkg.com/three@0.159.0/build/three.module.js'),
-      import('../loader.js?v=6'),
+      import('../loader.js?v=9'),
       import('./menu-background.js')
     ]);
 
@@ -76,7 +77,7 @@ async function start() {
   }
 
   try {
-    await import('./main.js?v=1.0.6');
+    await import('./main.js?v=1.0.3&rev=campaign-qa2');
   } catch (error) {
     console.error('[bootstrap] Game startup failed', error);
     loadingEl?.classList.add('has-error');

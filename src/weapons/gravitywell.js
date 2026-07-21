@@ -37,23 +37,31 @@ export class GravityWell extends Weapon {
 
   onFire(ctx) {
     const { THREE, camera, obstacleManager, S } = ctx;
-    if (!THREE || !camera || !obstacleManager?.scene) return;
+    if (!THREE || !camera || !obstacleManager?.scene || this.wells.length >= this.maxActiveWells) return false;
     const origin = camera.getWorldPosition(new THREE.Vector3());
+    const override = ctx.abilityTargetPoint;
+    const hasExplicitTarget = Number.isFinite(Number(override?.x)) && Number.isFinite(Number(override?.z));
     const direction = camera.getWorldDirection(new THREE.Vector3());
     direction.y += 0.14;
     direction.normalize();
     const root = this._createWellModel(THREE);
-    root.position.copy(origin).addScaledVector(direction, 0.5);
+    if (hasExplicitTarget) root.position.set(Number(override.x), 0.24, Number(override.z));
+    else root.position.copy(origin).addScaledVector(direction, 0.5);
     obstacleManager.scene.add(root);
-    this.wells.push({
+    const well = {
       root,
-      velocity: direction.multiplyScalar(this.throwSpeed),
-      state: 'flying',
+      velocity: hasExplicitTarget
+        ? new THREE.Vector3()
+        : direction.multiplyScalar(this.throwSpeed),
+      state: hasExplicitTarget ? 'active' : 'flying',
       activeAge: 0,
       attackId: ctx.attackId
-    });
+    };
+    this.wells.push(well);
+    if (hasExplicitTarget) this._activate(well, ctx);
     S?.shot?.('grenade');
     ctx.updateHUD?.();
+    return true;
   }
 
   update(dt, ctx) {
@@ -127,7 +135,7 @@ export class GravityWell extends Weapon {
       const horizontalDistance = Math.hypot(toward.x, toward.z);
       if (horizontalDistance <= 0.35 || horizontalDistance > this.pullRadius) continue;
       const type = String(root.userData?.type || root.userData?.behaviorId || '');
-      const isAirborne = type.startsWith('flyer') || type === 'swarm_warden';
+      const isAirborne = type.startsWith('flyer') || type === 'pelican' || type === 'swarm_warden';
       if (!isAirborne) toward.y = 0;
       const strength = 0.65 + 0.35 * (1 - horizontalDistance / this.pullRadius);
       const multiplier = isAirborne
@@ -139,6 +147,7 @@ export class GravityWell extends Weapon {
   }
 
   _pullPlayer(position, dt, ctx) {
+    if (ctx.suppressGravityPlayerPull === true) return;
     const playerPosition = ctx.getPlayerPosition?.(new ctx.THREE.Vector3());
     if (!playerPosition || typeof ctx.applyPlayerKnockback !== 'function') return;
     const toward = position.clone().sub(playerPosition);

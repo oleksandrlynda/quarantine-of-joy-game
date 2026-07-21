@@ -1,5 +1,5 @@
 import { Weapon } from './base.js';
-import { performHitscan } from './hitscan.js';
+import { performHitscan } from './hitscan.js?rev=collision7';
 import { logError } from '../util/log.js';
 
 export class DMR extends Weapon {

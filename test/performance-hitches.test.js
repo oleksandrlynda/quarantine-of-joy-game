@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+const loader = fs.readFileSync(new URL('../loader.js', import.meta.url), 'utf8');
 const weather = fs.readFileSync(new URL('../src/weather.js', import.meta.url), 'utf8');
 const grass = fs.readFileSync(new URL('../src/graphics/grass.js', import.meta.url), 'utf8');
 const flyer = fs.readFileSync(new URL('../src/enemies/flyer.js', import.meta.url), 'utf8');
@@ -15,6 +16,11 @@ test('live startup prewarms shaders once before gameplay by default', () => {
   assert.match(main, /shouldPrewarmShaders\(params\.get\('warmup'\)\)/);
   assert.match(main, /loadAllModels\(\{[^}]*skipWarmup:\s*true[^}]*\}\)/s);
   assert.match(main, /if \(shaderWarm\)[\s\S]*prewarmAllShaders/);
+});
+
+test('barrel explosion shaders and sprite material join startup warmup', () => {
+  assert.match(main, /createEffectsShaderWarmupExtras\(THREE\)/);
+  assert.match(loader, /o\.isPoints\s*\|\|\s*o\.isSprite/);
 });
 
 test('live thunder path reuses cached noise instead of filling a strike-sized buffer', () => {

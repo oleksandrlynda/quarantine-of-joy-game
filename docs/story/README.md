@@ -27,3 +27,12 @@ This folder contains the narrative documentation for the project: high-level sto
 ## Versioning
 - Use semantic headers (H2/H3) and keep changes scoped
 - Note breaking narrative changes in a "Changelog" section at file end
+
+## Runtime Delivery
+- `src/story-campaign.js` maps Waves 1–72 to eight campaign districts and five post-campaign chapters.
+- Each district/chapter provides `arrival`, `turn`, and `resolve` beats where applicable, with scoped ambient transmissions in both `story_en.json` and `story_uk.json`.
+- Ambient transmissions must declare `"pool": "ambient"` and their district id. Boss tickers are deliberately excluded from this pool.
+- Runtime facts may select short memory beats after a district victory; these must remain cosmetic and must not mutate combat state.
+- Post-campaign dialogue may reflect the Wave 40 `free`/`reset` ending, but may not change encounter logic or invalidate that ending.
+- Wave 72 uses a four-card epilogue sequence. The run-complete callback fires only after the player acknowledges the final card.
+- Source localization keys such as `#intro_01` are retained in data and stripped by the story renderer before display.

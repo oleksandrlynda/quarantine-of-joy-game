@@ -32,6 +32,48 @@ test('reaction matrix runs only role-applicable cases while retaining optional N
   assert.equal(matrix.find(item => item.id === 'shooter__ally_cover_usage').applicable, true);
   assert.equal(fullMatrix.find(item => item.id === 'sniper__ally_cover_usage').applicable, false);
   assert.equal(matrix.find(item => item.id === 'healer__last_survivor_bomb').applicable, true);
+  assert.equal(matrix.find(item => item.id === 'pelican__pelican_bombing_cycle').applicable, true);
+  assert.equal(fullMatrix.find(item => item.id === 'pelican__dive_corridor').applicable, false);
+});
+
+test('Propaganda Pelican diagnostic requires a complete in-range bombing and recharge cycle', () => {
+  const root = { userData: { diagnosticActorId: 'primary', behaviorId: 'pelican', type: 'pelican' } };
+  const metrics = new EnemyReactionMetrics({
+    enemyId: 'pelican', role: 'air_bomber', scenarioId: 'pelican_bombing_cycle',
+    startPosition: { x: 0, y: 7, z: 12 }, initialPlayerDistance: 20, preferredBand: [5, 18]
+  });
+  metrics.recordAIEvent(100, { type: 'pelican_attack_run_started', root });
+  metrics.recordAIEvent(900, { type: 'pelican_grenade_dropped', root, releaseDistance: 6.1 });
+  metrics.recordAIEvent(1800, { type: 'pelican_grenade_exploded', root, blastRadius: 2.6 });
+  metrics.recordDamage(1800, 22, {
+    source: 'pelican_grenade', sourceRoot: root, ownerRoot: root, primaryRoot: root
+  });
+  metrics.recordAIEvent(3200, { type: 'pelican_recharge_started', root, rechargeTime: 4 });
+  const result = metrics.finish();
+
+  assert.equal(result.assessment.status, 'pass');
+  assert.equal(result.metrics.minimumPelicanReleaseDistance, 6.1);
+  assert.equal(result.metrics.maximumPelicanReleaseDistance, 6.1);
+  assert.equal(result.metrics.actionCounts.pelican_grenade_dropped, 1);
+
+  const invalidRange = evaluateEnemyReaction({
+    enemyId: 'pelican', role: 'air_bomber', scenarioId: 'pelican_bombing_cycle', preferredBand: [5, 18],
+    metrics: {
+      distanceTravelled: 12,
+      stuckRatio: 0,
+      minimumPelicanReleaseDistance: 3.8,
+      maximumPelicanReleaseDistance: 3.8,
+      damageBySource: { pelican_grenade: 22 },
+      actionCounts: {
+        pelican_attack_run_started: 1,
+        pelican_grenade_dropped: 1,
+        pelican_grenade_exploded: 1,
+        pelican_recharge_started: 1
+      }
+    }
+  });
+  assert.equal(invalidRange.status, 'fail');
+  assert.ok(invalidRange.findings.some(item => item.code === 'pelican_release_range_invalid'));
 });
 
 test('high-frequency metrics expose LOS flicker, ally-obstructed fire, and footprints', () => {
@@ -74,6 +116,37 @@ test('support roles are judged by standoff instead of player-facing tracking', (
   });
   assert.ok(!healthy.findings.some(item => item.code === 'poor_tracking'));
   assert.ok(!healthy.findings.some(item => item.code === 'support_too_close'));
+});
+
+test('Pelican moving-target tracking is judged during bombing runs, not retreat and recharge', () => {
+  const healthy = evaluateEnemyReaction({
+    enemyId: 'pelican', scenarioId: 'moving_target', role: 'air_bomber', preferredBand: [5, 18],
+    metrics: { distanceTravelled: 80, trackingRatio: 0.2, engagementTrackingRatio: 0.9, stuckRatio: 0 }
+  });
+  assert.ok(!healthy.findings.some(item => item.code === 'poor_tracking'));
+
+  const weakRun = evaluateEnemyReaction({
+    enemyId: 'pelican', scenarioId: 'moving_target', role: 'air_bomber', preferredBand: [5, 18],
+    metrics: { distanceTravelled: 80, trackingRatio: 0.8, engagementTrackingRatio: 0.2, stuckRatio: 0 }
+  });
+  assert.ok(weakRun.findings.some(item => item.code === 'poor_tracking'));
+});
+
+test('occlusion scenarios cannot pass without a sustained hidden interval', () => {
+  const wall = evaluateEnemyReaction({
+    enemyId: 'pelican', scenarioId: 'wall_occlusion', role: 'air_bomber', preferredBand: [5, 18],
+    metrics: { distanceTravelled: 20, maxLateralOffset: 4, longestHiddenWindowMs: 0, stuckRatio: 0 }
+  });
+  assert.equal(wall.status, 'inconclusive');
+  assert.ok(wall.findings.some(item => item.code === 'occlusion_not_exercised'));
+
+  const reacquisition = evaluateEnemyReaction({
+    enemyId: 'pelican', scenarioId: 'sight_reacquisition', role: 'air_bomber', preferredBand: [5, 18],
+    metrics: { distanceTravelled: 20, longestHiddenWindowMs: 0, reactionLatencyMs: null, stuckRatio: 0 }
+  });
+  assert.equal(reacquisition.status, 'inconclusive');
+  assert.ok(reacquisition.findings.some(item => item.code === 'reacquisition_occlusion_not_exercised'));
+  assert.ok(!reacquisition.findings.some(item => item.code === 'failed_to_reacquire'));
 });
 
 test('small-group combat requires spawned actors and attack evidence', () => {
@@ -146,6 +219,22 @@ test('browser entrypoint exposes the diagnostic runner and report controls', () 
   assert.match(html, /id="downloadReport"/);
   assert.match(html, /id="stop"/);
   assert.match(html, /id="rows"/);
+  assert.match(html, /id="panelToggle"/);
+  assert.match(html, /data-collapsed="false"/);
+  assert.match(html, /Propaganda Pelican bombing cycles/);
+});
+
+test('browser runner reuses production body tolerance and exact emitted shot geometry', () => {
+  const runner = fs.readFileSync(new URL('../src/debug/enemy-reaction-diagnostic-runner.js', import.meta.url), 'utf8');
+  assert.match(runner, /import \{ verticalSpansOverlap \} from '\.\.\/enemies\/spatial-index\.js'/);
+  assert.match(runner, /verticalSpansOverlap\(targetRoot, targetProfile, ally, allyProfile\)/);
+  assert.match(runner, /_tacticalLineClear\(sourceRoot, shotEvent\.origin, shotEvent\.target, 0\.18\)/);
+  assert.match(runner, /recordActorShot\(event\.root, event\.kind \|\| event\.root\?\.userData\?\.behaviorId \|\| 'unknown', event\)/);
+  assert.match(runner, /currentDefinition\?\.archetype\.id === 'warden'/);
+  assert.match(runner, /camera\.position\.set\(42, 38, 54\)/);
+  assert.match(runner, /camera\.lookAt\(0, 12, 14\)/);
+  assert.match(runner, /setPanelCollapsed\(true\)/);
+  assert.match(runner, /setPanelCollapsed\(false\)/);
 });
 
 test('repeated timeline events keep exact counts but compact their serialized evidence', () => {

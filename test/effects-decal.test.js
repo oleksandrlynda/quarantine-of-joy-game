@@ -139,6 +139,37 @@ test('decal orientation uses the hit mesh normal matrix under rotation and non-u
   assert.ok(actualNormal.dot(expectedNormal) > 0.999999);
 });
 
+test('decal keeps its requested world size on a scaled surface', () => {
+  const effects = makeEffects();
+  const surface = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshBasicMaterial()
+  );
+  surface.position.set(2, -1, 4);
+  surface.rotation.set(0.2, -0.45, 0.3);
+  surface.scale.set(12, 3, 0.25);
+  effects.scene.add(surface);
+  effects.scene.updateMatrixWorld(true);
+  const localHitPoint = new THREE.Vector3(0, 0, 0.5);
+  const hitPoint = surface.localToWorld(localHitPoint.clone());
+
+  effects.spawnBulletDecal(hitPoint, new THREE.Vector3(0, 0, 1), {
+    object: surface,
+    size: 0.1
+  });
+
+  const decal = effects._decals[0].mesh;
+  effects.scene.updateMatrixWorld(true);
+  const left = decal.localToWorld(new THREE.Vector3(-0.5, 0, 0));
+  const right = decal.localToWorld(new THREE.Vector3(0.5, 0, 0));
+  const bottom = decal.localToWorld(new THREE.Vector3(0, -0.5, 0));
+  const top = decal.localToWorld(new THREE.Vector3(0, 0.5, 0));
+
+  // spawnBulletDecal varies each axis between 90% and 120% of requested size.
+  assert.ok(left.distanceTo(right) >= 0.09 && left.distanceTo(right) <= 0.12);
+  assert.ok(bottom.distanceTo(top) >= 0.09 && bottom.distanceTo(top) <= 0.12);
+});
+
 test('owner cleanup removes only decals belonging to that owner', () => {
   const effects = makeEffects();
   const firstOwner = new THREE.Group();

@@ -21,6 +21,9 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
   try { renderer.outputColorSpace = THREE.SRGBColorSpace; } catch (e) { logError(e); }
   try {
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    // Preserve the moody palette without crushing charcoal materials. This is
+    // effectively free compared with adding fill lights or a post-process pass.
+    renderer.toneMappingExposure = 1.08;
     const tone = params.get('tone');
     if (tone === '0') renderer.toneMapping = THREE.NoToneMapping;
   } catch (e) { logError(e); }
@@ -99,8 +102,11 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
   scene.add(new THREE.Mesh(skyGeo, skyMat));
 
   // Lights
-  const hemi = new THREE.HemisphereLight(0xffffff, 0x4488aa, 0.9); scene.add(hemi);
-  const dir = new THREE.DirectionalLight(0xffffff, 0.8); dir.position.set(20,30,10); scene.add(dir);
+  // One broad ambient source plus one key keeps the light count unchanged.
+  // The neutral-teal ground bounce reveals dark silhouettes without washing
+  // the Bureau palette blue, while the warm key separates material families.
+  const hemi = new THREE.HemisphereLight(0xdce9e4, 0x26342f, 1.18); scene.add(hemi);
+  const dir = new THREE.DirectionalLight(0xffdfb8, 1.22); dir.position.set(20,30,10); scene.add(dir);
   // Configure single shadow-casting directional light tightly if enabled
   try {
     dir.castShadow = !!enableShadows;
@@ -182,6 +188,8 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
         const ang=Math.atan2(z2-z1, x2-x1);
         const wall = new THREE.Mesh(new THREE.BoxGeometry(len, wallH, wallT), mats.wall);
         wall.position.set(cx, wallH/2, cz); wall.rotation.y = ang;
+        wall.name = 'arena-boundary-wall';
+        wall.userData.arenaBoundary = true;
         wall.castShadow=wall.receiveShadow=!!enableShadows; scene.add(wall); objects.push(wall);
       }
     };
@@ -206,6 +214,8 @@ export function createWorld(THREE, rng = Math.random, arenaShape = 'box'){
         const wallGeo = new THREE.ExtrudeGeometry(wallShape, { depth: wallH, bevelEnabled: false, curveSegments: 32 });
         const wall = new THREE.Mesh(wallGeo, mats.wall);
         wall.rotation.x = -Math.PI/2;
+        wall.name = 'arena-boundary-wall';
+        wall.userData.arenaBoundary = true;
         wall.castShadow = wall.receiveShadow = !!enableShadows;
         scene.add(wall); objects.push(wall);
         break;

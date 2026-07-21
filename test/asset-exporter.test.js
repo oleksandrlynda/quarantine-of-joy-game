@@ -345,6 +345,40 @@ test('environment builds own disposable material instances', () => {
   }
 });
 
+test('environment lighting budget separates distant, decorative, and gameplay accents', () => {
+  const assets = createEnvironmentAssetRegistry({ THREE });
+  const inspect = (id) => {
+    const root = assets.find((asset) => asset.id === id).build();
+    const materials = new Set();
+    root.traverse((object) => {
+      if (!object.material) return;
+      const sources = Array.isArray(object.material) ? object.material : [object.material];
+      sources.forEach((material) => materials.add(material));
+    });
+    return { root, materials: [...materials] };
+  };
+  const samples = {
+    backdrop: inspect('adzonebackdrop'),
+    decorative: inspect('billboardwall'),
+    ground: inspect('adplazakit'),
+    objective: inspect('sponsorprojector'),
+    enemy: inspect('enforcer')
+  };
+  const maxEmissive = ({ materials }) => Math.max(...materials.map((material) => material.emissiveIntensity || 0));
+
+  try {
+    assert.equal(maxEmissive(samples.backdrop), 0, 'distant backdrops should not compete through emission');
+    assert.ok(maxEmissive(samples.decorative) <= .08, 'decorative screens should use painted color, not gameplay-strength glow');
+    assert.ok(maxEmissive(samples.ground) > .08, 'level-specific ground route colors should remain luminous');
+    assert.ok(maxEmissive(samples.objective) > .08, 'objective signals should retain the strongest environmental emission');
+    assert.ok(maxEmissive(samples.enemy) >= 1.25, 'the embedded enemy preview must retain its original palette');
+    const groundColors = new Set(samples.ground.materials.map((material) => material.color?.getHexString()));
+    assert.ok(['4ea9a3', '644c82', 'b65c36'].every((color) => groundColors.has(color)), 'Ad-Zone ground keeps its cyan, purple, and orange identity');
+  } finally {
+    Object.values(samples).forEach(({ root }) => disposeObject3D(root));
+  }
+});
+
 test('registered assets normalize to valid grounded export roots', () => {
   const registry = createAssetRegistry({ THREE });
 

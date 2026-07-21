@@ -76,8 +76,8 @@ test('persistent combat sequence keeps one weapon and scene across combat, boss,
   assert.equal(PERSISTENT_COMBAT_DIAGNOSTIC_PHASES[5].transition, 'explicit_cleanup');
 });
 
-test('Wave 72 stress profile models the shooter-free surge roster and persistent supports', () => {
-  assert.equal(WAVE72_STRESS_PROFILE.wave, 72);
+test('Wave 73 stress profile models the shooter-free surge roster and persistent supports', () => {
+  assert.equal(WAVE72_STRESS_PROFILE.wave, 73);
   assert.deepEqual(WAVE72_STRESS_PROFILE.roster, {
     grunt: 10,
     gruntling: 10,

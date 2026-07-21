@@ -1,4 +1,4 @@
-export const ASSET_EXPORT_VERSION = 1;
+export const ASSET_EXPORT_VERSION = 2;
 
 function finiteTuple(values) {
   return values.every(Number.isFinite);
