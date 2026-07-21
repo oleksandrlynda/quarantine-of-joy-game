@@ -1,6 +1,6 @@
 {
   "name": "quarantine-of-joy-game",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Quarantine of Joy web game",
   "type": "module",
   "scripts": {
