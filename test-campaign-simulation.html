@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Quarantine of Joy — Campaign Simulation QA</title>
+  <link rel="icon" href="assets/icons/favicon.svg" type="image/svg+xml" />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta http-equiv="Cache-Control" content="no-store" />
+  <style>
+    :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; background: #050b14; color: #edf7ff; }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    #gameFrame { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; background: #050b14; }
+    #panel { position: fixed; z-index: 20; top: 12px; left: 12px; width: min(1020px, calc(100vw - 24px)); max-height: calc(100vh - 24px); overflow: auto; padding: 15px; border: 1px solid #55e5d64d; border-radius: 16px; background: #07111ff2; box-shadow: 0 22px 70px #000b; transition: width 160ms ease, padding 160ms ease; }
+    #panelToggle { position: absolute; top: 10px; right: 10px; z-index: 2; min-height: 30px; padding: 0 9px; font-size: 11px; }
+    #panel[data-collapsed="true"] { width: min(620px, calc(100vw - 24px)); padding: 10px; overflow: hidden; }
+    #panel[data-collapsed="true"] > :not(#panelToggle):not(.statusRow):not(.track):not(.summary) { display: none; }
+    #panel[data-collapsed="true"] .statusRow { margin-top: 0; padding-right: 104px; }
+    .tabs, .controls, .summary { display: flex; flex-wrap: wrap; gap: 7px; }
+    .tabs { margin-bottom: 11px; }
+    .tabs a { min-height: 32px; display: inline-flex; align-items: center; padding: 0 12px; border: 1px solid #ffffff24; border-radius: 9px; color: #b9c8dc; text-decoration: none; font-size: 12px; font-weight: 800; }
+    .tabs a[aria-current="page"] { color: #edfffc; border-color: #55e5d677; background: #087e7455; }
+    h1 { margin: 0; font-size: 19px; }
+    p { margin: 7px 0 0; color: #b9c8dc; font-size: 12px; line-height: 1.45; }
+    .warning { color: #ffd08a; }
+    .controls { margin-top: 13px; align-items: end; }
+    label { display: grid; gap: 4px; color: #91a5bd; font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
+    input, select, button { min-height: 36px; border: 1px solid #ffffff24; border-radius: 10px; padding: 0 11px; background: #15243a; color: #eef6ff; font: inherit; font-weight: 700; }
+    input { width: 115px; }
+    #seed { width: 160px; }
+    button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: .42; }
+    #run { background: #087e74; }
+    .statusRow { display: flex; justify-content: space-between; gap: 12px; margin-top: 13px; font-size: 12px; font-weight: 800; }
+    #status { color: #67ead9; }
+    #elapsed { color: #99a9bc; font-variant-numeric: tabular-nums; }
+    .track { height: 8px; margin-top: 8px; overflow: hidden; border-radius: 999px; background: #ffffff18; }
+    #progress { width: 0; height: 100%; background: linear-gradient(90deg, #38cbb9, #a1f55c); transition: width 100ms linear; }
+    .summary { margin-top: 11px; font-size: 11px; font-weight: 850; }
+    .pass { color: #54e6a5; } .fail { color: #ff7a7a; } .info { color: #9fc5ff; }
+    .tableWrap { max-height: 38vh; margin-top: 11px; overflow: auto; border: 1px solid #ffffff17; border-radius: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; font-variant-numeric: tabular-nums; }
+    th, td { padding: 7px 8px; border-bottom: 1px solid #ffffff12; text-align: center; white-space: nowrap; }
+    th { position: sticky; top: 0; z-index: 1; color: #89a0b9; background: #101b2c; }
+    th:nth-child(2), td:nth-child(2), th:nth-child(3), td:nth-child(3) { text-align: left; }
+    tr[data-state="pass"] td:last-child { color: #54e6a5; }
+    tr[data-state="fail"] td:last-child, tr[data-state="stopped"] td:last-child { color: #ff7a7a; }
+    #output { display: none; width: 100%; height: 190px; margin-top: 11px; resize: vertical; border: 1px solid #ffffff24; border-radius: 10px; padding: 10px; background: #020812; color: #c4fff7; font: 10px/1.4 Consolas, monospace; }
+    #output.ready { display: block; }
+    @media (max-width: 760px) { #panel { top: 7px; left: 7px; width: calc(100vw - 14px); } th:nth-child(5), td:nth-child(5), th:nth-child(6), td:nth-child(6) { display: none; } }
+  </style>
+</head>
+<body>
+  <iframe id="gameFrame" title="Production game under campaign simulation"></iframe>
+  <main id="panel" data-collapsed="false">
+    <button id="panelToggle" type="button" aria-expanded="true">Collapse panel</button>
+    <nav class="tabs" aria-label="Behavior diagnostics">
+      <a href="test-enemy-reactions.html">Regular enemies</a>
+      <a href="test-boss-reactions.html">Bosses</a>
+      <a href="test-level-collisions.html">Level obstacles</a>
+      <a href="test-campaign-simulation.html" aria-current="page">Campaign simulation</a>
+    </nav>
+    <h1>Ultimate campaign simulation machine</h1>
+    <p>Drives the production player, authored levels, objectives, legacy arena, enemies, bosses, weather, collision, renderer, and weapon damage across every selected wave. The combat bot aims and fires a production DMR; only production death handling may remove a defeated enemy. The player captures and clears mission points, and starts and routes are deterministic from the seed.</p>
+    <p class="warning">The run stops automatically after the first 50 errors. Every captured event, assertion, wave snapshot, position sample, roster, and production debug event is included in the JSON report.</p>
+    <div class="controls">
+      <label>Seed<input id="seed" value="ULTIMATE-QA-001" maxlength="80" /></label>
+      <label>First wave<input id="fromWave" type="number" min="1" max="73" value="1" /></label>
+      <label>Last wave<input id="toWave" type="number" min="1" max="73" value="73" /></label>
+      <label>Scenario<select id="scenario">
+        <option value="campaign" selected>Full campaign route</option>
+        <option value="relay-car-summon">Relay car perch summon</option>
+      </select></label>
+      <label>Route samples<select id="routeSamples"><option>2</option><option selected>4</option><option>6</option><option>8</option></select></label>
+      <label>Simulation speed<select id="visualPace">
+        <option value="0" data-time-scale="4">Turbo — 4× game, no reaction delay</option>
+        <option value="25" data-time-scale="2">Fast — 2× game, 25 ms reactions</option>
+        <option value="100" data-time-scale="1" selected>Normal — 1× game, 100 ms reactions</option>
+        <option value="250" data-time-scale="0.75">Observe — 0.75× game, 250 ms reactions</option>
+        <option value="500" data-time-scale="0.5">Slow — 0.5× game, 500 ms reactions</option>
+      </select></label>
+      <button id="run" type="button">Run simulation</button>
+      <button id="stop" type="button" disabled>Stop</button>
+      <button id="copy" type="button" disabled>Copy JSON</button>
+      <button id="download" type="button" disabled>Download JSON</button>
+    </div>
+    <div class="statusRow"><span id="status">Ready. Configure the deterministic run.</span><span id="elapsed">0.0s</span></div>
+    <div class="track" aria-hidden="true"><div id="progress"></div></div>
+    <div class="summary"><span id="waveCount" class="pass">Waves 0</span><span id="errorCount" class="fail">Errors 0 / 50</span><span id="eventCount" class="info">Events 0</span><span id="dropCount" class="info">Dropped 0</span></div>
+    <div class="tableWrap">
+      <table><thead><tr><th>Wave</th><th>Level</th><th>Mode</th><th>Objective</th><th>Planned</th><th>Active</th><th>Eliminated</th><th>Draw calls</th><th>Duration</th><th>Result</th></tr></thead><tbody id="rows"></tbody></table>
+    </div>
+    <textarea id="output" readonly spellcheck="false" aria-label="Campaign simulation JSON report"></textarea>
+  </main>
+  <script type="module" src="./src/debug/campaign-simulation-runner.js?v=1&amp;rev=cathedral-route-collision3"></script>
+</body>
+</html>

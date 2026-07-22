@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { createEnvironmentAssetRegistry } from '../src/assets/environment/index.js';
 import * as sharedCollisionProfiles from '../src/assets/collision-profiles.js';
@@ -96,9 +95,20 @@ import { FLOODGATE_CONTINUITY } from '../src/levels/floodgate-continuity.js';
 import { BLACKOUT_CISTERN } from '../src/levels/blackout-cistern.js';
 import { LAST_ORDER_BASE } from '../src/levels/last-order-base.js';
 
-const generatedManifest = JSON.parse(readFileSync(new URL('../assets/generated/asset-manifest.json', import.meta.url), 'utf8'));
-const generatedAsset = id => generatedManifest.assets.find(asset => asset.id === id);
 const environmentAssets = createEnvironmentAssetRegistry({ THREE });
+const sourceAssetBounds = id => {
+  const definition = environmentAssets.find(asset => asset.id === id);
+  assert.ok(definition, `${id} model factory is registered`);
+  const root = definition.build();
+  root.updateMatrixWorld(true);
+  const bounds = new THREE.Box3().setFromObject(root);
+  const size = bounds.getSize(new THREE.Vector3());
+  return {
+    min: { x: -size.x / 2, y: 0, z: -size.z / 2 },
+    max: { x: size.x / 2, y: size.y, z: size.z / 2 },
+    size: { x: size.x, y: size.y, z: size.z }
+  };
+};
 const buildEnvironmentAsset = id => {
   const definition = environmentAssets.find(asset => asset.id === id);
   assert.ok(definition, `${id} model factory is registered`);
@@ -232,32 +242,32 @@ test('horizontal cylinder profiles compose their authored root yaw with placemen
 });
 
 test('hard-profile extrema stay synchronized with generated model bounds', () => {
-  const relayBounds = generatedAsset('relaymast').bounds;
+  const relayBounds = sourceAssetBounds('relaymast');
   const relayBase = RELAY_MAST_COLLIDER_PROFILE.find(primitive => primitive.id === 'shot-base');
   const relayPole = RELAY_MAST_COLLIDER_PROFILE.find(primitive => primitive.id === 'shot-pole');
   assert.ok(Math.abs(relayBase.size[0] - relayBounds.size.x) < .001);
   assert.ok(Math.abs(relayBase.size[2] - relayBounds.size.z) < .001);
   assert.ok(Math.abs(relayPole.position[1] + relayPole.size[1] / 2 - relayBounds.max.y) < .001);
 
-  const lightBounds = generatedAsset('lightmast').bounds;
+  const lightBounds = sourceAssetBounds('lightmast');
   const lampBar = LIGHT_MAST_COLLIDER_PROFILE.find(primitive => primitive.id === 'lamp-bar');
   assert.ok(Math.abs(lampBar.position[1] + lampBar.size[1] / 2 - lightBounds.max.y) < .001);
 
   const planter = STREET_TREE_COLLIDER_PROFILE.find(primitive => primitive.id === 'planter');
   assert.deepEqual(planter.size, [3.3, .86, 2.65], 'street-tree hard collision follows the modeled planter, not its canopy bounds');
 
-  const terminalBounds = generatedAsset('terminal').bounds;
+  const terminalBounds = sourceAssetBounds('terminal');
   const terminalBase = TERMINAL_COLLIDER_PROFILE.find(primitive => primitive.id === 'base');
-  assert.equal(terminalBase.size[0], terminalBounds.size.x);
+  assert.ok(Math.abs(terminalBase.size[0] - terminalBounds.size.x) < .001);
 
-  const powerRelayBounds = generatedAsset('powerrelay').bounds;
+  const powerRelayBounds = sourceAssetBounds('powerrelay');
   const powerRelayBase = POWER_RELAY_COLLIDER_PROFILE.find(primitive => primitive.id === 'base');
-  assert.equal(powerRelayBase.size[2], powerRelayBounds.size.z);
+  assert.ok(Math.abs(powerRelayBase.size[2] - powerRelayBounds.size.z) < .001);
 
-  const beaconBounds = generatedAsset('capturebeacon').bounds;
+  const beaconBounds = sourceAssetBounds('capturebeacon');
   const beaconBase = CAPTURE_BEACON_COLLIDER_PROFILE.find(primitive => primitive.id === 'shot-base');
-  assert.equal(beaconBase.size[0], beaconBounds.size.x);
-  assert.equal(beaconBase.size[2], beaconBounds.size.z);
+  assert.ok(Math.abs(beaconBase.size[0] - beaconBounds.size.x) < .001);
+  assert.ok(Math.abs(beaconBase.size[2] - beaconBounds.size.z) < .001);
 });
 
 test('late structural profiles preserve model openings instead of merging cages and ranks into invisible walls', () => {

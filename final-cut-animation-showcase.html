@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Interactive Final Cut enemy death animation review for Quarantine of Joy.">
+  <title>Quarantine of Joy — Final Cut Motion Lab</title>
+  <style>
+    :root{
+      --ink:#f4f4ec; --muted:#929b94; --dim:#626b65; --night:#080b0a; --panel:#101512;
+      --panel2:#151b17; --line:#2a332c; --acid:#d7ff3f; --cyan:#5ce1d3; --gold:#facc15;
+      --pink:#f472b6; --orange:#ff7a36;
+    }
+    *{box-sizing:border-box}
+    html,body{min-height:100%}
+    body{margin:0;color:var(--ink);background:radial-gradient(circle at 56% -10%,#d7ff3f12,transparent 34rem),var(--night);font-family:Inter,system-ui,sans-serif}
+    button,input{font:inherit}
+    button{color:inherit}
+    .topbar{min-height:68px;display:flex;align-items:center;justify-content:space-between;gap:20px;padding:12px 20px;border-bottom:1px solid #ffffff12;background:#080b0af2}
+    .brand{display:flex;align-items:center;gap:12px}
+    .mark{width:38px;height:38px;display:grid;place-items:center;color:#10150b;background:var(--gold);clip-path:polygon(12% 2%,92% 8%,100% 77%,64% 100%,2% 86%);font-weight:950}
+    .brand strong{display:block;font-size:14px}.brand small{display:block;margin-top:3px;color:var(--dim);font-size:8px;font-weight:850;letter-spacing:.16em;text-transform:uppercase}
+    .status{display:flex;gap:8px}.pill{padding:8px 11px;border:1px solid var(--line);border-radius:999px;color:var(--muted);background:#0d110f;font-size:8px;font-weight:900;letter-spacing:.1em;text-transform:uppercase}.pill.live::before{content:"";display:inline-block;width:6px;height:6px;margin-right:7px;border-radius:50%;background:var(--acid);box-shadow:0 0 10px #d7ff3f88}
+    .workbench{min-height:calc(100vh - 68px);display:grid;grid-template-columns:245px minmax(430px,1fr) 300px}
+    .rail,.inspector{background:#0d110f}.rail{border-right:1px solid var(--line)}.inspector{border-left:1px solid var(--line)}
+    .side-head{padding:20px 17px 14px;border-bottom:1px solid var(--line)}.kicker{color:var(--acid);font-size:8px;font-weight:900;letter-spacing:.18em;text-transform:uppercase}.side-head h2{margin:7px 0 0;font-size:18px;letter-spacing:-.04em}
+    .variant-list{display:grid;gap:5px;padding:9px}
+    .variant{display:grid;grid-template-columns:32px 1fr auto;align-items:center;gap:10px;min-height:60px;padding:9px;border:1px solid transparent;border-radius:9px;background:transparent;text-align:left;cursor:pointer}
+    .variant:hover{background:#ffffff08}.variant.active{border-color:#d7ff3f55;background:linear-gradient(100deg,#d7ff3f16,#ffffff05)}
+    .variant:disabled{cursor:not-allowed;opacity:.28;filter:saturate(.25)}.variant:disabled:hover{background:transparent}
+    .variant-index{width:31px;height:31px;display:grid;place-items:center;color:#0d1209;background:var(--swatch);clip-path:polygon(8% 4%,92% 0,100% 78%,65% 100%,0 87%);font-size:9px;font-weight:950}
+    .variant b{display:block;font-size:11px}.variant small{display:block;margin-top:3px;color:var(--dim);font-size:7px;font-weight:850;letter-spacing:.1em;text-transform:uppercase}.tag{padding:4px 5px;border:1px solid var(--line);color:var(--muted);font-size:7px;font-weight:900;letter-spacing:.08em;text-transform:uppercase}
+    .rail-note{margin:8px 16px 18px;padding-top:14px;border-top:1px solid var(--line);color:var(--dim);font-size:9px;line-height:1.55}.rail-note b{color:#aeb6b0}
+    .review{min-width:0;display:flex;flex-direction:column;background:#0b0f0d}
+    .review-head{min-height:62px;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 16px;border-bottom:1px solid var(--line)}
+    .review-head h1{margin:3px 0 0;font-size:clamp(19px,2.2vw,28px);line-height:1;letter-spacing:-.05em}.code{color:var(--dim);font:800 8px ui-monospace,monospace;letter-spacing:.12em}.grade-switch{display:flex;gap:5px}.grade-switch button,.replay{min-height:32px;padding:0 11px;border:1px solid var(--line);background:#111713;cursor:pointer;font-size:8px;font-weight:900;letter-spacing:.1em;text-transform:uppercase}.grade-switch button.active{color:#10150b;border-color:var(--acid);background:var(--acid)}
+    .viewport{position:relative;min-height:560px;flex:1;overflow:hidden;background:radial-gradient(circle at 50% 38%,#44534866,transparent 34%),linear-gradient(#151c18,#0b100d 70%)}
+    .viewport::before{content:"";position:absolute;z-index:2;inset:0;pointer-events:none;background:linear-gradient(#ffffff08 1px,transparent 1px),linear-gradient(90deg,#ffffff08 1px,transparent 1px);background-size:46px 46px;mask-image:linear-gradient(#000,#0009 70%,transparent)}
+    canvas{position:absolute;z-index:1;inset:0;width:100%;height:100%;cursor:grab;touch-action:none}canvas:active{cursor:grabbing}
+    .cue{position:absolute;z-index:4;left:50%;top:18%;padding:8px 16px;color:#fff;background:#081019e8;border:1px solid #ffffff55;border-left:4px solid var(--gold);box-shadow:0 15px 40px #000a,0 0 32px #facc1533;font-size:clamp(17px,3vw,34px);font-weight:950;letter-spacing:.1em;text-transform:uppercase;transform:translateX(-50%) skewX(-7deg);pointer-events:none}
+    .camera-note{position:absolute;z-index:4;left:14px;bottom:14px;padding:7px 9px;border:1px solid #ffffff18;color:#8d968f;background:#090d0bea;font:800 8px ui-monospace,monospace;letter-spacing:.09em;text-transform:uppercase}
+    .production-badge{position:absolute;z-index:4;right:14px;top:14px;padding:7px 9px;border:1px solid #d7ff3f55;color:#efffb6;background:#10150de8;font-size:8px;font-weight:900;letter-spacing:.1em;text-transform:uppercase}
+    .transport{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;min-height:74px;padding:12px 16px;border-top:1px solid var(--line);background:#0d120f}.replay{border-color:#d7ff3f55}.timeline{width:100%;accent-color:var(--acid)}.time{min-width:86px;color:var(--muted);font:800 9px ui-monospace,monospace;text-align:right}
+    .inspector section{padding:17px;border-bottom:1px solid var(--line)}.section-label{color:var(--dim);font-size:8px;font-weight:900;letter-spacing:.16em;text-transform:uppercase}.inspector h3{margin:8px 0 6px;font-size:18px;letter-spacing:-.04em}.inspector p{margin:0;color:var(--muted);font-size:10px;line-height:1.65}
+    .metric{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid #ffffff0d;font:800 9px ui-monospace,monospace}.metric span{color:var(--dim)}.metric b{color:#d7ff3f}
+    .enemy-list{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-top:10px}.enemy-list button{min-height:38px;padding:6px;border:1px solid var(--line);background:#111713;cursor:pointer;font-size:8px;font-weight:900;text-transform:uppercase}.enemy-list button.active{color:#10150b;border-color:var(--cyan);background:var(--cyan)}
+    .legend{display:grid;gap:8px;margin-top:11px}.legend div{display:flex;gap:8px;color:var(--muted);font-size:9px;line-height:1.4}.legend i{width:7px;height:7px;flex:0 0 auto;margin-top:3px;border-radius:50%;background:var(--acid)}
+    @media(max-width:980px){.workbench{grid-template-columns:190px 1fr}.inspector{grid-column:1/-1;border-left:0;border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(3,1fr)}.inspector section{border-right:1px solid var(--line)}.viewport{min-height:520px}}
+    @media(max-width:700px){.topbar{align-items:flex-start}.status{display:none}.workbench{display:block}.rail{border-right:0}.variant-list{display:flex;overflow-x:auto}.variant{min-width:180px}.rail-note{display:none}.viewport{min-height:470px}.inspector{display:block}.review-head{align-items:flex-end}.transport{grid-template-columns:auto 1fr}.time{grid-column:1/-1;text-align:center}.cue{top:14%}}
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><div class="mark">FC</div><div><strong>Quarantine of Joy</strong><small>Final Cut motion lab</small></div></div>
+    <div class="status"><span class="pill live">Production motion</span><span class="pill">6 procedural cuts</span></div>
+  </header>
+  <main class="workbench">
+    <aside class="rail">
+      <div class="side-head"><div class="kicker">Death direction</div><h2>Final Cut reel</h2></div>
+      <div class="variant-list" id="variantList"></div>
+      <div class="rail-note"><b>No ragdolls.</b> Each treatment animates the already-removed render model. AI, collision, score, drops and wave completion resolve immediately.</div>
+    </aside>
+    <section class="review">
+      <div class="review-head">
+        <div><div class="code" id="variantCode">FC-01 / GROUNDED</div><h1 id="variantTitle">Backdrop</h1></div>
+        <div class="grade-switch" aria-label="Preview grade"><button type="button" data-grade="1">Grade I</button><button type="button" class="active" data-grade="2">Grade II</button></div>
+      </div>
+      <div class="viewport" id="viewport">
+        <div class="cue" id="cue">Final Cut</div>
+        <div class="production-badge" id="availability">Grade I + II</div>
+        <div class="camera-note">Drag to orbit · wheel to zoom · space to replay</div>
+      </div>
+      <div class="transport">
+        <button class="replay" id="replay" type="button">Replay cut</button>
+        <input class="timeline" id="timeline" type="range" min="0" max="1000" value="0" aria-label="Animation timeline">
+        <div class="time" id="time">0.00 / 1.30 s</div>
+      </div>
+    </section>
+    <aside class="inspector">
+      <section><div class="section-label">Direction note</div><h3 id="variantSubtitle">Hard stop, heavy exit.</h3><p id="variantDescription"></p></section>
+      <section><div class="section-label">Production contract</div><div class="metric"><span>Kill delay</span><b>0 ms</b></div><div class="metric"><span>Collision</span><b>Removed</b></div><div class="metric"><span>Motion budget</span><b id="durationMetric">1.30 s</b></div><div class="metric"><span>Body sections</span><b id="pieceMetric">Whole body</b></div><div class="metric"><span>Selection</span><b id="selectionMetric">Deterministic</b></div></section>
+      <section><div class="section-label">Enemy body check</div><div class="enemy-list" id="enemyList"></div><div class="legend"><div><i></i><span>Grounded cuts scale travel by grade, not enemy stats.</span></div><div><i style="background:var(--cyan)"></i><span>Signal Lost is the production fallback for airborne enemies.</span></div></div></section>
+    </aside>
+  </main>
+  <script type="module">
+    import * as THREE from './node_modules/three/build/three.module.min.js';
+    import {
+      createEnhancedBlockBot,
+      createEnhancedGruntBot,
+      createEnhancedRunnerBot,
+      createEnhancedWingedDrone
+    } from './src/assets/enemy-retrofits.js';
+    import { createFinalCutMotion, FINAL_CUT_VARIANTS } from './src/game/final-cut-animations.js?v=fall-apart-3';
+
+    const VARIANTS = [
+      { id:FINAL_CUT_VARIANTS.BACKDROP, code:'FC-01 / GROUNDED', label:'Backdrop', role:'Grade I + II', color:'#facc15', subtitle:'Hard stop, heavy exit.', description:'A short freeze sells the killing blow before the entire silhouette tips backward. Tanks travel less visually because their broad mass dominates the frame.' },
+      { id:FINAL_CUT_VARIANTS.FOLD, code:'FC-02 / GROUNDED', label:'Fold', role:'Grade I + II', color:'#d7ff3f', subtitle:'The machine loses structure.', description:'The body buckles downward first, compressing the silhouette, then pitches forward into a compact collapse. It is the quietest and weightiest cut.' },
+      { id:FINAL_CUT_VARIANTS.SIDE_EXIT, code:'FC-03 / GROUNDED', label:'Side Exit', role:'Grade II', color:'#5ce1d3', subtitle:'Leave the frame sideways.', description:'A broad lateral slide keeps the full body readable while the victim tips onto its side. Forward yaw is deliberately restrained so the silhouette does not collapse into a thin line.' },
+      { id:FINAL_CUT_VARIANTS.FALL_APART, code:'FC-04 / GROUND RARE', label:'Fall Apart', role:'10% Ground Grade II', color:'#ff7a36', subtitle:'Every joint receives its notice.', description:'The torso holds the frame while limbs, armor sections and attachments release outward, drop, and settle as readable mechanical pieces. The controlled radius prevents a noisy debris explosion.' },
+      { id:FINAL_CUT_VARIANTS.SIGNAL_LOST, code:'FC-05 / AIRBORNE', label:'Signal Lost', role:'Air fallback', color:'#a78bfa', subtitle:'Power cut in mid-air.', description:'Airborne enemies lose lift, spiral around a tightening signal path and drop below the stage. This replaces implausible grounded falls for flyers.' },
+      { id:FINAL_CUT_VARIANTS.CORKSCREW, code:'FC-06 / AIR RARE', label:'Corkscrew', role:'10% Air Grade II', color:'#f472b6', subtitle:'The director gets one wild take.', description:'A powered-down flyer tumbles through a wider airborne spiral. It is never selected for grounded enemies and remains rare so the exaggerated motion stays surprising.' }
+    ];
+    const ENEMIES = [
+      { id:'grunt', label:'Grunt', factory:createEnhancedGruntBot, height:2.7, airborne:false },
+      { id:'runner', label:'Runner', factory:createEnhancedRunnerBot, height:2.7, airborne:false },
+      { id:'blocker', label:'Block Bot', factory:createEnhancedBlockBot, height:2.9, airborne:false },
+      { id:'flyer', label:'Winged Drone', factory:createEnhancedWingedDrone, height:1.35, airborne:true }
+    ];
+    const viewport = document.getElementById('viewport');
+    const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+    renderer.shadowMap.enabled = true;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    viewport.appendChild(renderer.domElement);
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x0b100d,9,18);
+    const camera = new THREE.PerspectiveCamera(42,1,.1,50);
+    camera.position.set(5.4,3.2,7.4);
+    const target = new THREE.Vector3(0,1.25,0);
+    scene.add(new THREE.HemisphereLight(0xc7efff,0x1a2019,2.2));
+    const key = new THREE.DirectionalLight(0xfff5d6,3.2); key.position.set(4,8,5); key.castShadow=true; scene.add(key);
+    const rim = new THREE.DirectionalLight(0x73ffe5,2.2); rim.position.set(-5,3,-4); scene.add(rim);
+    const floor = new THREE.Mesh(new THREE.CircleGeometry(5.7,64),new THREE.MeshStandardMaterial({color:0x151d18,roughness:.92,metalness:.08}));
+    floor.rotation.x=-Math.PI/2; floor.position.y=-.03; floor.receiveShadow=true; scene.add(floor);
+    const ring = new THREE.Mesh(new THREE.RingGeometry(1.72,1.76,64),new THREE.MeshBasicMaterial({color:0xfacc15,transparent:true,opacity:.65,side:THREE.DoubleSide}));
+    ring.rotation.x=-Math.PI/2; ring.position.y=.015; scene.add(ring);
+    const directionArrow = new THREE.ArrowHelper(new THREE.Vector3(0,0,1),new THREE.Vector3(0,.06,-1.6),3.2,0x5ce1d3,.25,.13); scene.add(directionArrow);
+
+    let currentVariant = VARIANTS.find(variant=>variant.id===FINAL_CUT_VARIANTS.FALL_APART);
+    let currentEnemy = ENEMIES[0];
+    let grade = 2;
+    let modelFrame = null;
+    let motion = null;
+    let elapsed = 0;
+    let playing = true;
+    let orbitYaw = .18;
+    let orbitPitch = .12;
+    let cameraDistance = 8.7;
+    let dragging = false;
+    let previousPointer = null;
+
+    function makeMats(){return{head:new THREE.MeshStandardMaterial({color:0x111827,roughness:.52,metalness:.26}),glow:new THREE.MeshStandardMaterial({color:0xd7ff3f,emissive:0x4b5f0d,emissiveIntensity:1.2})}}
+    function setShadows(root){root.traverse(node=>{if(node.isMesh){node.castShadow=true;node.receiveShadow=true}})}
+    function disposeFrame(){if(!modelFrame)return;modelFrame.removeFromParent();modelFrame=null}
+    function buildModel(){
+      disposeFrame();
+      const built=currentEnemy.factory({THREE,mats:makeMats()});
+      setShadows(built.root);
+      built.root.updateMatrixWorld(true);
+      const box=new THREE.Box3().setFromObject(built.root);
+      const center=box.getCenter(new THREE.Vector3());
+      const sourceHeight=Math.max(.01,box.max.y-box.min.y);
+      const scale=currentEnemy.height/sourceHeight;
+      built.root.position.set(-center.x,-box.min.y,-center.z);
+      const normalized=new THREE.Group(); normalized.scale.setScalar(scale); normalized.add(built.root);
+      modelFrame=new THREE.Group(); modelFrame.add(normalized); modelFrame.position.y=currentEnemy.airborne?3.2:0; scene.add(modelFrame);
+      createMotion();
+    }
+    function createMotion(){
+      elapsed=0; playing=true;
+      motion=createFinalCutMotion(modelFrame,{variant:currentVariant.id,grade,direction:new THREE.Vector3(0,0,1)});
+      updateInspector(); updateTimeline();
+    }
+    function updateInspector(){
+      document.getElementById('variantCode').textContent=currentVariant.code;
+      document.getElementById('variantTitle').textContent=currentVariant.label;
+      document.getElementById('variantSubtitle').textContent=currentVariant.subtitle;
+      document.getElementById('variantDescription').textContent=currentVariant.description;
+      document.getElementById('availability').textContent=currentVariant.role;
+      document.getElementById('durationMetric').textContent=`${motion?.duration.toFixed(2)||'—'} s`;
+      document.getElementById('pieceMetric').textContent=motion?.pieceCount?`${motion.pieceCount} separated`:'Whole body';
+      const rare=currentVariant.id===FINAL_CUT_VARIANTS.CORKSCREW||currentVariant.id===FINAL_CUT_VARIANTS.FALL_APART;
+      document.getElementById('selectionMetric').textContent=rare?'10% / Grade II':'Deterministic';
+      document.querySelectorAll('[data-grade]').forEach(button=>button.classList.toggle('active',Number(button.dataset.grade)===grade));
+    }
+    function updateTimeline(){
+      if(!motion)return;
+      document.getElementById('timeline').value=String(Math.round(Math.min(1,elapsed/motion.duration)*1000));
+      document.getElementById('time').textContent=`${Math.min(elapsed,motion.duration).toFixed(2)} / ${motion.duration.toFixed(2)} s`;
+      document.getElementById('cue').style.opacity=elapsed<Math.min(.42,motion.duration*.35)?'1':'0';
+    }
+    function isVariantAvailable(variant){
+      const airOnly=variant.id===FINAL_CUT_VARIANTS.SIGNAL_LOST||variant.id===FINAL_CUT_VARIANTS.CORKSCREW;
+      if(airOnly!==currentEnemy.airborne)return false;
+      if(grade<2&&(variant.id===FINAL_CUT_VARIANTS.SIDE_EXIT||variant.id===FINAL_CUT_VARIANTS.FALL_APART||variant.id===FINAL_CUT_VARIANTS.CORKSCREW))return false;
+      return true;
+    }
+    function enforceValidSelection(){
+      if(isVariantAvailable(currentVariant))return;
+      currentVariant=currentEnemy.airborne
+        ? VARIANTS.find(variant=>variant.id===FINAL_CUT_VARIANTS.SIGNAL_LOST)
+        : VARIANTS.find(variant=>variant.id===FINAL_CUT_VARIANTS.BACKDROP);
+    }
+    function renderVariantButtons(){
+      const host=document.getElementById('variantList'); host.replaceChildren();
+      VARIANTS.forEach((variant,index)=>{
+        const button=document.createElement('button'); button.type='button'; button.disabled=!isVariantAvailable(variant); button.className=`variant${variant===currentVariant?' active':''}`; button.style.setProperty('--swatch',variant.color);
+        button.innerHTML=`<span class="variant-index">${String(index+1).padStart(2,'0')}</span><span><b>${variant.label}</b><small>${variant.code}</small></span><span class="tag">${variant.role}</span>`;
+        button.onclick=()=>{if(button.disabled)return;currentVariant=variant;renderVariantButtons();createMotion()};
+        host.appendChild(button);
+      });
+    }
+    function renderEnemyButtons(){
+      const host=document.getElementById('enemyList');host.replaceChildren();
+      ENEMIES.forEach(enemy=>{const button=document.createElement('button');button.type='button';button.className=enemy===currentEnemy?'active':'';button.textContent=enemy.label;button.onclick=()=>{currentEnemy=enemy;enforceValidSelection();renderEnemyButtons();renderVariantButtons();buildModel()};host.appendChild(button)});
+    }
+    document.querySelectorAll('[data-grade]').forEach(button=>button.onclick=()=>{grade=Number(button.dataset.grade);enforceValidSelection();renderVariantButtons();createMotion()});
+    document.getElementById('replay').onclick=()=>{elapsed=0;playing=true;motion?.restore();updateTimeline()};
+    document.getElementById('timeline').oninput=event=>{playing=false;elapsed=(Number(event.target.value)/1000)*motion.duration;motion.applyElapsed(elapsed);updateTimeline()};
+    window.addEventListener('keydown',event=>{if(event.code==='Space'){event.preventDefault();elapsed=0;playing=true;motion?.restore()}});
+    renderer.domElement.addEventListener('pointerdown',event=>{dragging=true;previousPointer={x:event.clientX,y:event.clientY};renderer.domElement.setPointerCapture(event.pointerId)});
+    renderer.domElement.addEventListener('pointermove',event=>{if(!dragging)return;orbitYaw-=(event.clientX-previousPointer.x)*.008;orbitPitch=Math.max(-.15,Math.min(.55,orbitPitch+(event.clientY-previousPointer.y)*.006));previousPointer={x:event.clientX,y:event.clientY}});
+    renderer.domElement.addEventListener('pointerup',()=>{dragging=false});
+    renderer.domElement.addEventListener('wheel',event=>{event.preventDefault();cameraDistance=Math.max(5.8,Math.min(12,cameraDistance+event.deltaY*.006))},{passive:false});
+    function resize(){const width=viewport.clientWidth,height=viewport.clientHeight;renderer.setSize(width,height,false);camera.aspect=width/height;camera.updateProjectionMatrix()}
+    window.addEventListener('resize',resize);
+    let previous=performance.now();
+    function frame(now){
+      const dt=Math.min(.05,(now-previous)/1000);previous=now;
+      if(playing&&motion){elapsed+=dt;if(elapsed>motion.duration+.72)elapsed=0;motion.applyElapsed(Math.min(elapsed,motion.duration));updateTimeline()}
+      const focusY=currentEnemy.airborne?2.25:1.15;target.y=focusY;
+      camera.position.set(Math.sin(orbitYaw)*cameraDistance,focusY+2.0+orbitPitch*2.5,Math.cos(orbitYaw)*cameraDistance);camera.lookAt(target);
+      ring.material.color.set(currentVariant.color);renderer.render(scene,camera);requestAnimationFrame(frame)
+    }
+    renderVariantButtons();renderEnemyButtons();buildModel();resize();requestAnimationFrame(frame);
+  </script>
+</body>
+</html>
