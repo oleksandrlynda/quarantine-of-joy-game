@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { createEnvironmentAssetRegistry } from '../src/assets/environment/index.js';
 import * as sharedCollisionProfiles from '../src/assets/collision-profiles.js';
@@ -65,6 +64,7 @@ import {
   CARGO_GATE_COLLIDER_PROFILE,
   CARGO_LIFT_COLLIDER_PROFILE,
   CATHEDRAL_KIT_COLLIDER_PROFILE,
+  CATHEDRAL_ROUTES_COLLIDER_PROFILE,
   CATWALK_COLLIDER_PROFILE,
   CLINIC_WALL_COLLIDER_PROFILE,
   CORRIDOR_COLLIDER_PROFILE,
@@ -95,9 +95,20 @@ import { FLOODGATE_CONTINUITY } from '../src/levels/floodgate-continuity.js';
 import { BLACKOUT_CISTERN } from '../src/levels/blackout-cistern.js';
 import { LAST_ORDER_BASE } from '../src/levels/last-order-base.js';
 
-const generatedManifest = JSON.parse(readFileSync(new URL('../assets/generated/asset-manifest.json', import.meta.url), 'utf8'));
-const generatedAsset = id => generatedManifest.assets.find(asset => asset.id === id);
 const environmentAssets = createEnvironmentAssetRegistry({ THREE });
+const sourceAssetBounds = id => {
+  const definition = environmentAssets.find(asset => asset.id === id);
+  assert.ok(definition, `${id} model factory is registered`);
+  const root = definition.build();
+  root.updateMatrixWorld(true);
+  const bounds = new THREE.Box3().setFromObject(root);
+  const size = bounds.getSize(new THREE.Vector3());
+  return {
+    min: { x: -size.x / 2, y: 0, z: -size.z / 2 },
+    max: { x: size.x / 2, y: size.y, z: size.z / 2 },
+    size: { x: size.x, y: size.y, z: size.z }
+  };
+};
 const buildEnvironmentAsset = id => {
   const definition = environmentAssets.find(asset => asset.id === id);
   assert.ok(definition, `${id} model factory is registered`);
@@ -164,7 +175,7 @@ test('production asset profiles keep primitive counts bounded and channels expli
     PUMP_TURBINE_COLLIDER_PROFILE, SLUICE_CONDUITS_COLLIDER_PROFILE,
     ARCHIVE_SEED_COLLIDER_PROFILE, GREYWATER_CORE_COLLIDER_PROFILE,
     LAST_LIGHT_REACTOR_COLLIDER_PROFILE,
-    CATHEDRAL_KIT_COLLIDER_PROFILE, DASHBOARD_WINDOWS_COLLIDER_PROFILE,
+    CATHEDRAL_KIT_COLLIDER_PROFILE, CATHEDRAL_ROUTES_COLLIDER_PROFILE, DASHBOARD_WINDOWS_COLLIDER_PROFILE,
     CORRIDOR_COLLIDER_PROFILE, CLINIC_WALL_COLLIDER_PROFILE,
     ARCHIVES_COLLIDER_PROFILE, REINFORCEMENT_DOOR_COLLIDER_PROFILE, SHUTTER_COLLIDER_PROFILE,
     EMERGENCY_SIGN_COLLIDER_PROFILE, CARGO_LIFT_COLLIDER_PROFILE, CATWALK_COLLIDER_PROFILE,
@@ -174,8 +185,11 @@ test('production asset profiles keep primitive counts bounded and channels expli
     EXPANSE_WINDBREAK_COLLIDER_PROFILE, EXPANSE_DEAD_TREE_COLLIDER_PROFILE,
     EXPANSE_BENT_TREE_COLLIDER_PROFILE, EXPANSE_TOWER_EDGE_COLLIDER_PROFILE
   ];
-  assert.deepEqual(profiles.map(profile => profile.length), [12, 3, 2, 4, 7, 8, 2, 1, 5, 3, 3, 4, 4, 2, 6, 6, 6, 4, 4, 3, 7, 2, 7, 12, 2, 6, 3, 3, 5, 5, 4, 3, 2, 3, 2, 8, 7, 2, 8, 5, 5, 1, 1, 3, 3, 6, 3, 3, 2, 2, 3, 5, 3, 2, 3, 5, 2, 2, 5, 6, 4, 4, 9, 10, 6, 3, 3, 2, 2, 4, 3, 3, 3]);
-  assert.ok(profiles.every(profile => profile.length <= 12), 'asset profiles stay within the low-primitive production budget');
+  assert.deepEqual(profiles.map(profile => profile.length), [12, 3, 2, 4, 7, 8, 2, 1, 5, 3, 3, 4, 4, 2, 6, 6, 6, 4, 4, 3, 7, 2, 7, 12, 2, 6, 3, 3, 5, 5, 4, 3, 2, 3, 2, 8, 7, 2, 8, 5, 5, 1, 1, 3, 3, 6, 3, 3, 2, 2, 3, 5, 27, 3, 2, 3, 5, 2, 2, 5, 6, 4, 4, 9, 10, 6, 3, 3, 2, 2, 4, 3, 3, 3]);
+  assert.ok(profiles.every(profile => profile === CATHEDRAL_ROUTES_COLLIDER_PROFILE || profile.length <= 12),
+    'asset profiles stay within the low-primitive production budget except exact separated Cathedral cover');
+  assert.equal(CATHEDRAL_ROUTES_COLLIDER_PROFILE.length, 27,
+    'the Cathedral route profile owns 24 nave posts and three switch posts');
   for (const primitive of profiles.flat()) {
     assert.equal(typeof primitive.blocksMovement, 'boolean');
     assert.equal(typeof primitive.blocksShots, 'boolean');
@@ -188,6 +202,7 @@ test('shared catalog re-exports the canonical late structural profiles without a
     ARCHIVES_COLLIDER_PROFILE,
     CARGO_LIFT_COLLIDER_PROFILE,
     CATHEDRAL_KIT_COLLIDER_PROFILE,
+    CATHEDRAL_ROUTES_COLLIDER_PROFILE,
     CATWALK_COLLIDER_PROFILE,
     CLINIC_WALL_COLLIDER_PROFILE,
     CORRIDOR_COLLIDER_PROFILE,
@@ -227,32 +242,32 @@ test('horizontal cylinder profiles compose their authored root yaw with placemen
 });
 
 test('hard-profile extrema stay synchronized with generated model bounds', () => {
-  const relayBounds = generatedAsset('relaymast').bounds;
+  const relayBounds = sourceAssetBounds('relaymast');
   const relayBase = RELAY_MAST_COLLIDER_PROFILE.find(primitive => primitive.id === 'shot-base');
   const relayPole = RELAY_MAST_COLLIDER_PROFILE.find(primitive => primitive.id === 'shot-pole');
   assert.ok(Math.abs(relayBase.size[0] - relayBounds.size.x) < .001);
   assert.ok(Math.abs(relayBase.size[2] - relayBounds.size.z) < .001);
   assert.ok(Math.abs(relayPole.position[1] + relayPole.size[1] / 2 - relayBounds.max.y) < .001);
 
-  const lightBounds = generatedAsset('lightmast').bounds;
+  const lightBounds = sourceAssetBounds('lightmast');
   const lampBar = LIGHT_MAST_COLLIDER_PROFILE.find(primitive => primitive.id === 'lamp-bar');
   assert.ok(Math.abs(lampBar.position[1] + lampBar.size[1] / 2 - lightBounds.max.y) < .001);
 
   const planter = STREET_TREE_COLLIDER_PROFILE.find(primitive => primitive.id === 'planter');
   assert.deepEqual(planter.size, [3.3, .86, 2.65], 'street-tree hard collision follows the modeled planter, not its canopy bounds');
 
-  const terminalBounds = generatedAsset('terminal').bounds;
+  const terminalBounds = sourceAssetBounds('terminal');
   const terminalBase = TERMINAL_COLLIDER_PROFILE.find(primitive => primitive.id === 'base');
-  assert.equal(terminalBase.size[0], terminalBounds.size.x);
+  assert.ok(Math.abs(terminalBase.size[0] - terminalBounds.size.x) < .001);
 
-  const powerRelayBounds = generatedAsset('powerrelay').bounds;
+  const powerRelayBounds = sourceAssetBounds('powerrelay');
   const powerRelayBase = POWER_RELAY_COLLIDER_PROFILE.find(primitive => primitive.id === 'base');
-  assert.equal(powerRelayBase.size[2], powerRelayBounds.size.z);
+  assert.ok(Math.abs(powerRelayBase.size[2] - powerRelayBounds.size.z) < .001);
 
-  const beaconBounds = generatedAsset('capturebeacon').bounds;
+  const beaconBounds = sourceAssetBounds('capturebeacon');
   const beaconBase = CAPTURE_BEACON_COLLIDER_PROFILE.find(primitive => primitive.id === 'shot-base');
-  assert.equal(beaconBase.size[0], beaconBounds.size.x);
-  assert.equal(beaconBase.size[2], beaconBounds.size.z);
+  assert.ok(Math.abs(beaconBase.size[0] - beaconBounds.size.x) < .001);
+  assert.ok(Math.abs(beaconBase.size[2] - beaconBounds.size.z) < .001);
 });
 
 test('late structural profiles preserve model openings instead of merging cages and ranks into invisible walls', () => {
@@ -262,6 +277,16 @@ test('late structural profiles preserve model openings instead of merging cages 
     assert.ok(CATHEDRAL_KIT_COLLIDER_PROFILE.some(primitive =>
       primitive.shape === 'box' && primitive.size.every((value, index) => value === size[index])));
   }
+
+  const routes = buildEnvironmentAsset('cathedralroutes');
+  assert.ok(modelHasBox(routes, [.12, .48, .12]));
+  assert.ok(modelHasBox(routes, [.18, .8, .18]));
+  assert.equal(CATHEDRAL_ROUTES_COLLIDER_PROFILE.filter(primitive => primitive.id.startsWith('nave-')).length, 24);
+  assert.equal(CATHEDRAL_ROUTES_COLLIDER_PROFILE.filter(primitive => primitive.id.startsWith('switch-')).length, 3);
+  assert.ok(CATHEDRAL_ROUTES_COLLIDER_PROFILE.every(primitive =>
+    primitive.blocksMovement && primitive.blocksShots && primitive.blocksSight));
+  assert.ok(!CATHEDRAL_ROUTES_COLLIDER_PROFILE.some(primitive => primitive.size[0] > .18 || primitive.size[2] > .18),
+    'separate pile colliders never bridge the visible lane gaps');
 
   const lift = buildEnvironmentAsset('cargolift');
   assert.ok(modelHasBox(lift, [.18, 3.2, .18]));
@@ -367,7 +392,8 @@ test('every authored objective prop uses its bounded asset profile', () => {
       const primitives = level.colliders.filter(collider => collider.assetId === assetId);
       assert.equal(primitives.length, placementCount * profile.length, `${level.id} ${assetId} profiles`);
     }
-    assert.ok(level.colliders.length <= 150, `${level.id} exceeds the static collider budget`);
+    const budget = level.id === 'server-cathedral' ? 240 : 150;
+    assert.ok(level.colliders.length <= budget, `${level.id} exceeds the static collider budget`);
   }
 
   assert.deepEqual(
@@ -412,6 +438,7 @@ test('post-campaign interior solids have model-backed colliders within the stati
     ['cornercover', CORNER_COVER_COLLIDER_PROFILE],
     ['sandbankkit', SANDBANK_COLLIDER_PROFILE],
     ['cathedralkit', CATHEDRAL_KIT_COLLIDER_PROFILE],
+    ['cathedralroutes', CATHEDRAL_ROUTES_COLLIDER_PROFILE],
     ['dashboardwindows', DASHBOARD_WINDOWS_COLLIDER_PROFILE],
     ['corridor', CORRIDOR_COLLIDER_PROFILE],
     ['servicewall', SERVICE_WALL_COLLIDER_PROFILE],
@@ -436,7 +463,7 @@ test('post-campaign interior solids have model-backed colliders within the stati
     [SERVER_CATHEDRAL, new Set([
       'cathedralkit', 'dashboardwindows', 'corridor', 'servicewall', 'clinicwall', 'archives', 'reinforcementdoor',
       'breachvent', 'emergencysign', 'shutter', 'terminal', 'powerrelay', 'cargolift', 'catwalk',
-      'ladderplatform', 'stairs', 'lightmast', 'mirrorchoir', 'rootaltar', 'capturebeacon', 'endchoice'
+      'ladderplatform', 'stairs', 'lightmast', 'mirrorchoir', 'rootaltar', 'capturebeacon', 'endchoice', 'cathedralroutes'
     ])],
     [SANDSTORM_EXPANSE, new Set([
       'sandbankkit', 'stormsiren', 'endurancemonument', 'stormbeacon', 'windbreaks', 'hesco', 'ammostation',
@@ -465,6 +492,7 @@ test('post-campaign interior solids have model-backed colliders within the stati
       const colliderCount = level.colliders.filter(collider => collider.assetId === assetId).length;
       assert.equal(colliderCount, placementCount * profile.length, `${level.id} ${assetId} collision coverage`);
     }
-    assert.ok(level.colliders.length <= 150, `${level.id} exceeds the static collider budget`);
+    const budget = level.id === 'server-cathedral' ? 240 : 150;
+    assert.ok(level.colliders.length <= budget, `${level.id} exceeds the static collider budget`);
   }
 });

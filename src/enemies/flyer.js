@@ -1,6 +1,7 @@
 import { createEnhancedWingedDrone } from '../assets/enemy-retrofits.js';
 import { logError } from '../util/log.js';
 import { cloneNodeMaterial, instantiateSharedTemplate } from './render-template.js';
+import { clampToNavigationBounds, resolveNavigationBounds } from './navigation-bounds.js';
 
 const _flyerTemplates = new WeakMap();
 
@@ -37,16 +38,16 @@ export class FlyerEnemy {
 
     // Attack behavior
     this.triggerDist = 10 + this.rng() * 4;           // 10–14m trigger
-    this.telegraphRequired = 0.4;                     // 0.4s windup
-    this.cooldownBase = 1.2 + this.rng() * 0.6;       // 1.2–1.8s
+    this.telegraphRequired = 0.55;                    // more readable windup
+    this.cooldownBase = 1.5 + this.rng() * 0.6;       // 1.5–2.1s
     this.cooldown = 0;                                // time until next windup allowed
     this.damageDps = 20;                              // only during dive window
     this.damageWindow = 0.6;                          // active damage window length
     this.maxDiveTime = 0.85;                          // adaptive per dive
     this._damageWindowStart = 0.0;                    // computed per dive
     // Impact burst applied once on dive contact (fix low chip damage)
-    this.impactDamageMin = 10;                        // 10–16 per successful hit
-    this.impactDamageMax = 16;
+    this.impactDamageMin = 9;                         // 9–14 per successful hit
+    this.impactDamageMax = 14;
 
     // State machine
     this.state = 'cruise'; // 'cruise' | 'windup' | 'dive' | 'recover'
@@ -56,7 +57,8 @@ export class FlyerEnemy {
     this.recoverTime = 0;
     this._diveDir = new THREE.Vector3();
     this._raycaster = new THREE.Raycaster();
-    this._arenaClamp = 39.0; // keep inside walls at ±40
+    this._arenaClamp = 39.0; // legacy fallback when no authored level is active
+    this._navigationBounds = null;
 
     this._savedEmissive = null; // head glow cache
     this._windupStrafeSign = this.rng() < 0.5 ? 1 : -1;
@@ -82,6 +84,7 @@ export class FlyerEnemy {
     const THREE = this.THREE;
     const e = this.root;
     const playerPos = ctx.player.position.clone();
+    this._navigationBounds ||= resolveNavigationBounds(ctx, 1.25, this._arenaClamp);
     const sensed = ctx.sensePlayer?.(e, dt) || {
       rawWorldLOS: this._hasLineOfSight(e.position, playerPos, ctx.objects),
       stableWorldLOS: this._hasLineOfSight(e.position, playerPos, ctx.objects),
@@ -165,8 +168,12 @@ export class FlyerEnemy {
         }
         steer.add(avoid.multiplyScalar(1.2));
         steer.add(sep.multiplyScalar(1.8));
+        steer.add(this._boundarySteer(e.position, this._navigationBounds).multiplyScalar(1.6));
         const cruiseMove = moveHorizontal(steer);
         if (cruiseMove?.blockedBy === 'ally') {
+          this.orbitSign *= -1;
+          this.jukeDir.set(-desiredDir.z * this.orbitSign, 0, desiredDir.x * this.orbitSign);
+          this.jukeTime = Math.max(this.jukeTime, 0.35);
           ctx.emitAIEvent?.(e, 'aerial_congestion', { blockerRoot: cruiseMove.blockerRoot });
         }
         // Bank wings during turns
@@ -225,11 +232,11 @@ export class FlyerEnemy {
           const sign = this._windupStrafeSign;
           let ax = playerPos.x + right.x * ring * sign;
           let az = playerPos.z + right.z * ring * sign;
-          // Keep anchor away from walls so avoidance doesn't fight it
-          const margin = 0.8;
-          ax = Math.max(-this._arenaClamp + margin, Math.min(this._arenaClamp - margin, ax));
-          az = Math.max(-this._arenaClamp + margin, Math.min(this._arenaClamp - margin, az));
-          this._attackAnchor = new THREE.Vector3(ax, e.position.y, az);
+          // Keep the anchor inside the actual rectangular level footprint.
+          this._attackAnchor = clampToNavigationBounds(
+            new THREE.Vector3(ax, e.position.y, az),
+            this._navigationBounds
+          );
         }
         // steer toward anchor with avoidance and separation, plus subtle buzz to feel less linear
         const toAnchor = new THREE.Vector3(this._attackAnchor.x - e.position.x, 0, this._attackAnchor.z - e.position.z);
@@ -242,6 +249,7 @@ export class FlyerEnemy {
           steer.add(side.multiplyScalar(0.6 + buzz));
         }
         steer.add(sep.multiplyScalar(1.6));
+        steer.add(this._boundarySteer(e.position, this._navigationBounds).multiplyScalar(1.8));
         const windupMove = moveHorizontal(steer, 0.95);
         if (windupMove?.blockedBy === 'ally') {
           this._windupStrafeSign *= -1;
@@ -386,6 +394,7 @@ export class FlyerEnemy {
         if (desiredDir.lengthSq() > 0) steer.add(desiredDir.multiplyScalar(0.8));
         steer.add(avoid.multiplyScalar(1.2));
         steer.add(sep.multiplyScalar(1.6));
+        steer.add(this._boundarySteer(e.position, this._navigationBounds).multiplyScalar(1.8));
         if (steer.lengthSq() > 0) {
           moveHorizontal(steer);
         }
@@ -425,16 +434,29 @@ export class FlyerEnemy {
     e.rotation.set(this._pitch, this._yaw, this._roll);
     this._lastPos.copy(e.position);
 
-    // Keep inside arena bounds to prevent clipping walls
-    e.position.x = Math.max(-this._arenaClamp, Math.min(this._arenaClamp, e.position.x));
-    e.position.z = Math.max(-this._arenaClamp, Math.min(this._arenaClamp, e.position.z));
+    // Final guard only; normal steering now turns before reaching the boundary.
+    clampToNavigationBounds(e.position, this._navigationBounds);
   }
 
   _isNearWall(pos) {
+    const bounds = this._navigationBounds || {
+      minX: -this._arenaClamp, maxX: this._arenaClamp,
+      minZ: -this._arenaClamp, maxZ: this._arenaClamp
+    };
     return (
-      pos.x <= -this._arenaClamp + 0.3 || pos.x >= this._arenaClamp - 0.3 ||
-      pos.z <= -this._arenaClamp + 0.3 || pos.z >= this._arenaClamp - 0.3
+      pos.x <= bounds.minX + 0.3 || pos.x >= bounds.maxX - 0.3 ||
+      pos.z <= bounds.minZ + 0.3 || pos.z >= bounds.maxZ - 0.3
     );
+  }
+
+  _boundarySteer(pos, bounds, margin = 2.5) {
+    const steer = new this.THREE.Vector3();
+    if (!bounds) return steer;
+    if (pos.x < bounds.minX + margin) steer.x += (bounds.minX + margin - pos.x) / margin;
+    if (pos.x > bounds.maxX - margin) steer.x -= (pos.x - (bounds.maxX - margin)) / margin;
+    if (pos.z < bounds.minZ + margin) steer.z += (bounds.minZ + margin - pos.z) / margin;
+    if (pos.z > bounds.maxZ - margin) steer.z -= (pos.z - (bounds.maxZ - margin)) / margin;
+    return steer;
   }
 
   _hasLineOfSight(fromPos, targetPos, objects) {

@@ -154,7 +154,7 @@ test('Server Cathedral spawn network covers four sides plus a gallery air route'
   }
 });
 
-test('permanent Cathedral cover leaves a clear 42 x 42 metre square', () => {
+test('large Cathedral cover leaves a clear 42 x 42 metre square except visible processional piles', () => {
   const permanent = SERVER_CATHEDRAL.colliders.filter(collider => (
     !collider.id.includes('boundary')
       && !collider.tags?.some(tag => (
@@ -169,6 +169,14 @@ test('permanent Cathedral cover leaves a clear 42 x 42 metre square', () => {
       && z - depth / 2 < 21 && z + depth / 2 > -21;
     assert.equal(overlapsClearSquare, false, collider.id);
   }
+
+
+  const routeCover = SERVER_CATHEDRAL.colliders.filter(collider => collider.tags?.includes('cathedralRouteCover'));
+  assert.equal(routeCover.length, 81, 'all visible route-kit posts become authored cover');
+  assert.ok(routeCover.every(collider =>
+    collider.blocksMovement && collider.blocksShots && collider.blocksSight));
+  assert.ok(routeCover.every(collider => collider.size[0] <= .477 && collider.size[2] <= .477),
+    'scaled colliders remain fitted to individual piles instead of joining their gaps');
 });
 
 test('Cathedral routes remain wide, connected, and color-stable', () => {
@@ -251,7 +259,8 @@ test('Cathedral gate swaps, objective bearings, and boss clearance stay synchron
 
   runtime.onWaveStart(40);
   assert.ok(logicNodeColliders.every(collider => collider.userData.colliderActive === false));
-  assert.ok(rootColliders.every(collider => collider.userData.colliderActive === true));
+  assert.ok(rootColliders.every(collider => collider.userData.colliderActive === false));
+  assert.equal(runtime.visualGroups.get('rootDressing').every(object => object.visible === false), true);
   assert.ok(endingColliders.every(collider => collider.userData.colliderActive === false));
   assert.equal(runtime.group.getObjectByName('cathedral-boss-ring').visible, true);
   assert.deepEqual(weatherCalls.at(-1), ['cathedral-boss-fog-wind', { immediate: false }]);

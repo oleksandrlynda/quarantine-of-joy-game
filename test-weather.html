@@ -13,6 +13,9 @@
   <meta name="theme-color" content="#0b1220" />
   <meta name="robots" content="noindex, nofollow" />
   <meta http-equiv="Cache-Control" content="no-store" />
+  <script type="importmap">
+    { "imports": { "three": "https://unpkg.com/three@0.159.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.159.0/examples/jsm/" } }
+  </script>
 </head>
 <body>
   <div id="toolbar">
@@ -29,7 +32,7 @@
   </div>
   <script type="module">
     import * as THREE from 'https://unpkg.com/three@0.159.0/build/three.module.js';
-    import { OrbitControls } from 'https://unpkg.com/three@0.159.0/examples/jsm/controls/OrbitControls.js?module';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { createWorld } from './src/world.js';
     import { WeatherSystem } from './src/weather.js';
     import { applyGrassWeatherUniforms, createGrassWeatherMotion, updateGrassWeatherMotion } from './src/game/grass-weather-motion.js';

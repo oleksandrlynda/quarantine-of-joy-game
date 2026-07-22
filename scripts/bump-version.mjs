@@ -6,6 +6,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 const packagePath = path.join(repoRoot, 'package.json');
 const versionPath = path.join(repoRoot, 'src', 'version.js');
 const indexPath = path.join(repoRoot, 'index.html');
+const bootstrapPath = path.join(repoRoot, 'src', 'bootstrap.js');
 const mainPath = path.join(repoRoot, 'src', 'main.js');
 const enemiesPath = path.join(repoRoot, 'src', 'enemies.js');
 
@@ -29,14 +30,22 @@ fs.writeFileSync(
 
 const index = fs.readFileSync(indexPath, 'utf8');
 const nextIndex = index.replace(
-  /src="src\/main\.js\?v=[^"]+"/,
-  `src="src/main.js?v=${nextVersion}"`
+  /src="src\/bootstrap\.js\?v=[^"]+"/,
+  `src="src/bootstrap.js?v=${nextVersion}"`
 ).replace(
   /from '\.\/src\/i18n\/index\.js(?:\?v=[^']+)?'/,
   `from './src/i18n/index.js?v=${nextVersion}'`
 );
-if (nextIndex === index) throw new Error('Could not find versioned main.js script tag in index.html');
+if (nextIndex === index) throw new Error('Could not find cache-versioned entrypoints in index.html');
 fs.writeFileSync(indexPath, nextIndex, 'utf8');
+
+const bootstrap = fs.readFileSync(bootstrapPath, 'utf8');
+const nextBootstrap = bootstrap.replace(
+  /import\('\.\/main\.js(?:\?v=[^']+)?'\)/,
+  `import('./main.js?v=${nextVersion}')`
+);
+if (nextBootstrap === bootstrap) throw new Error('Could not find cache-versioned main.js import in src/bootstrap.js');
+fs.writeFileSync(bootstrapPath, nextBootstrap, 'utf8');
 
 const main = fs.readFileSync(mainPath, 'utf8');
 const nextMain = main

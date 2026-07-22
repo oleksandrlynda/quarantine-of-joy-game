@@ -57,6 +57,9 @@ test('HTML entrypoints reference existing local scripts, styles, icons, and asse
       assertExistingLocalRef(file, ref);
     }
     for (const ref of extractImportRefs(html)) {
+      // Bare module specifiers are resolved by the page import map. Only
+      // relative/root imports represent repository files checked here.
+      if (!ref.startsWith('.') && !ref.startsWith('/')) continue;
       assertExistingLocalRef(file, ref);
     }
   }

@@ -38,13 +38,13 @@ const B = (id, x, z, width, depth, yaw = 0, height = 4.8) => ({
 
 const GROUND_TYPES = Object.freeze(['grunt', 'gruntling', 'rusher', 'tank', 'healer']);
 const AIR_TYPES = Object.freeze(['flyer', 'warden']);
-const S = (id, angle, { air = false, allow = null, clearance = null } = {}) => {
+const S = (id, angle, { air = false, allow = null, clearance = null, position = null } = {}) => {
   // Ground actors materialize in front of the authored sector portals. A
   // 19.6 m radius keeps the tank reservation clear of the deeper lift deck
   // while preserving the same inward-facing radial route.
   const radius = air ? 24 : 19.6;
-  const x = Math.cos(angle) * radius;
-  const z = Math.sin(angle) * radius;
+  const x = position?.[0] ?? Math.cos(angle) * radius;
+  const z = position?.[1] ?? Math.sin(angle) * radius;
   return defineSpawnEntrance({
     id,
     position: [x, air ? 7 : .8, z],
@@ -131,9 +131,12 @@ export const BLACKOUT_CISTERN = shiftLevelWaves(defineLevel({
   grassExclusions: Object.freeze([{ center: [0, 0], size: [60, 60] }]),
   grassPatches: Object.freeze([]),
   entrances: Object.freeze([
-    S('sector-1-ground', -Math.PI * 5 / 6),
+    // The door and lift are rotated. Their production AABBs are wider than
+    // their authored OBB profiles, so move these two heavy pads onto the clear
+    // arena-side apron instead of letting tank spawns fail at runtime.
+    S('sector-1-ground', -Math.PI * 5 / 6, { position: [-15.5, -11.5] }),
     S('sector-2-ground', -Math.PI / 2, { allow: ['grunt', 'gruntling', 'rusher', 'healer'], clearance: { default: 1.1 } }),
-    S('sector-3-ground', -Math.PI / 6),
+    S('sector-3-ground', -Math.PI / 6, { position: [15.5, -11.5] }),
     S('sector-4-ground', Math.PI / 6),
     S('sector-5-ground', Math.PI / 2, { allow: ['grunt', 'gruntling', 'rusher', 'healer'], clearance: { default: 1.1 } }),
     S('sector-6-ground', Math.PI * 5 / 6),
@@ -152,7 +155,7 @@ export const BLACKOUT_CISTERN = shiftLevelWaves(defineLevel({
       specialEncounter: 'last_light',
       activeCap: 60,
       packages: [],
-      ammoPackages: [[0,16],[14,12],[17,-6],[7,-17],[-7,-17],[-17,-6],[-14,12]],
+      ammoPackages: [[0,16],[17,-6],[-7,-17],[-14,12]],
       healthPackages: [[-9,20],[9,20]]
     })
   })

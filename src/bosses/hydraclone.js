@@ -40,9 +40,11 @@ const CAST = {
 
 // todo: should not spawn grunts, different ability
 
+export const HYDRACLONE_ACTIVE_CAP = 24;
+
 // Global spawn/cap & lineage bookkeeping (shared across all instances)
 class HydraGlobal {
-  static CAP = 36;
+  static CAP = HYDRACLONE_ACTIVE_CAP;
   static active = 0;
 
   // spawn queue: items = {gen, bossId, pos, yJitter, src, THREE, mats, enemyManager}
@@ -144,8 +146,10 @@ export class Hydraclone {
 
     // Place
     this.root.position.copy(spawnPos || new THREE.Vector3());
+    this.behaviorId = this.gen === 0 ? 'boss_hydraclone' : `hydraclone_gen${this.gen}`;
     this.root.userData = {
       type: (this.gen === 0 ? 'boss_hydraclone' : 'hydraclone'),
+      behaviorId: this.behaviorId,
       head: this.head,
       hp: GEN[this.gen].hp,
       maxHp: GEN[this.gen].hp,
@@ -715,10 +719,16 @@ export class Hydraclone {
     const L = HydraGlobal.ensureLineage(this.bossId);
     let anchor;
     if (L.alive > 3) {
-      const angle = (Math.PI * 2 / L.alive) * (this._slot % L.alive);
+      // Stable multi-ring slots prevent the full lineage trying to occupy one
+      // shrinking circle whenever a clone dies or splits.
+      const slotsPerRing = 8;
+      const ringIndex = Math.floor(this._slot / slotsPerRing);
+      const slotOnRing = this._slot % slotsPerRing;
+      const angle = (Math.PI * 2 / slotsPerRing) * slotOnRing + ringIndex * (Math.PI / slotsPerRing);
       const dir = pfwd.clone().multiplyScalar(Math.cos(angle))
         .add(right.clone().multiplyScalar(Math.sin(angle))).normalize();
-      anchor = player.clone().add(dir.multiplyScalar(this._preferRadius));
+      const ringRadius = Math.max(5, this._preferRadius) + ringIndex * 1.65;
+      anchor = player.clone().add(dir.multiplyScalar(ringRadius));
     } else {
       this._arcAngle += (0.9 + this.gen * 0.12) * this._arcSign * dt; // slow drift
       const dir = pfwd.clone().multiplyScalar(Math.cos(this._arcAngle))

@@ -9,6 +9,19 @@ import {
   createAlgorithmNodeAsset
 } from '../assets/boss_algorithm.js';
 
+function disposeAlgorithmVisual(root) {
+  const geometries = new Set();
+  const materials = new Set();
+  root?.traverse?.(object => {
+    if (object.geometry) geometries.add(object.geometry);
+    const assigned = Array.isArray(object.material) ? object.material : [object.material];
+    for (const material of assigned) if (material) materials.add(material);
+  });
+  for (const geometry of geometries) geometry.dispose?.();
+  for (const material of materials) material.dispose?.();
+  return { geometries: geometries.size, materials: materials.size };
+}
+
 class AlgorithmNode {
   constructor({ THREE, mats, position, owner, index }) {
     const colors = [0x43e8df, 0xff4fd8, 0xd7ff3f];
@@ -44,6 +57,7 @@ class AlgorithmNode {
     if (this._removed) return;
     this._removed = true;
     this.owner?._onNodeRemoved(this);
+    disposeAlgorithmVisual(this.root);
   }
 }
 
@@ -87,6 +101,7 @@ class AlgorithmEcho {
     if (this._removed) return;
     this._removed = true;
     this.owner?._onEchoRemoved(this);
+    disposeAlgorithmVisual(this.root);
   }
 }
 
@@ -606,6 +621,7 @@ export class AlgorithmBoss {
     this._clearNodes();
     this._clearEchoes();
     scene?.remove?.(this.root);
+    disposeAlgorithmVisual(this.root);
   }
 
   _approachAngle(current, target, maxStep) {

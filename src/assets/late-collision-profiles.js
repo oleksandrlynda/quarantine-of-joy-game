@@ -40,6 +40,36 @@ export const CATHEDRAL_KIT_COLLIDER_PROFILE = Object.freeze([
   solidBox('arch-header', [0, 4.62, -.15], [5.3, .28, .48], [0, 0, 0], { blocksMovement: false })
 ]);
 
+// The route kit's repeated posts are deliberate processional cover, not floor
+// dressing. Keep every post separate: joining a pair would create a 1.8 m
+// invisible wall across the visibly open lane between them. The asset is used
+// only three times in the Cathedral and collider meshes do not render, so the
+// exact profile costs no draw calls or triangles.
+export const CATHEDRAL_ROUTES_COLLIDER_PROFILE = Object.freeze([
+  ...[-3, 0, 3].flatMap((routeX, routeIndex) =>
+    [-3.6, -1.2, 1.2, 3.6].flatMap((z, rowIndex) =>
+      [-1, 1].map(side => Object.freeze({
+        ...solidBox(
+          `nave-${routeIndex + 1}-row-${rowIndex + 1}-${side < 0 ? 'west' : 'east'}-post`,
+          [routeX + side * .9, .38, z],
+          [.12, .48, .12],
+          [0, 0, side * .08]
+        ),
+        tags: ['cathedralRouteCover']
+      }))
+    )
+  ),
+  ...[-3, 0, 3].map((x, index) => Object.freeze({
+    ...solidBox(
+      `switch-${index + 1}-post`,
+      [x + (index - 1) * .32, .5, .87],
+      [.18, .8, .18],
+      [0, 0, (index - 1) * .08]
+    ),
+    tags: ['cathedralRouteCover']
+  }))
+]);
+
 export const DASHBOARD_WINDOWS_COLLIDER_PROFILE = Object.freeze([
   centeredRootRotatedBox('cyan-panel', [-2.35, 1.78, 0], [1.9, 3.55, .3], 0, [0, .0938]),
   centeredRootRotatedBox('purple-panel', [0, 1.78, 0], [1.9, 3.55, .3], 0, [0, .0938]),

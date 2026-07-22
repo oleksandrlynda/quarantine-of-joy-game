@@ -1,11 +1,25 @@
 import { readFile } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 
 const server = spawn('python', ['-m', 'http.server', '8080'], {
   stdio: 'inherit'
 });
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+async function fetchResource(url) {
+  const response = await fetch(url);
+  await response.arrayBuffer();
+  return response;
+}
+
+async function stopServer() {
+  if (server.exitCode !== null || server.signalCode !== null) return;
+  const exited = once(server, 'exit');
+  server.kill();
+  await exited;
+}
 
 async function main() {
   const baseUrl = 'http://localhost:8080';
@@ -14,7 +28,7 @@ async function main() {
   let indexRes;
   for (let i = 0; i < 10; i++) {
     try {
-      indexRes = await fetch(`${baseUrl}/index.html`);
+      indexRes = await fetchResource(`${baseUrl}/index.html`);
       if (indexRes.ok) break;
     } catch {
       // ignore connection errors while server starts
@@ -37,7 +51,7 @@ async function main() {
   }
 
   for (const url of resourceUrls) {
-    const res = await fetch(`${baseUrl}/${url}`);
+    const res = await fetchResource(`${baseUrl}/${url}`);
     if (!res.ok) {
       throw new Error(`Resource ${url} returned ${res.status}`);
     }
@@ -49,5 +63,5 @@ async function main() {
 try {
   await main();
 } finally {
-  server.kill();
+  await stopServer();
 }

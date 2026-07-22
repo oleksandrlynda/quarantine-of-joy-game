@@ -12,6 +12,7 @@ import {
   ARCHIVES_COLLIDER_PROFILE,
   CARGO_LIFT_COLLIDER_PROFILE,
   CATHEDRAL_KIT_COLLIDER_PROFILE,
+  CATHEDRAL_ROUTES_COLLIDER_PROFILE,
   CATWALK_COLLIDER_PROFILE,
   CLINIC_WALL_COLLIDER_PROFILE,
   CORRIDOR_COLLIDER_PROFILE,
@@ -62,6 +63,11 @@ const CATHEDRAL_KITS = Object.freeze([
 const CATHEDRAL_WINDOWS = Object.freeze([
   P('dashboardwindows', -20, -30.2, 1.8), P('dashboardwindows', 0, -30.2, 1.8), P('dashboardwindows', 20, -30.2, 1.8)
 ]);
+const CATHEDRAL_ROUTES = Object.freeze([
+  P('cathedralroutes', 0, -18, 2.65),
+  P('cathedralroutes', 0, 0, 2.65),
+  P('cathedralroutes', 0, 18, 2.65)
+]);
 const CATHEDRAL_EDGE_STRUCTURES = Object.freeze({
   corridor: P('corridor', -31, -15, 1.02, Math.PI / 2),
   serviceWall: P('servicewall', 31, -15, 1.02, -Math.PI / 2),
@@ -95,7 +101,8 @@ const LOGIC_NODE_PLACEMENTS = Object.freeze([
 // Server Cathedral is the campaign's final arena. The three colored naves and
 // outer processional loop never change identity, while two visible logic gates
 // shift the Wave 37/38 routes and fully retract before the Algorithm arrives.
-// All permanent combat collision stays outside the central 42 x 42 m floor.
+// Large cover stays outside the central floor; the repeated route posts are
+// intentional fitted obstacles that turn its three colored lanes into cover.
 export const SERVER_CATHEDRAL = defineLevel({
   id: 'server-cathedral',
   nameKey: 'level.cathedral.name',
@@ -158,7 +165,7 @@ export const SERVER_CATHEDRAL = defineLevel({
 
     // Repeated route modules reinforce the same three-color language from
     // entrance to altar without relying on small disconnected floor decals.
-    P('cathedralroutes', 0, -18, 2.65), P('cathedralroutes', 0, 0, 2.65), P('cathedralroutes', 0, 18, 2.65),
+    ...CATHEDRAL_ROUTES,
 
     // Logic rooms temporarily change only two flank lanes. Their shutters and
     // colliders share tags so visible state and collision can never disagree.
@@ -201,8 +208,17 @@ export const SERVER_CATHEDRAL = defineLevel({
     ...assetProfile(P('emergencysign', -11, 29.5, .9, Math.PI), 'south-west-emergency-sign', EMERGENCY_SIGN_COLLIDER_PROFILE),
     ...assetProfile(P('emergencysign', 11, 29.5, .9, Math.PI), 'south-east-emergency-sign', EMERGENCY_SIGN_COLLIDER_PROFILE),
 
-    // Permanent readable cover remains beyond +/-21 m on at least one axis,
-    // preserving an unobstructed 42 x 42 m square for all Algorithm phases.
+    // These scaled route-kit uprights read as processional cover in every
+    // Cathedral wave. Match each visible post independently so actors, shots,
+    // and sight are blocked without filling the open lanes between the piles.
+    ...CATHEDRAL_ROUTES.flatMap((placement, index) => assetProfile(
+      placement,
+      `processional-route-${index + 1}`,
+      CATHEDRAL_ROUTES_COLLIDER_PROFILE
+    )),
+
+    // Large permanent cover remains beyond +/-21 m on at least one axis. The
+    // only central collision is the thin, visibly authored route-post cover.
     ...assetProfile(CATHEDRAL_TERMINAL, 'north-west-control', TERMINAL_COLLIDER_PROFILE),
     ...assetProfile(CATHEDRAL_POWER_RELAY, 'north-east-control', POWER_RELAY_COLLIDER_PROFILE),
     ...assetProfile(CATHEDRAL_TRAVERSAL_PROPS.lift, 'west-lift', CARGO_LIFT_COLLIDER_PROFILE),
@@ -222,8 +238,11 @@ export const SERVER_CATHEDRAL = defineLevel({
   grassExclusions: Object.freeze([{ center: [0, 0], size: [64, 64] }]),
   grassPatches: Object.freeze([]),
   entrances: Object.freeze([
-    S('north-west-nave', [-10, .8, -27.5], [0, 0, 1], ['grunt','shooter','rusher','tank','sniper'], { default: 1.45, tank: 2.45 }),
-    S('north-east-nave', [10, .8, -27.5], [0, 0, 1], ['grunt','shooter','rusher','tank','sniper'], { default: 1.45, tank: 2.45 }),
+    // Route-kit piles occupy the old +/-10, -27.5 pads. These starts sit in
+    // the authored open cells between the first two pile rows, including the
+    // full 2.45 m tank clearance, instead of opting the cover out of spawning.
+    S('north-west-nave', [-7.95, .8, -24.3], [0, 0, 1], ['grunt','shooter','rusher','tank','sniper'], { default: 1.45, tank: 2.45 }),
+    S('north-east-nave', [7.95, .8, -24.3], [0, 0, 1], ['grunt','shooter','rusher','tank','sniper'], { default: 1.45, tank: 2.45 }),
     S('south-west-nave', [-16, .8, 27.5], [0, 0, -1], ['grunt','shooter','rusher','tank'], { default: 1.45, tank: 2.45 }),
     S('south-east-nave', [13, .8, 27.5], [0, 0, -1], ['grunt','shooter','rusher','sniper'], { default: 1.45 }),
     S('west-north-transept', [-29, .8, -10], [1, 0, 0], ['grunt','shooter','rusher','tank','sniper'], { default: 1.45, tank: 2.45 }),
@@ -251,6 +270,6 @@ export const SERVER_CATHEDRAL = defineLevel({
     37: defineEncounterWave({ id: 'logic-rooms', titleKey: 'level.cathedral.wave37', activeCap: 16, packages: [['grunt','grunt','shooter','shooter','rusher','rusher','tank','tank','sniper'], ['grunt','grunt','grunt','shooter','shooter','rusher','rusher','tank','sniper'], ['grunt','shooter','rusher','rusher','sniper']] }),
     38: defineEncounterWave({ id: 'mirror-choir', titleKey: 'level.cathedral.wave38', activeCap: 17, packages: [['grunt','grunt','shooter','shooter','rusher','rusher','tank','tank','sniper','sniper'], ['grunt','grunt','grunt','shooter','shooter','rusher','rusher','tank','sniper'], ['grunt','shooter','shooter','rusher','tank','sniper']] }),
     39: defineEncounterWave({ id: 'root-altar', titleKey: 'level.cathedral.wave39', objective: 'multi-capture', objectiveTargets: 'logicNodes', activeCap: 17, packages: [['grunt','grunt','shooter','shooter','rusher','rusher','tank','tank','sniper','sniper'], ['grunt','grunt','shooter','shooter','rusher','rusher','tank','sniper'], ['grunt','shooter','shooter','rusher','tank','sniper']] }),
-    40: defineEncounterWave({ id: 'the-algorithm', titleKey: 'level.cathedral.wave40', boss: 'algorithm', packages: [], ammoPackages: [[0,19],[18,14],[24,-2],[10,-21],[-10,-21],[-24,-2],[-18,14]], healthPackages: [[-10,23],[10,23]] })
+    40: defineEncounterWave({ id: 'the-algorithm', titleKey: 'level.cathedral.wave40', boss: 'algorithm', packages: [], ammoPackages: [[0,19],[18,14],[24,-2],[12,-21],[-12,-21],[-24,-2],[-18,14]], healthPackages: [[-10,23],[10,23]] })
   })
 });

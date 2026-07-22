@@ -23,6 +23,15 @@ function writeRaw(key, value, storage = defaultStorage()) {
   }
 }
 
+export function removeStorageValue(key, storage = defaultStorage()) {
+  try {
+    storage?.removeItem?.(key);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function getString(key, defaultValue = '', storage = defaultStorage()) {
   const value = readRaw(key, storage);
   return value == null ? defaultValue : String(value);

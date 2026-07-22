@@ -135,6 +135,181 @@ test('decline grants 50% bonus at or above half reserve', () => {
   assert.equal(hud, 1);
 });
 
+test('checkpoint entry does not award fragments for a wave cleared in an earlier run', () => {
+  setupLocalStorage();
+  const awarded = [];
+  const mutations = {
+    onWaveStarted: wave => awarded.push(wave),
+    getRunState: () => ({ tutorial: false, debug: false }),
+    shouldOfferAtWave: () => false,
+    isWeaponOwned: () => false
+  };
+  const ws = { getUnlockedPrimaries: () => [], swapPrimary: () => {} };
+  const progression = new Progression({ weaponSystem: ws, documentRef: makeStubDoc(), mutations });
+  progression._presentOffer = () => false;
+
+  progression.onWave(11, { awardPriorWave: false, forceWeaponOffer: true });
+  progression.onWave(12);
+
+  assert.deepEqual(awarded, [12]);
+});
+
+test('legacy checkpoint fallback opens the Armory chooser without requiring a prior-wave reward', () => {
+  setupLocalStorage();
+  const awarded = [];
+  const offers = [];
+  const mutations = {
+    onWaveStarted: wave => awarded.push(wave),
+    getRunState: () => ({ tutorial: false, debug: false }),
+    shouldOfferAtWave: () => false,
+    isWeaponOwned: () => false
+  };
+  const progression = new Progression({
+    weaponSystem: { getUnlockedPrimaries: () => [], swapPrimary: () => {} },
+    documentRef: makeStubDoc(),
+    mutations
+  });
+  progression._presentOffer = (...args) => {
+    offers.push(args);
+    return true;
+  };
+
+  progression.onWave(21, { awardPriorWave: false, forceWeaponOffer: true });
+
+  assert.equal(offers.length, 1, 'odd-wave chapter resumes still receive an Armory decision');
+  assert.deepEqual(awarded, []);
+  assert.equal(progression.unlocks.bestWave, 21);
+  assert.equal(progression.unlocks.smg, true);
+  assert.equal(progression.unlocks.shotgun, true);
+  assert.equal(progression.unlocks.minigun, true);
+  assert.equal(progression.unlocks.beamsaber, true);
+});
+
+test('Wave 42 requests the Armory chooser both after Wave 41 and from Continue', () => {
+  setupLocalStorage();
+  const mutations = {
+    onWaveStarted: () => 0,
+    getRunState: () => ({ tutorial: false, debug: false }),
+    shouldOfferAtWave: () => false,
+    isWeaponOwned: () => false
+  };
+  const progression = new Progression({
+    weaponSystem: { getUnlockedPrimaries: () => [], swapPrimary: () => {} },
+    documentRef: makeStubDoc(),
+    mutations
+  });
+  let offers = 0;
+  progression._presentOffer = () => {
+    offers += 1;
+    return true;
+  };
+
+  progression.onWave(41);
+  progression.onWave(42);
+  assert.equal(offers, 1, 'natural Wave 41 to 42 transition');
+
+  progression.resetRun();
+  progression.onWave(42, { awardPriorWave: false });
+  assert.equal(offers, 2, 'direct Wave 42 Continue');
+});
+
+test('restored odd-wave chapters keep natural Armory cadence', () => {
+  setupLocalStorage();
+  const mutations = {
+    onWaveStarted: () => 0,
+    getRunState: () => ({ tutorial: false, debug: false }),
+    shouldOfferAtWave: () => false,
+    isWeaponOwned: () => false
+  };
+  const progression = new Progression({
+    weaponSystem: { getUnlockedPrimaries: () => [], swapPrimary: () => {} },
+    documentRef: makeStubDoc(),
+    mutations
+  });
+  let offers = 0;
+  progression._presentOffer = () => { offers += 1; return true; };
+
+  progression.onWave(21, { awardPriorWave: false });
+  assert.equal(offers, 0, 'Wave 21 does not gain an extra offer just because it was resumed');
+});
+
+test('progression checkpoint restores offer cadence and boss history', () => {
+  setupLocalStorage();
+  const progression = new Progression({ weaponSystem: {}, documentRef: makeStubDoc() });
+  progression.offerCooldown = 1;
+  progression.bossKills = 3;
+  progression.defeatedBossWaves = new Set([5, 10, 15]);
+  progression.sidearmOfferShown = true;
+  const state = progression.exportRunCheckpoint();
+
+  progression.resetRun();
+  assert.equal(progression.restoreRunCheckpoint(state), true);
+  assert.equal(progression.offerCooldown, 1);
+  assert.equal(progression.bossKills, 3);
+  assert.deepEqual([...progression.defeatedBossWaves], [5, 10, 15]);
+  assert.equal(progression.sidearmOfferShown, true);
+});
+
+test('chapter checkpoint replays the exact Armory choices instead of rerolling', () => {
+  setupLocalStorage();
+  const choices = ['SMG', 'Shotgun', 'Minigun'].map(name => ({ name, make: () => ({ name }) }));
+  const makeWeaponSystem = () => ({
+    inventory: [{ name: 'Pistol' }],
+    getPrimaryWeapon: () => ({ name: 'Pistol' }),
+    getUnlockedPrimaries: () => choices,
+    switchSlot() {},
+    updateHUD() {}
+  });
+  const original = new Progression({
+    weaponSystem: makeWeaponSystem(),
+    documentRef: makeStubDoc(),
+    rng: (() => { const values = [0, 0.5]; let index = 0; return () => values[index++] ?? 0.5; })()
+  });
+  assert.equal(original._presentOffer(), true);
+  const checkpoint = original.exportRunCheckpoint();
+
+  const restored = new Progression({
+    weaponSystem: makeWeaponSystem(),
+    documentRef: makeStubDoc(),
+    rng: () => 0.99
+  });
+  restored.restoreRunCheckpoint(checkpoint);
+  assert.equal(restored._presentOffer(), true);
+  assert.deepEqual(restored.activeOfferSnapshot, checkpoint.entryOffer);
+});
+
+test('chapter checkpoint replays the exact mutation choices instead of rerolling', () => {
+  setupLocalStorage();
+  const definitions = ['irony_armor', 'extended_bit', 'main_character_energy'].map(id => ({
+    id,
+    maxRank: 2,
+    nameKey: `${id}.name`,
+    descriptionKey: `${id}.desc`
+  }));
+  const makeMutations = offered => ({
+    getOffer: () => offered,
+    getEligibleDefinitions: () => definitions,
+    getRank: () => 0,
+    getMutationRankCap: () => 2
+  });
+  const original = new Progression({
+    weaponSystem: {},
+    documentRef: makeStubDoc(),
+    mutations: makeMutations(definitions.slice(0, 2))
+  });
+  assert.equal(original._presentMutationOffer(), true);
+  const checkpoint = original.exportRunCheckpoint();
+
+  const restored = new Progression({
+    weaponSystem: {},
+    documentRef: makeStubDoc(),
+    mutations: makeMutations(definitions.slice(1))
+  });
+  restored.restoreRunCheckpoint(checkpoint);
+  assert.equal(restored._presentMutationOffer(), true);
+  assert.deepEqual(restored.activeOfferSnapshot, checkpoint.entryOffer);
+});
+
 test('queued offers wait for the active offer and then preserve order', () => {
   setupLocalStorage();
   const p = new Progression({ weaponSystem: {}, documentRef: makeStubDoc(), onPause: () => {} });

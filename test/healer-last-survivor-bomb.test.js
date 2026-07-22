@@ -57,3 +57,30 @@ test('healer remains a medic while another wave enemy is alive', () => {
   assert.equal(healer.root.userData.healerBombArmed, undefined);
   assert.equal(ctx.damage.length, 0);
 });
+
+test('a retreating healer takes a tangential escape when world collision blocks its route', () => {
+  const healer = makeHealer();
+  healer.root.position.set(34.9, 0.8, -14.5);
+  const attempts = [];
+  const ctx = {
+    moveWithCollisions(root, step) {
+      attempts.push(step.clone());
+      if (attempts.length === 1) {
+        return { requestedDistance: step.length(), appliedDistance: 0, blockedBy: 'world' };
+      }
+      root.position.add(step);
+      return { requestedDistance: step.length(), appliedDistance: step.length(), blockedBy: null };
+    }
+  };
+
+  healer._moveToward(
+    new THREE.Vector3(40, 0.8, -18),
+    new THREE.Vector3(-10, 0.8, 9),
+    0.1,
+    ctx
+  );
+
+  assert.equal(attempts.length, 2);
+  assert.ok(Math.abs(attempts[1].z) > 0.01, 'escape attempt should move along the blocker');
+  assert.ok(healer._boundaryEscapeTimer > 0);
+});

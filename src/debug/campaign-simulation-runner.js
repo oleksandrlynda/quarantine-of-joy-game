@@ -41,7 +41,7 @@ function frameUrl(seed, startWave) {
   const url = new URL('index.html', location.href);
   Object.entries({
     qaSimulation: 1,
-    qaBuild: 'material-recovery1',
+    qaBuild: 'cathedral-route-collision3',
     debug: 1,
     wave: clampWave(startWave),
     story: 0,

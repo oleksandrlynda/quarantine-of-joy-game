@@ -161,9 +161,12 @@ export const SERVER_CATHEDRAL_JOURNEYS = Object.freeze([
   lateJourney('player_spawn_to_root', 'Player spawn -> Root Altar', 'player', [0, 28], [0, 5]),
   lateJourney('player_spawn_to_west_control', 'Player spawn -> west control approach', 'player', [0, 28], [-21.5, -17]),
   lateJourney('player_spawn_to_east_control', 'Player spawn -> east control approach', 'player', [0, 28], [21.5, -17]),
-  lateJourney('player_to_ending_choice', 'Player spawn -> ending choice approach', 'player', [0, 28], [0, 21]),
-  lateJourney('enemy_north_west_to_nave', 'North-west entrance -> south nave', 'enemy', [-10, -27.5], [0, 14], { agentRadius: 1.2 }),
-  lateJourney('enemy_north_east_to_nave', 'North-east entrance -> south nave', 'enemy', [10, -27.5], [0, 14], { agentRadius: 1.2 }),
+  // The two solid consoles are intentionally approached from their outer
+  // sides. This point remains inside the Free console's 1.75 m interaction
+  // radius while preserving player-body clearance from its visible casing.
+  lateJourney('player_to_ending_choice', 'Player spawn -> ending choice approach', 'player', [0, 28], [-2.88, 24], { gridSize: .75 }),
+  lateJourney('enemy_north_west_to_nave', 'North-west entrance -> south nave', 'enemy', [-7.95, -24.3], [0, 14], { agentRadius: 1.2 }),
+  lateJourney('enemy_north_east_to_nave', 'North-east entrance -> south nave', 'enemy', [7.95, -24.3], [0, 14], { agentRadius: 1.2 }),
   lateJourney('enemy_west_to_nave', 'West transept -> south nave', 'enemy', [-29, -10], [0, 14], { agentRadius: 1.2 }),
   lateJourney('enemy_east_to_nave', 'East transept -> south nave', 'enemy', [29, 10], [0, 14], { agentRadius: 1.2 })
 ]);

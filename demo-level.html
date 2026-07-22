@@ -1,0 +1,674 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Playable multi-operation level demo for Quarantine of Joy.">
+  <title>Quarantine of Joy — Playable Level Operations</title>
+  <style>
+    :root {
+      --ink:#f3f0e8; --muted:#a9ada3; --night:#090d0b; --panel:rgba(12,16,13,.86);
+      --line:rgba(255,255,255,.17); --acid:#d5ff3f; --yellow:#e6b431; --rust:#ef7042;
+      --cyan:#65d9d0; --red:#ff5d4f; --shadow:0 20px 60px rgba(0,0,0,.42);
+    }
+    *{box-sizing:border-box}
+    html,body{width:100%;height:100%;margin:0;overflow:hidden;background:var(--night);color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+    button{font:inherit}
+    #hud{position:fixed;z-index:10;inset:0;pointer-events:none;text-shadow:0 2px 7px rgba(0,0,0,.9)}
+    .panel{border:1px solid var(--line);background:var(--panel);backdrop-filter:none;box-shadow:var(--shadow)}
+    .hud-top-left{position:absolute;left:20px;top:20px;min-width:180px;padding:14px 16px;clip-path:polygon(0 0,100% 0,96% 100%,0 92%)}
+    .hud-kicker{color:var(--acid);font:900 9px/1.1 ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.14em;text-transform:uppercase}
+    .wave-row{display:flex;align-items:end;justify-content:space-between;gap:25px;margin-top:8px}
+    .wave-row strong{font-size:21px;letter-spacing:-.04em}.wave-row span{color:var(--muted);font-size:11px;font-weight:800}
+    .objective{position:absolute;left:50%;top:20px;min-width:300px;padding:10px 18px;text-align:center;transform:translateX(-50%);clip-path:polygon(3% 0,97% 0,100% 85%,93% 100%,7% 100%,0 85%)}
+    .objective strong{display:block;margin-top:4px;font-size:12px;letter-spacing:.05em;text-transform:uppercase}
+    .score{position:absolute;right:20px;top:20px;padding:11px 15px;text-align:right;clip-path:polygon(4% 0,100% 0,100% 92%,0 100%)}
+    .score strong{display:block;font-size:22px;line-height:1}.score span{color:var(--muted);font-size:8px;font-weight:900;letter-spacing:.13em;text-transform:uppercase}
+    .vitals{position:absolute;left:20px;bottom:22px;width:270px;padding:13px 15px;clip-path:polygon(0 0,96% 0,100% 88%,4% 100%,0 82%)}
+    .meter-head{display:flex;justify-content:space-between;margin-bottom:7px;font-size:9px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}
+    .meter-head span:last-child{color:var(--muted)}
+    .meter{height:12px;overflow:hidden;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.4)}
+    .meter i{display:block;width:100%;height:100%;background:var(--red);transition:width .18s ease}
+    .meter.stamina{height:7px;margin-top:8px}.meter.stamina i{background:var(--cyan)}
+    .ammo{position:absolute;right:20px;bottom:22px;min-width:205px;padding:13px 16px;text-align:right;clip-path:polygon(5% 0,100% 0,100% 100%,0 93%)}
+    .weapon-name{color:var(--muted);font:900 9px ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.12em;text-transform:uppercase}
+    .ammo-count{margin-top:2px;font-size:39px;font-weight:950;line-height:1;letter-spacing:-.07em}.ammo-count small{color:var(--muted);font-size:17px;letter-spacing:-.03em}
+    #crosshair{position:fixed;z-index:11;left:50%;top:50%;width:28px;height:28px;opacity:0;transform:translate(-50%,-50%);transition:opacity .2s}
+    body.locked #crosshair{opacity:1}
+    #crosshair i{position:absolute;background:#f7f8ef;box-shadow:0 0 3px #000}
+    #crosshair .t,#crosshair .b{left:13px;width:2px;height:7px}.t{top:0}.b{bottom:0}
+    #crosshair .l,#crosshair .r{top:13px;width:7px;height:2px}.l{left:0}.r{right:0}
+    #hitmarker{position:fixed;z-index:12;left:50%;top:50%;width:34px;height:34px;opacity:0;transform:translate(-50%,-50%) rotate(45deg);border:2px solid #fff;border-width:2px 0 0 2px;pointer-events:none}
+    #hitmarker::after{content:"";position:absolute;right:0;bottom:0;width:15px;height:15px;border:2px solid #fff;border-width:0 2px 2px 0}
+    #hitmarker.show{animation:hit .16s ease-out}@keyframes hit{0%{opacity:1;scale:.7}100%{opacity:0;scale:1.2}}
+    #damageFlash{position:fixed;z-index:8;inset:0;pointer-events:none;opacity:0;background:radial-gradient(circle,transparent 42%,rgba(185,10,10,.62));transition:opacity .35s}
+    #damageFlash.show{opacity:1;transition:opacity .04s}
+    #banner{position:fixed;z-index:15;left:50%;top:25%;min-width:360px;padding:15px 26px;text-align:center;opacity:0;transform:translate(-50%,-20px);transition:.3s ease;pointer-events:none;clip-path:polygon(4% 0,100% 5%,96% 100%,0 91%)}
+    #banner.show{opacity:1;transform:translate(-50%,0)}#banner strong{display:block;font-size:22px;letter-spacing:-.04em}#banner span{color:var(--acid);font-size:9px;font-weight:900;letter-spacing:.14em;text-transform:uppercase}
+    #toast{position:fixed;z-index:16;left:50%;bottom:110px;padding:8px 12px;color:var(--acid);font-size:10px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;opacity:0;transform:translateX(-50%);transition:opacity .2s}
+    #toast.show{opacity:1}
+    #overlay{position:fixed;z-index:30;inset:0;display:grid;place-items:center;padding:20px;background:radial-gradient(circle at 50% 42%,rgba(35,49,40,.75),rgba(7,10,8,.96));transition:opacity .25s}
+    #overlay.hidden{opacity:0;pointer-events:none}
+    .card{position:relative;width:min(960px,100%);overflow:hidden;padding:clamp(26px,3.4vw,44px);border:1px solid rgba(213,255,63,.22);border-radius:22px;background:linear-gradient(145deg,rgba(24,31,26,.98),rgba(11,15,12,.98));box-shadow:0 38px 110px rgba(0,0,0,.58)}
+    .card::after{content:"";position:absolute;right:-65px;top:-70px;width:210px;height:210px;border:35px solid rgba(213,255,63,.055);border-radius:50%}
+    .eyebrow{color:var(--acid);font:900 10px ui-monospace,SFMono-Regular,Consolas,monospace;letter-spacing:.15em;text-transform:uppercase}
+    .card h1{max-width:640px;margin:22px 0 15px;font-size:clamp(44px,7vw,70px);line-height:.86;letter-spacing:-.075em}.card h1 span{color:var(--acid)}
+    .card p{max-width:540px;margin:0;color:#bec1b8;font-size:16px;line-height:1.55}
+    .brief{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:30px 0 24px}.brief div{padding:11px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.025)}.brief b{display:block;color:var(--yellow);font-size:9px;letter-spacing:.11em;text-transform:uppercase}.brief span{display:block;margin-top:5px;color:var(--muted);font-size:11px}
+    .level-label{margin:25px 0 9px;color:var(--muted);font:900 9px ui-monospace,monospace;letter-spacing:.13em;text-transform:uppercase}
+    .level-select{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+    .level-card{position:relative;min-height:91px;padding:13px;border:1px solid rgba(255,255,255,.11);border-radius:9px;color:var(--muted);background:rgba(255,255,255,.018);text-align:left;cursor:pointer}
+    .level-card:hover{border-color:rgba(213,255,63,.35);background:rgba(255,255,255,.035)}
+    .level-card.active{color:var(--ink);border-color:var(--acid);background:rgba(213,255,63,.055)}
+    .level-card.active::after{content:"";position:absolute;right:12px;top:12px;width:7px;height:7px;border-radius:50%;background:var(--acid);box-shadow:0 0 11px var(--acid)}
+    .level-card small{display:block;color:var(--acid);font:900 8px ui-monospace,monospace;letter-spacing:.1em;text-transform:uppercase}
+    .level-card strong{display:block;margin-top:9px;font-size:13px}.level-card span{display:block;margin-top:3px;color:var(--muted);font-size:9px}
+    .actions{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.primary{min-height:48px;padding:0 20px;border:0;border-radius:8px;color:#11160b;background:var(--acid);font-size:11px;font-weight:950;letter-spacing:.08em;text-transform:uppercase;cursor:pointer}.primary:hover{filter:brightness(1.08)}
+    .help{color:var(--muted);font-size:10px;font-weight:700}.help kbd{padding:2px 5px;border:1px solid rgba(255,255,255,.18);border-radius:4px;color:var(--ink);background:#151b17;font:inherit}
+    #loadingStatus{margin-top:16px;color:var(--muted);font:800 9px ui-monospace,monospace;letter-spacing:.1em;text-transform:uppercase}
+    body.dead #hud,body.victory #hud{filter:blur(2px);opacity:.48}
+    @media(max-width:900px){.level-select{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    @media(max-width:650px){.objective{top:92px;min-width:260px}.score{top:20px}.hud-top-left{top:20px}.vitals{width:220px}.brief,.level-select{grid-template-columns:1fr}.card{padding:28px;max-height:94vh;overflow:auto}.card h1{font-size:48px}.help{display:none}}
+  </style>
+  <script type="importmap">
+    { "imports": { "three": "https://unpkg.com/three@0.159.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.159.0/examples/jsm/" } }
+  </script>
+</head>
+<body>
+  <div id="hud">
+    <div class="hud-top-left panel"><div class="hud-kicker">Bureau operation</div><div class="wave-row"><strong>Wave <span id="wave">1</span></strong><span><b id="remaining">0</b> <span id="remainingUnit">remaining</span></span></div></div>
+    <div class="objective panel"><div class="hud-kicker">Current objective</div><strong id="objectiveText">Enter the Records Courtyard</strong></div>
+    <div class="score panel"><strong id="score">00000</strong><span>suppression score</span></div>
+    <div class="vitals panel"><div class="meter-head"><span>Integrity</span><span id="hpText">100</span></div><div class="meter"><i id="hpBar"></i></div><div class="meter stamina"><i id="staminaBar"></i></div></div>
+    <div class="ammo panel"><div class="weapon-name" id="weaponName">Rifle</div><div class="ammo-count"><span id="ammo">16</span><small>/<span id="reserve">64</span></small></div></div>
+  </div>
+  <div id="crosshair" aria-hidden="true"><i class="t"></i><i class="b"></i><i class="l"></i><i class="r"></i></div>
+  <div id="hitmarker"></div><div id="damageFlash"></div>
+  <div id="banner" class="panel"><span id="bannerKicker">Wave 01</span><strong id="bannerTitle">Checkpoint Lock</strong></div>
+  <div id="toast" class="panel"></div>
+  <div id="overlay">
+    <div class="card">
+      <div class="eyebrow" id="overlayKicker">Playable level demo · Records Courtyard</div>
+      <h1 id="overlayTitle">Take back the <span>Bureau.</span></h1>
+      <p id="overlayCopy">Cross the civic forecourt, use the service and archive flanks, and break three Bureau response waves before the Director seals the records.</p>
+      <div class="level-label">Select operation</div>
+      <div class="level-select">
+        <button class="level-card" data-level="records"><small>Level 01 · Civic</small><strong>Records Courtyard</strong><span>Balanced three-lane fight</span></button>
+        <button class="level-card" data-level="dustline"><small>Level 02 · Weather</small><strong>Dustline Checkpoint</strong><span>Sandstorm visibility</span></button>
+        <button class="level-card" data-level="floodgate"><small>Level 03 · Hazard</small><strong>Floodgate Underpass</strong><span>Rising-water crossings</span></button>
+        <button class="level-card" data-level="freight"><small>Level 04 · Industrial</small><strong>Freight Annex</strong><span>Existing asset showcase</span></button>
+        <button class="level-card" data-level="blackout"><small>Wave 72 · Darkness</small><strong>Blackout Cistern</strong><span>Last Light swarm test</span></button>
+      </div>
+      <div class="brief"><div><b>Route</b><span id="briefRoute">Three unequal lanes</span></div><div><b>Threat</b><span id="briefThreat">3 authored waves</span></div><div><b>Condition</b><span id="briefCondition">Clear weather</span></div></div>
+      <div class="actions"><button class="primary" id="startButton">Enter courtyard</button><div class="help"><kbd>WASD</kbd> move · <kbd>Shift</kbd> sprint · <kbd>Mouse</kbd> aim/fire · <kbd>R</kbd> reload</div></div>
+      <div id="loadingStatus">Preparing Bureau response units…</div>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'https://unpkg.com/three@0.159.0/build/three.module.js';
+    import { createWorld } from './src/world.js';
+    import { PlayerController } from './src/player.js';
+    import { EnemyManager } from './src/enemies.js';
+    import { Effects } from './src/effects.js';
+    import { Pickups } from './src/pickups.js';
+    import { ObstacleManager } from './src/obstacles/manager.js';
+    import { SFX } from './src/sfx.js';
+    import { WeaponSystem } from './src/weapons/system.js';
+    import { WeaponView } from './src/weapons/view.js';
+    import { Rifle } from './src/weapons/rifle.js';
+    import { loadAllModels, loadGeneratedModels, getPrefab } from './loader.js';
+
+    const seeded=(()=>{let s=0x51c0ffee;return()=>{s=(s*1664525+1013904223)>>>0;return s/4294967296;}})();
+    const query=new URLSearchParams(location.search),requestedLevel=query.get('level'),diagnosticMode=query.get('diagnostic')==='1';
+    const selectedLevel=['records','dustline','floodgate','freight','blackout'].includes(requestedLevel)?requestedLevel:'records';
+    window.demoLevelDiagnosticError=null;
+    if(diagnosticMode){
+      const captureDiagnosticError=(error,fallback='Unknown demo-level error')=>{
+        const source=error&&typeof error==='object'?error:null;
+        window.demoLevelDiagnosticError={
+          name:String(source?.name||'Error'),
+          message:String(source?.message||error||fallback),
+          stack:String(source?.stack||'')
+        };
+      };
+      window.addEventListener('error',event=>captureDiagnosticError(event.error||event.message));
+      window.addEventListener('unhandledrejection',event=>captureDiagnosticError(event.reason,'Unhandled demo-level rejection'));
+    }
+    const requestedCrowd=Number.parseInt(query.get('crowd')||'',10),blackoutCrowdBudget=Number.isFinite(requestedCrowd)?THREE.MathUtils.clamp(requestedCrowd,24,60):36;
+    const environmentUpdaters=[];
+    let hazardTest=null,hazardTick=0,blackoutScene=null;
+    const world=createWorld(THREE,seeded,'box');
+    const {renderer,scene,camera,skyMat,hemi,dir,mats,objects,grassMesh}=world;
+    // Replace the procedural arena but retain the production renderer, sky and light setup.
+    for(const object of [...objects]) scene.remove(object); objects.length=0;
+    if(grassMesh) scene.remove(grassMesh);
+    for(const child of [...scene.children]) if(child?.material===mats.floor) scene.remove(child);
+    const environment={
+      records:{fog:0x8ca5a1,near:30,far:92,top:0x84bdd3,bottom:0xb9c7b4,clouds:.34,hemi:1.55,sun:2.2},
+      dustline:{fog:0x8d7957,near:10,far:52,top:0x8f7954,bottom:0xb39a68,clouds:.5,hemi:1.25,sun:1.75},
+      floodgate:{fog:0x527d7a,near:24,far:92,top:0x5f9ca8,bottom:0x91aaa0,clouds:.58,hemi:1.45,sun:1.85},
+      freight:{fog:0x65716d,near:28,far:104,top:0x668697,bottom:0xa6afa4,clouds:.48,hemi:1.35,sun:1.9},
+      blackout:{fog:0x020504,near:5,far:17,top:0x010302,bottom:0x040806,clouds:0,hemi:.025,sun:0}
+    }[selectedLevel];
+    scene.fog.color.setHex(environment.fog);scene.fog.near=environment.near;scene.fog.far=environment.far;
+    skyMat.uniforms.top.value.set(environment.top);skyMat.uniforms.bottom.value.set(environment.bottom);skyMat.uniforms.cloudAmount.value=environment.clouds;
+    hemi.intensity=environment.hemi; hemi.color.setHex(selectedLevel==='blackout'?0x10221d:0xcce4e2); hemi.groundColor.setHex(selectedLevel==='dustline'?0x5b4a31:selectedLevel==='blackout'?0x000000:0x384334);
+    dir.intensity=environment.sun; dir.color.setHex(selectedLevel==='dustline'?0xffc477:0xffe2aa); dir.position.set(-18,32,20);
+    renderer.shadowMap.enabled=selectedLevel!=='blackout'; renderer.shadowMap.type=THREE.PCFSoftShadowMap; dir.castShadow=selectedLevel!=='blackout';
+    dir.shadow.mapSize.set(1024,1024); Object.assign(dir.shadow.camera,{left:-42,right:42,top:38,bottom:-38,near:2,far:95});
+    renderer.toneMappingExposure=selectedLevel==='blackout'?.82:1.02;
+
+    const mat={
+      court:standard(0x939e92),courtDark:standard(0x69766d),concrete:standard(0x7e897f),concreteLight:standard(0xa8aea2),
+      charcoal:standard(0x28332d),dark:standard(0x151d19),yellow:standard(0xdfaa2e),orange:standard(0xd96537),
+      acid:standard(0xd5ff3f,0x455a10,.75),cyan:standard(0x61d4cc,0x123e3a,.7),paper:standard(0xbcb7a2),
+      wood:standard(0x806944),rock:standard(0x747e76),leaf:standard(0x526d35),leaf2:standard(0x71883d),
+      sand:standard(0xb59a68),sandDark:standard(0x6e5d43),water:new THREE.MeshStandardMaterial({color:0x356d70,roughness:.2,metalness:.08,transparent:true,opacity:.78,flatShading:true}),
+      collision:new THREE.MeshBasicMaterial({transparent:true,opacity:0,colorWrite:false,depthWrite:false}),
+      glass:new THREE.MeshStandardMaterial({color:0x294742,roughness:.28,metalness:.05,transparent:true,opacity:.72,flatShading:true})
+    };
+    function standard(color,emissive=0x000000,roughness=.92){return new THREE.MeshStandardMaterial({color,emissive,emissiveIntensity:emissive?.7:0,roughness,flatShading:true});}
+    function finish(mesh){mesh.castShadow=true;mesh.receiveShadow=true;return mesh;}
+    function addBox(size,material,pos,rotY=0,collidable=false){const mesh=finish(new THREE.Mesh(new THREE.BoxGeometry(...size),material));mesh.position.set(...pos);mesh.rotation.y=rotY;scene.add(mesh);if(collidable)objects.push(mesh);return mesh;}
+    function addCylinder(rt,rb,h,sides,material,pos,rot=[0,0,0],collidable=false){const mesh=finish(new THREE.Mesh(new THREE.CylinderGeometry(rt,rb,h,sides),material));mesh.position.set(...pos);mesh.rotation.set(...rot);scene.add(mesh);if(collidable)objects.push(mesh);return mesh;}
+    function addEdges(mesh,color=0x344139,opacity=.52){const e=new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry),new THREE.LineBasicMaterial({color,transparent:true,opacity}));e.position.copy(mesh.position);e.rotation.copy(mesh.rotation);e.scale.copy(mesh.scale);scene.add(e);return e;}
+    function makeLabel(text,color='#d5ff3f',bg='#111713'){
+      const c=document.createElement('canvas');c.width=768;c.height=160;const x=c.getContext('2d');x.fillStyle=bg;x.fillRect(0,0,c.width,c.height);x.strokeStyle=color;x.lineWidth=8;x.strokeRect(6,6,c.width-12,c.height-12);x.fillStyle=color;x.font='900 56px Arial';x.textAlign='center';x.textBaseline='middle';x.fillText(text,c.width/2,c.height/2);
+      const texture=new THREE.CanvasTexture(c);texture.colorSpace=THREE.SRGBColorSpace;return new THREE.Mesh(new THREE.PlaneGeometry(7.2,1.5),new THREE.MeshBasicMaterial({map:texture,transparent:true}));
+    }
+    function addCollider(size,pos,rotY=0){const collider=addBox(size,mat.collision,pos,rotY,true);collider.visible=false;collider.castShadow=false;collider.receiveShadow=false;return collider;}
+    const generatedAssetIds={
+      records:['gabion','pipes','reel','barriers','archives','streettree'],
+      dustline:['windbreaks','pipes','reel'],
+      floodgate:['gabion','pipes','archives'],
+      freight:['servicewall','warehouse','reinforcementdoor','cargogate','roadcurb','drainage','roaddamage','checkpoint','capturebeacon','terminal','ammostation','hesco','gabion','coverheights','peekcover','cornercover','breakablecover','roadblock','barriers','generator','pipes','reel','trolley','kiosk','medcache','powerrelay','tower','lightmast','catwalk','loadingramp','footbridge','deadtree','benttree'],
+      blackout:['capturebeacon','ammostation','medcache','gabion','breakablecover','cornercover','floorhatch','breachvent']
+    };
+    const environmentStatus=document.getElementById('loadingStatus');
+    try{
+      const ids=generatedAssetIds[selectedLevel]||[];
+      if(ids.length){
+        environmentStatus.textContent='Loading optimized environment assets…';
+        await loadGeneratedModels({ids,optimizeStatic:true,onProgress:(done,total)=>{environmentStatus.textContent=`Loading environment ${done}/${total}`;}});
+      }
+    }catch(error){console.warn('[demo-level] Generated environment assets unavailable',error);}
+    const generatedInstanceBatches=new Map();
+    function placeGeneratedAsset(id,pos,rotY=0,scale=1,collider=null){
+      if(!getPrefab(id))return null;
+      const scaleVector=Array.isArray(scale)?new THREE.Vector3(...scale):new THREE.Vector3(scale,scale,scale);
+      const matrix=new THREE.Matrix4().compose(
+        new THREE.Vector3(...pos),
+        new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,1,0),rotY),
+        scaleVector
+      );
+      if(!generatedInstanceBatches.has(id))generatedInstanceBatches.set(id,[]);
+      generatedInstanceBatches.get(id).push(matrix);
+      if(collider){const offset=collider.offset||[0,collider.size[1]/2,0];addCollider(collider.size,[pos[0]+offset[0],pos[1]+offset[1],pos[2]+offset[2]],rotY);}
+      return matrix;
+    }
+    function flushGeneratedAssetBatches(){
+      const combined=new THREE.Matrix4();
+      for(const [id,matrices] of generatedInstanceBatches){
+        const prefab=getPrefab(id);if(!prefab||!matrices.length)continue;
+        prefab.updateMatrixWorld(true);
+        prefab.traverse(source=>{
+          if(!source.isMesh||source.isSkinnedMesh||!source.geometry||!source.material)return;
+          const localMatrix=source.matrixWorld.clone();
+          const instances=new THREE.InstancedMesh(source.geometry,source.material,matrices.length);
+          instances.name=`${id}_${source.name||'mesh'}_instances`;
+          for(let i=0;i<matrices.length;i++){
+            combined.multiplyMatrices(matrices[i],localMatrix);
+            instances.setMatrixAt(i,combined);
+          }
+          instances.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+          instances.instanceMatrix.needsUpdate=true;
+          instances.castShadow=false;
+          instances.receiveShadow=true;
+          instances.computeBoundingSphere?.();
+          scene.add(instances);
+        });
+      }
+    }
+
+    if(selectedLevel==='records'){
+    // Court slab and physical perimeter.
+    const floor=addBox([64,.35,46],mat.court,[0,-.2,0]);floor.receiveShadow=true;
+    addBox([65,3.2,1],mat.courtDark,[0,1.6,23],0,true);
+    addBox([1,3.6,47],mat.courtDark,[-32.2,1.8,0],0,true);addBox([1,3.6,47],mat.courtDark,[32.2,1.8,0],0,true);
+
+    // Bureau facade: one dominant landmark, opaque collision, readable entrance.
+    const facade=addBox([59,8.2,1.7],mat.concrete,[0,4.1,-22.4],0,true);addEdges(facade);
+    addBox([18,2.1,1.1],mat.charcoal,[0,8.2,-22.05]);addBox([15,.65,1.4],mat.yellow,[0,7.55,-21.35]);
+    for(let i=-5;i<=5;i++){addBox([3.3,1.35,.12],mat.glass,[i*4.8,4.8,-21.5]);addBox([.25,2.2,.35],mat.charcoal,[i*4.8,4.75,-21.32]);}
+    addBox([7,2.7,.75],mat.charcoal,[0,1.45,-21.35]);addBox([3.7,2.35,.1],mat.glass,[0,1.55,-20.92]);
+    addCylinder(1.2,1.2,.3,12,mat.acid,[0,7.55,-20.55],[Math.PI/2,0,0]);addCylinder(.46,.46,.34,12,mat.dark,[0,7.55,-20.35],[Math.PI/2,0,0]);
+    const bureauSign=makeLabel('BUREAU // RECORDS 04');bureauSign.position.set(0,8.55,-21.42);scene.add(bureauSign);
+
+    // Central checkpoint leaves three genuine combat routes.
+    for(const x of [-4.2,4.2]) addBox([.55,4.4,.62],mat.charcoal,[x,2.2,-6],0,true);
+    addBox([9.3,.72,.9],mat.yellow,[0,4.05,-6]);addBox([1.15,.3,1],mat.orange,[3.1,4.58,-6]);
+    const gateSign=makeLabel('PRESSURE GATE','#1a211c','#e0aa2e');gateSign.scale.set(.62,.62,.62);gateSign.position.set(0,4.05,-5.5);scene.add(gateSign);
+
+    // Covered service flank.
+    addBox([4.4,2.4,3.1],mat.concrete,[-25.2,1.2,-4.2],0,true);
+    for(const x of [-27.3,-21.7])for(const z of [-7.7,-1.7])addBox([.42,4.1,.42],mat.charcoal,[x,2.05,z],0,true);
+    addBox([6.7,.5,7.2],mat.yellow,[-24.5,4.05,-4.7]);addBox([2.2,1.25,.12],mat.glass,[-22.1,2.55,-1.07]);
+
+    // Gabion cover family.
+    function gabion(x,z,w=3,rot=0){return placeGeneratedAsset('gabion',[x,0,z],rot,[w/4.53,.74,.76],{size:[w,1.55,1.3]});}
+    gabion(-8.5,8.2,3.4,-.12);gabion(-5.6,7.3,2.4,.18);gabion(7.1,-7,3,.16);gabion(17,8.3,2.5,-.2);
+
+    // Archive crates and cabinet walls.
+    function recordStack(x,z,rot=0,count=3){const width=3.45+(count-3)*1.05;return placeGeneratedAsset('archives',[x,0,z],rot,[width/6.31,.62,.44],{size:[width,1.85,1.95]});}
+    function cabinets(x,z,rot=0,broken=false){return placeGeneratedAsset('archives',[x,0,z],rot+(broken?.07:0),[.68,.88,.42],{size:[4.3,2.58,1.85]});}
+    recordStack(7.2,8.1,-.1,4);recordStack(15.3,-6.6,.12,3);recordStack(-16,8,.15,3);
+    cabinets(13.6,5.2,.1,true);cabinets(-7.5,-7,-.08,false);
+
+    // Circular pipe silhouette and cable reel.
+    function pipeStack(x,z,rot=0){return placeGeneratedAsset('pipes',[x,0,z],rot,.76,{size:[3,2.4,3.1]});}
+    pipeStack(7.5,5.3,-.08);
+    function reel(x,z,rot=0){return placeGeneratedAsset('reel',[x,0,z],rot,.68,{size:[3.3,2.05,2.65]});}
+    reel(-10,3.9,.1);
+
+    // Concrete lane controls and generator.
+    function barrier(x,z,rot=0){return placeGeneratedAsset('barriers',[x,0,z],rot,[.58,.82,.58],{size:[3.8,1.05,1.08]});}
+    barrier(9,.2,-.18);barrier(-1.4,-7.5,.08);barrier(16,2.2,.1);
+    addBox([2.4,1.45,1.45],mat.orange,[16,-2,.75],-.1,true);addBox([1.45,.6,1.48],mat.charcoal,[16,1.28,.75],-.1);
+    for(const x of [15.15,16.85])addCylinder(.32,.32,.3,8,mat.dark,[x,.3,1.5],[Math.PI/2,0,0]);
+
+    // Edge-only vegetation preserves combat-floor readability.
+    function planter(x,z,scale=1){return placeGeneratedAsset('streettree',[x,0,z],0,.42*scale,{size:[1.7*scale,1.1*scale,1.3*scale]});}
+    [[-28,18,1],[28,18,.9],[-28,-17,.8],[28,-17,1],[-18,20,.7],[18,20,.7]].forEach(v=>planter(...v));
+
+    // Small cyan route lamps.
+    for(const [x,z] of [[-22,4],[22,-7],[-16,-16],[17,16]]){addBox([.22,4.7,.22],mat.charcoal,[x,2.35,z]);addBox([2,.25,.5],mat.yellow,[x,4.6,z]);addBox([1.15,.11,.52],mat.cyan,[x,4.38,z]);}
+    // Outer route clusters keep the expanded bowl tactically dense instead of empty.
+    gabion(-24,10,4.2,.18);gabion(24,-12,4,-.16);recordStack(24,15,-.12,4);cabinets(-23,-15,.1,true);barrier(-18,14,-.18);barrier(20,9,.14);
+
+    }else if(selectedLevel==='dustline'){
+      // Long weather lane: navigation depends on windbreak silhouettes and road edges.
+      addBox([52,.35,76],mat.sand,[0,-.2,0]);
+      addBox([18,.14,76],mat.concrete,[0,.02,0]);
+      addBox([.2,.15,76],mat.yellow,[-8.9,.12,0]);addBox([.2,.15,76],mat.yellow,[8.9,.12,0]);
+      addBox([53,3.6,1],mat.sandDark,[0,1.8,38],0,true);addBox([1,4,77],mat.sandDark,[-26.4,2,0],0,true);addBox([1,4,77],mat.sandDark,[26.4,2,0],0,true);
+      addBox([45,6.7,1.6],mat.sandDark,[0,3.35,-37.3],0,true);
+      for(const x of [-4.3,4.3])addBox([.58,4.7,.62],mat.charcoal,[x,2.35,-31.5],0,true);
+      addBox([9.5,.72,.9],mat.yellow,[0,4.35,-31.5]);addBox([1.2,.3,1],mat.orange,[3.2,4.85,-31.5]);
+      const dustSign=makeLabel('DUSTLINE // CHECKPOINT 07','#211d15','#dfaa2e');dustSign.position.set(0,5.45,-36.35);scene.add(dustSign);
+      function windbreak(x,z,rot=0,length=7){return placeGeneratedAsset('windbreaks',[x,0,z],rot,[length/9.86,.92,.92],{size:[length,2.7,.48]});}
+      windbreak(-13.3,25,.24,9.4);windbreak(12.4,17,-.26,9.8);windbreak(-10.2,5,-.2,8.2);windbreak(11.5,-7,.2,8.8);windbreak(-13,-21,.16,9.2);windbreak(10,-27,-.18,8.6);
+      function dustPipes(x,z){return placeGeneratedAsset('pipes',[x,0,z],0,.78,{size:[3.05,2.45,3.2]});}
+      dustPipes(6.6,25.7);dustPipes(-14.8,-16.5);dustPipes(13,-30);
+      function dustReel(x,z){return placeGeneratedAsset('reel',[x,0,z],0,.7,{size:[3.4,2.1,2.7]});}
+      dustReel(-8.5,31);dustReel(16.8,-22);
+      // Abandoned response convoy creates a memorable asymmetrical hard-cover mass.
+      addBox([6.7,1.8,3],mat.orange,[12.7,.9,28.2],-.16,true);addBox([2.4,1.65,2.85],mat.charcoal,[14.9,1.35,27.5],-.16,true);
+      for(const [x,z] of [[10.6,29.5],[14.8,28.6]])addCylinder(.62,.62,.38,10,mat.dark,[x,.56,z],[Math.PI/2,0,0]);
+      for(const [x,z,s] of [[-21,31,1.3],[21,32,1.1],[-20,14,.9],[20,2,1.2],[-19,-26,1.1],[19,-32,.9]]){const d=addCylinder(2.4*s,4.7*s,1.15*s,7,mat.sand,[x,.08,z]);d.scale.z=.48;}
+      // Directional dust points make visibility pulse without hiding the route markings.
+      const count=1200,positions=new Float32Array(count*3);for(let i=0;i<count;i++){positions[i*3]=-32+(i*7.13)%64;positions[i*3+1]=.4+(i*3.71)%10;positions[i*3+2]=-41+(i*5.91)%82;}
+      const dustGeo=new THREE.BufferGeometry();dustGeo.setAttribute('position',new THREE.BufferAttribute(positions,3));const dust=new THREE.Points(dustGeo,new THREE.PointsMaterial({color:0xe0bc78,size:.13,transparent:true,opacity:.42,depthWrite:false}));scene.add(dust);
+      environmentUpdaters.push((dt,t)=>{dust.position.x+=dt*3.2;if(dust.position.x>31)dust.position.x=-31;dust.position.z=Math.sin(t*.22)*2.4;});
+
+    }else if(selectedLevel==='floodgate'){
+      // Floodgate underpass: water is traversable but damages the player outside concrete islands.
+      addBox([62,.4,46],mat.dark,[0,-.35,0]);addBox([61,.08,45],mat.water,[0,-.08,0]);
+      addBox([63,4,1],mat.concrete, [0,2,23],0,true);addBox([1,5,47],mat.concrete,[-31.4,2.5,0],0,true);addBox([1,5,47],mat.concrete,[31.4,2.5,0],0,true);
+      const safeZones=[[-23,14,14,7],[-7,14,11,6],[10,14,12,6],[24,10,10,7],[-17,4,13,6],[0,4,12,6],[17,1,12,6],[-23,-9,13,7],[-7,-8,11,6],[10,-9,12,6],[24,-13,10,7],[-14,9,6,4],[4,9,6,4],[15,8,6,4],[-9,-2,6,4],[5,-3,6,4],[19,-6,6,4]];
+      for(const [x,z,w,d] of safeZones){const island=addBox([w,.25,d],mat.concrete,[x,-.03,z]);addEdges(island,0x293c38,.55);}
+      hazardTest=position=>!safeZones.some(([x,z,w,d])=>Math.abs(position.x-x)<=w/2&&Math.abs(position.z-z)<=d/2);
+      // Sluice wall and three huge culvert mouths.
+      addBox([58,7.2,1.7],mat.concrete,[0,3.6,-22.4],0,true);addBox([20,.65,1.4],mat.yellow,[0,6.4,-21.35]);
+      for(const x of [-16,0,16]){addCylinder(2.7,2.7,1.7,12,mat.dark,[x,2.6,-21.45],[Math.PI/2,0,0]);const rim=new THREE.Mesh(new THREE.TorusGeometry(2.7,.3,6,12),mat.concreteLight);rim.position.set(x,2.6,-20.58);scene.add(finish(rim));}
+      const floodSign=makeLabel('FLOOD CONTROL // 03');floodSign.position.set(0,6.8,-21.42);scene.add(floodSign);
+      function pump(x,z,rot=0){addCylinder(1.1,1.4,.6,8,mat.charcoal,[x,.3,z],undefined,true);addBox([2.5,2.1,1.75],mat.orange,[x,1.55,z],rot,true);for(let i=-2;i<=2;i++)addBox([.12,.72,.08],mat.charcoal,[x+Math.cos(rot)*i*.34,1.55,z-Math.sin(rot)*i*.34],rot);addCylinder(.42,.42,3.5,8,mat.concrete,[x,3.75,z],undefined,true);const cap=new THREE.Mesh(new THREE.TorusGeometry(.7,.15,5,10),mat.cyan);cap.position.set(x,5.45,z);cap.rotation.x=Math.PI/2;scene.add(finish(cap));}
+      pump(-23,14,.08);pump(17,1,-.08);pump(10,-9,.12);pump(24,-13,-.1);
+      // Island cover uses distinctive archive, gabion and pipe silhouettes.
+      for(const [x,z,w] of [[-17,4,4],[10,14,3.8],[-23,-9,4.2],[24,10,3.6],[-7,-8,3.4]])placeGeneratedAsset('gabion',[x,0,z],.1,[w/4.53,.72,.72],{size:[w,1.52,1.25]});
+      for(const [x,z] of [[-18,14],[0,4],[16,-9]])placeGeneratedAsset('pipes',[x,0,z],0,.72,{size:[2.8,2.3,2.95]});
+      for(const [x,z] of [[8,14],[18,1],[-8,-8]])placeGeneratedAsset('archives',[x,0,z],.08,[.54,.58,.42],{size:[3.4,1.7,1.85]});
+      // Animated ripples reveal the hazard surface and flow direction.
+      const ripples=[];for(let i=0;i<28;i++){const material=new THREE.MeshBasicMaterial({color:i%2?0x65d9d0:0xb5ddd5,transparent:true,opacity:.22,depthWrite:false});const ring=new THREE.Mesh(new THREE.TorusGeometry(.55,.035,4,18),material);ring.rotation.x=Math.PI/2;ring.position.set(-29+(i*5.17)%58,.02,-21+(i*3.73)%42);ring.userData.phase=i*.31;scene.add(ring);ripples.push(ring);}
+      environmentUpdaters.push((dt,t)=>ripples.forEach(r=>{const phase=(t*.3+r.userData.phase)%1,s=.45+phase*1.8;r.scale.setScalar(s);r.material.opacity=(1-phase)*.24;}));
+    }else if(selectedLevel==='freight'){
+      // Freight Annex: authored entirely from the compatible source asset registry.
+      addBox([72,.4,54],mat.courtDark,[0,-.35,0]);addBox([24,.08,54],mat.charcoal,[0,-.08,0]);
+      addBox([73,4,1],mat.dark,[0,2,27],0,true);addBox([73,7,1],mat.dark,[0,3.5,-27],0,true);
+      addBox([1,5,55],mat.dark,[-36.3,2.5,0],0,true);addBox([1,5,55],mat.dark,[36.3,2.5,0],0,true);
+
+      // Repeated source-built modules establish a coherent industrial perimeter.
+      for(const side of [-1,1])for(const z of [-21,-14,-7,0,7,14,21])placeGeneratedAsset('servicewall',[side*35.55,0,z],Math.PI/2,1.03);
+      for(const [x,scale] of [[-26,1.5],[-9,1.65],[9,1.65],[26,1.5]])placeGeneratedAsset('warehouse',[x,0,-23.3],0,scale,{size:[10.8,6.1,7.6]});
+      placeGeneratedAsset('reinforcementdoor',[0,0,-19.5],0,1.25);placeGeneratedAsset('cargogate',[0,0,-16.8],0,1.45);
+      const annexSign=makeLabel('BUREAU // FREIGHT ANNEX 12');annexSign.position.set(0,7.6,-25.85);annexSign.scale.set(1.3,1.3,1.3);scene.add(annexSign);
+
+      // Ground modules communicate the central haul road and a transverse service trench.
+      for(const z of [-23,-18.5,-14,-9.5,-5,0,4.5,9,13.5,18,22.5]){placeGeneratedAsset('roadcurb',[-14.5,.01,z],0,.92);placeGeneratedAsset('roadcurb',[14.5,.01,z],Math.PI,.92);}
+      for(const x of [-24,-18,-12,-6,0,6,12,18,24])placeGeneratedAsset('drainage',[x,.02,10.5],0,.96);
+      for(const [x,z,r] of [[-8,20,.2],[7,16,-.15],[-5,2,.1],[8,-8,-.12],[-10,-19,.18]])placeGeneratedAsset('roaddamage',[x,.02,z],r,.9);
+
+      // Main checkpoint and objective spine.
+      placeGeneratedAsset('checkpoint',[0,0,-1.5],0,1.65);for(const x of [-4.45,4.45])addCollider([.8,4.6,1.35],[x,2.3,-1.5]);
+      placeGeneratedAsset('capturebeacon',[0,0,-13.2],0,.92,{size:[4.4,3.8,4.6]});
+      placeGeneratedAsset('terminal',[7.5,0,-14.2],-.18,.95,{size:[2.3,3.3,1.8]});
+      placeGeneratedAsset('ammostation',[-22.5,0,19],.12,.92,{size:[3.5,2.9,1.8]});
+
+      // Three routes: heavy left cover, broken central road, mobile right service lane.
+      for(const [x,z,r,s] of [[-25,14,.12,1],[-20,5,-.1,.95],[-27,-6,.08,1.05],[-21,-16,-.15,.9]])placeGeneratedAsset('hesco',[x,0,z],r,s,{size:[6.4,2.65,1.65]});
+      for(const [x,z,r,s] of [[-12,15,-.1,1],[-9,-7,.15,.9],[12,7,-.12,1],[18,-17,.1,.95]])placeGeneratedAsset('gabion',[x,0,z],r,s,{size:[4.45,2.05,1.7]});
+      placeGeneratedAsset('coverheights',[-1,0,18],.08,1.05,{size:[6.1,2.6,1.5]});
+      placeGeneratedAsset('peekcover',[8,0,4],-.12,1.05,{size:[5.7,2.7,1.25]});
+      placeGeneratedAsset('cornercover',[-13,0,-15],.18,1.05,{size:[4.2,1.55,4.1]});
+      placeGeneratedAsset('breakablecover',[15,0,18],-.15,1.1,{size:[5.2,1.45,1.55]});
+      placeGeneratedAsset('roadblock',[16,0,12],-.17,1.05,{size:[8.4,2.75,3.5]});
+      placeGeneratedAsset('roadblock',[-4,0,-9],.16,.92,{size:[7.4,2.4,3]});
+      for(const [x,z,r] of [[-5,8,.08],[10,-5,-.12],[24,3,.16]])placeGeneratedAsset('barriers',[x,0,z],r,.85,{size:[5.6,1.05,1.55]});
+
+      // Recognizable prop silhouettes break repetition and supply combat landmarks.
+      placeGeneratedAsset('generator',[25,0,18],-.2,.88,{size:[4.1,2.55,3.8]});
+      placeGeneratedAsset('pipes',[24,0,-7],.1,.9,{size:[3.5,2.85,3.65]});
+      placeGeneratedAsset('reel',[-25,0,21],-.1,.82,{size:[3.9,2.45,3.15]});
+      placeGeneratedAsset('trolley',[10,0,20],.12,.82,{size:[4.1,2.2,2.4]});
+      placeGeneratedAsset('kiosk',[-28,0,-18],-.08,.9,{size:[4.2,2.9,2.8]});
+      placeGeneratedAsset('medcache',[27,0,-16],.12,.9,{size:[3.2,2.2,2]});
+      placeGeneratedAsset('powerrelay',[-22,0,-5],.08,1.05,{size:[3.6,3.05,2.65]});
+      placeGeneratedAsset('tower',[29,0,-2],-.1,.95,{size:[4.2,7,3.2]});
+      for(const [x,z,r] of [[-29,20,0],[29,20,Math.PI],[-29,-13,0],[29,-13,Math.PI]])placeGeneratedAsset('lightmast',[x,0,z],r,1);
+
+      // Traversal pieces are visual landmarks here; ground combat remains reliable and flat.
+      placeGeneratedAsset('catwalk',[-25,0,1],Math.PI/2,.92);placeGeneratedAsset('loadingramp',[22,0,-20],Math.PI,.9);
+      placeGeneratedAsset('footbridge',[0,0,10.5],0,.82);
+      placeGeneratedAsset('deadtree',[-31,0,11],.2,.82);placeGeneratedAsset('benttree',[31,0,9],-.25,.82);
+
+      const beaconLight=new THREE.PointLight(0xd5ff3f,5,16,2);beaconLight.position.set(0,5.2,-13.2);scene.add(beaconLight);
+      environmentUpdaters.push((dt,t)=>{beaconLight.intensity=4.2+Math.sin(t*3.1)*1.4;});
+    }else{
+      // Wave 72 Blackout Cistern: one central light, six dark sectors and very little hard cover.
+      const floor=addCylinder(28,28,.35,32,mat.dark,[0,-.25,0]);floor.receiveShadow=true;
+      const centerFloor=addCylinder(10,10,.05,32,mat.charcoal,[0,-.045,0]);centerFloor.receiveShadow=true;
+      const wallRadius=28.4,wallSegments=20,wallLength=2*Math.PI*wallRadius/wallSegments+.2;
+      for(let i=0;i<wallSegments;i++){
+        const angle=i/wallSegments*Math.PI*2,x=Math.cos(angle)*wallRadius,z=Math.sin(angle)*wallRadius;
+        addBox([wallLength,4.8,1.05],i%2?mat.dark:mat.charcoal,[x,2.35,z],-angle-Math.PI/2,true);
+      }
+
+      // Subtle physical rings teach the five- and ten-metre light envelope.
+      const ringMaterials=[new THREE.MeshBasicMaterial({color:0xf2cd62,transparent:true,opacity:.22,depthWrite:false}),new THREE.MeshBasicMaterial({color:0x65d9d0,transparent:true,opacity:.1,depthWrite:false})];
+      const lightRings=[5,10].map((radius,index)=>{const ring=new THREE.Mesh(new THREE.TorusGeometry(radius,.055,5,64),ringMaterials[index]);ring.rotation.x=Math.PI/2;ring.position.y=.025;scene.add(ring);return ring;});
+      for(let spoke=0;spoke<12;spoke++){
+        const angle=spoke/12*Math.PI*2,length=9.7;
+        const spokeMesh=addBox([.04,.025,length],new THREE.MeshBasicMaterial({color:0x6a795f,transparent:true,opacity:.09}),[Math.sin(angle)*length/2,.02,Math.cos(angle)*length/2],angle);
+        spokeMesh.castShadow=false;spokeMesh.receiveShadow=false;
+      }
+
+      // Last Light hero assembly and protected resupply pocket.
+      placeGeneratedAsset('capturebeacon',[0,0,0],0,.86,{size:[2.6,2.8,2.6]});
+      placeGeneratedAsset('ammostation',[4.2,0,.4],-.18,.78,{size:[2.75,2.35,1.45]});
+      placeGeneratedAsset('medcache',[-4.2,0,.4],.18,.72,{size:[2.55,2.1,1.6]});
+      const lampStem=addCylinder(.16,.23,5.6,8,mat.charcoal,[0,3.2,0],undefined,true);
+      const lampHead=addCylinder(.48,.7,.55,8,mat.yellow,[0,6.15,0]);
+      const lampCore=addCylinder(.32,.32,.58,10,mat.acid,[0,6.12,0]);
+      const lastLight=new THREE.PointLight(0xffd56a,56,14,1.45);lastLight.position.set(0,5.6,0);scene.add(lastLight);
+      const huntLight=new THREE.SpotLight(0x65d9d0,0,64,.19,.5,1.4);huntLight.position.set(0,7.2,0);scene.add(huntLight);
+
+      // Low silhouette cover sits around the falloff rather than creating safe corners.
+      for(const [id,x,z,r,s,c] of [
+        ['gabion',8,1,.15,.7,[3.3,1.6,1.4]],['breakablecover',-7.5,2,-.12,.82,[3.8,1.25,1.4]],
+        ['cornercover',4,-7,.5,.72,[3.2,1.35,3.2]],['gabion',-4.5,-7,-.2,.7,[3.3,1.6,1.4]],
+        ['breakablecover',1,8,.08,.82,[3.8,1.25,1.4]]
+      ]) placeGeneratedAsset(id,[x,0,z],r,s,{size:c});
+
+      const spawnSectors=[];
+      for(let i=0;i<6;i++){
+        const angle=i/6*Math.PI*2,radius=22.5,x=Math.cos(angle)*radius,z=Math.sin(angle)*radius;
+        spawnSectors.push({x,z,angle});
+        placeGeneratedAsset(i%2?'floorhatch':'breachvent',[x,0,z],-angle+Math.PI/2,i%2?.82:.72);
+        const marker=new THREE.PointLight(i%2?0x4b1520:0x162c32,.22,3.4,2);marker.position.set(x,.75,z);scene.add(marker);
+      }
+
+      // Almost-invisible perimeter breaks help players understand scale without defeating the blackout.
+      for(let i=0;i<6;i++){
+        const angle=i/6*Math.PI*2,x=Math.cos(angle)*26.8,z=Math.sin(angle)*26.8;
+        const strip=addBox([4.5,.08,.08],new THREE.MeshBasicMaterial({color:0x65d9d0,transparent:true,opacity:.07}),[x,.12,z],-angle-Math.PI/2);
+        strip.castShadow=false;strip.receiveShadow=false;
+      }
+      blackoutScene={lastLight,huntLight,lightRings,spawnSectors,lampCore,lampHead,lampStem,finalHunt:false,wardenRoot:null};
+      environmentUpdaters.push((dt,t)=>{
+        const alarm=blackoutScene?.alarm||0;
+        lastLight.intensity=53+Math.sin(t*12.5)*2+(alarm>0?Math.sin(t*28)*6:0);
+        lampCore.material.emissiveIntensity=1.1+(alarm>0?.9:.25)*Math.max(0,Math.sin(t*15));
+        lightRings[0].material.opacity=.18+Math.sin(t*2.2)*.035;lightRings[1].material.opacity=.07+Math.sin(t*1.4)*.02;
+        if(blackoutScene.alarm>0)blackoutScene.alarm=Math.max(0,blackoutScene.alarm-dt);
+        huntLight.intensity=blackoutScene.finalHunt&&blackoutScene.wardenRoot?.parent?16:0;
+      });
+    }
+
+    flushGeneratedAssetBatches();
+
+    // Engine systems use the authored collider list above—no random obstacle pass.
+    const obstacleManager=new ObstacleManager(THREE,scene,mats);obstacleManager.objects=objects;
+    const effects=new Effects(THREE,scene,camera);effects.muzzleEnabled=true;
+    const pickups=new Pickups(THREE,scene,seeded);
+    let audioContext=null;const S=new SFX({audioContextProvider:()=>audioContext||(audioContext=new(window.AudioContext||window.webkitAudioContext)()),fxBusProvider:()=>null,volume:.52});window._SFX=S;
+    const levelDefinitions={
+      records:{
+        name:'Records Courtyard',shortName:'Courtyard',kicker:'Playable level demo · Records Courtyard',title:'Take back the <span>Bureau.</span>',
+        copy:'A complete first-person combat slice built on the project engine. Read the yellow route language, use the archive cover, and break three escalating response waves.',
+        route:'Three expanded lanes',threat:'3 authored waves',condition:'64 × 46 m civic exterior',spawn:[0,1.7,18],aim:[0,1.7,-8],
+        waves:[
+          {title:'Checkpoint Lock',objective:'Break the central pressure gate response',units:[['grunt',-22,-15],['grunt',22,-15],['rusher',-26,3],['grunt',26,5],['shooter',0,-18]]},
+          {title:'Records Breach',objective:'Clear the volatile archive flank',units:[['rusher',24,14],['rusher',19,10],['shooter',25,-7],['grunt',-24,-12],['shooter',-14,-18],['healer',12,-16]]},
+          {title:'Director Exposed',objective:'Defeat the Bureau heavy response',units:[['tank',0,-17],['shooter',-24,-15],['shooter',24,-15],['rusher',-26,14],['rusher',26,14],['grunt',0,-10],['bailiff',-12,-18]]}
+        ]
+      },
+      dustline:{
+        name:'Dustline Checkpoint',shortName:'Dustline',kicker:'Playable weather demo · Dustline Checkpoint',title:'Cross the <span>storm.</span>',
+        copy:'A long pressure road where visibility comes and goes. Advance windbreak to windbreak, use the convoy as hard cover, and watch for silhouettes in the dust.',
+        route:'Three extended wind lanes',threat:'3 visibility waves',condition:'52 × 76 m sandstorm',spawn:[0,1.7,33],aim:[0,1.7,-12],
+        waves:[
+          {title:'Gate in the Haze',objective:'Reach the first windbreak and clear the road',units:[['grunt',-17,-27],['grunt',17,-28],['rusher',-13,17],['shooter',14,8],['grunt',0,-31]]},
+          {title:'Convoy Ambush',objective:'Break the response convoy crossfire',units:[['rusher',17,25],['shooter',20,10],['grunt',-20,5],['flyer',0,-24],['healer',-13,-15],['grunt',12,-19]]},
+          {title:'Dustline Lockdown',objective:'Open the checkpoint before the storm peaks',units:[['tank',0,-30],['shooter',-18,-24],['shooter',18,-24],['rusher',-20,12],['rusher',20,14],['grunt',0,-14],['bailiff',-10,-28]]}
+        ]
+      },
+      floodgate:{
+        name:'Floodgate Underpass',shortName:'Floodgate',kicker:'Playable hazard demo · Floodgate Underpass',title:'Hold the <span>pumps.</span>',
+        copy:'A flooded maintenance channel built around safe concrete islands. Move between pump stations, avoid prolonged contact with toxic water, and shut down the sluice response.',
+        route:'Four expanded island chains',threat:'3 crossing waves',condition:'62 × 46 m toxic channel',spawn:[-28,1.7,14],aim:[0,1.7,-5],
+        waves:[
+          {title:'Pumps Online',objective:'Secure the first two pump islands',units:[['grunt',10,14],['shooter',24,10],['rusher',-23,-9],['grunt',10,-9],['grunt',0,4]]},
+          {title:'Channel Surge',objective:'Cross the center channel under fire',units:[['rusher',24,10],['rusher',10,-9],['shooter',-23,-9],['shooter',17,1],['healer',8,14],['flyer',-4,-16]]},
+          {title:'Sluice Breach',objective:'Defeat the heavy response at Flood Control 03',units:[['tank',10,-9],['shooter',-23,-9],['shooter',24,10],['rusher',0,4],['rusher',17,1],['grunt',2,-16],['bailiff',-12,-18]]}
+        ]
+      },
+      freight:{
+        name:'Freight Annex',shortName:'Freight',kicker:'Playable asset demo · Freight Annex',title:'Seize the <span>shipment.</span>',
+        copy:'A large industrial combat yard assembled from the project’s existing low-poly asset registry. Push three distinct routes, disable the central relay, and stop the Bureau cargo response.',
+        route:'Heavy, road and service lanes',threat:'3 industrial response waves',condition:'72 × 54 m logistics yard',spawn:[0,1.7,23],aim:[0,1.7,-10],
+        waves:[
+          {title:'Cargo Inspection',objective:'Break the annex checkpoint cordon',units:[['grunt',-20,-17],['grunt',20,-17],['rusher',-25,8],['rusher',25,8],['shooter',0,-21],['grunt',10,-4]]},
+          {title:'Manifest Seizure',objective:'Secure the relay and both service lanes',units:[['rusher',27,17],['rusher',-24,14],['shooter',-27,-10],['shooter',26,-9],['healer',-9,-18],['grunt',12,-17],['flyer',0,-22]]},
+          {title:'Freight Lockdown',objective:'Destroy the Bureau heavy cargo response',units:[['tank',0,-7],['shooter',-28,-17],['shooter',28,-17],['rusher',-26,18],['rusher',26,19],['bailiff',-12,-20],['healer',13,-20],['grunt',0,-23]]}
+        ]
+      },
+      blackout:{
+        name:'Blackout Cistern',shortName:'Last Light',kicker:'Wave 72 graybox · Blackout Cistern',title:'Survive the <span>last light.</span>',
+        copy:'Greywater has killed every lamp except the damaged reactor at the center. Hold its five-metre pool of light while a hidden Swarm Warden layers melee packs over the survivors.',
+        route:'5 m light · 10 m falloff',threat:'42 opening · 3 reinforcement surges',condition:'56 m arena · almost total darkness',spawn:[0,1.7,4.3],aim:[0,1.8,-5],
+        mode:'blackout',absoluteWave:72,reinforcementRepeats:3,
+        victoryCopy:'The Last Light held. Greywater’s escaped seed has been traced beyond Echo City.',
+        waves:[{title:'Last Light',objective:'Hold the light and break the Warden swarm',units:[]}]
+      }
+    };
+    const level=levelDefinitions[selectedLevel];
+    const player=new PlayerController(THREE,camera,document.body,objects,Infinity);scene.add(player.controls.getObject());
+    const controls=player.controls;controls.getObject().position.set(...level.spawn);camera.lookAt(...level.aim);
+    const enemyManager=new EnemyManager(THREE,scene,mats,objects,()=>{const position=controls.getObject().position.clone(),forward=new THREE.Vector3();camera.getWorldDirection(forward);forward.y=0;forward.normalize();return{position,forward};},Infinity,obstacleManager,seeded);
+    enemyManager.suspendWaves=true;obstacleManager.enemyManager=enemyManager;
+    const raycaster=new THREE.Raycaster(),weaponView=new WeaponView(THREE,camera);
+    effects.setMuzzleAnchor(weaponView.sockets.muzzle);
+    const $=id=>document.getElementById(id);
+    $('overlayKicker').textContent=level.kicker;$('overlayTitle').innerHTML=level.title;$('overlayCopy').textContent=level.copy;
+    $('briefRoute').textContent=level.route;$('briefThreat').textContent=level.threat;$('briefCondition').textContent=level.condition;
+    $('objectiveText').textContent=`Deploy into ${level.name}`;$('startButton').textContent=`Enter ${level.shortName}`;
+    document.querySelectorAll('.level-card').forEach(card=>{
+      const isActive=card.dataset.level===selectedLevel;card.classList.toggle('active',isActive);card.setAttribute('aria-pressed',String(isActive));
+      card.addEventListener('click',()=>{if(card.dataset.level===selectedLevel)return;const url=new URL(location.href);url.searchParams.set('level',card.dataset.level);location.href=url;});
+    });
+    let score=0,playerHP=100,gameTime=0,visualTime=0,started=false,ended=false,paused=false,waveIndex=-1,spawning=false,transitionPending=false,blackoutState=null;
+    const combo={multiplier:1};
+    const hudValues=new Map();
+    const weaponSystem=new WeaponSystem({THREE,camera,raycaster,enemyManager,objects,effects,obstacleManager,pickups,S,combo,
+      updateHUD,addScore:(points)=>{score+=points;updateHUD();},addComboAction:(amount)=>{combo.multiplier=Math.min(3,combo.multiplier+amount*.08);},
+      addTracer:(start,end)=>effects.spawnBulletTracer(effects.getMuzzleWorldPos?.()||start,end,{width:.035}),applyRecoil:data=>player.applyRecoil?.(data),
+      setZoomMultiplier:value=>player.setZoomMultiplier(value),weaponView,getGameTime:()=>gameTime});
+    weaponSystem.swapPrimary(()=>new Rifle());weaponView.setWeapon('Rifle');
+
+    const waves=level.waves;
+    blackoutState=level.mode==='blackout'?{
+      surge:0,totalSurges:1+level.reinforcementRepeats,reserve:[],kills:0,lastAlive:0,nextSurgeKill:17,lastSurgeAt:-18,
+      spawnCooldown:0,activeCap:blackoutCrowdBudget,allCommitted:false,wardenRoot:null,wardenPulse:null,clearing:false
+    }:null;
+    const blackoutRoleCaps={tank:6,flyer:10,healer:2,warden:1};
+    function enemyRoleFromRoot(root){
+      const type=String(root?.userData?.type||'');
+      if(type.includes('flyer'))return'flyer';if(type.includes('warden'))return'warden';
+      if(type==='tank')return'tank';if(type==='healer')return'healer';return type;
+    }
+    function blackoutRoleCount(role){let count=0;for(const root of enemyManager.enemies)if(enemyRoleFromRoot(root)===role)count++;return count;}
+    function blackoutCanSpawn(type){
+      if(!blackoutState)return true;if(enemyManager.enemies.size>=blackoutState.activeCap)return false;
+      const role=type==='flyer'?'flyer':type==='warden'?'warden':type;
+      return !blackoutRoleCaps[role]||blackoutRoleCount(role)<blackoutRoleCaps[role];
+    }
+    if(blackoutState){
+      const baseSpawnAt=enemyManager.spawnAt.bind(enemyManager);
+      enemyManager.spawnAt=(type,position,options={})=>{
+        if(!blackoutCanSpawn(type))return null;
+        const root=baseSpawnAt(type,position,options);if(!root)return null;
+        if(type==='warden'){
+          blackoutState.wardenRoot=root;blackoutScene.wardenRoot=root;
+          const instance=enemyManager.instanceByRoot.get(root);if(instance){instance.desiredMin=5;instance.desiredMax=5;instance.targetCount=5;instance._regenQueue=Math.min(instance._regenQueue||0,5);instance._arenaClamp=25;}
+          const pulse=new THREE.PointLight(0x65d9d0,.4,18,1.7);pulse.position.y=0;root.add(pulse);blackoutState.wardenPulse=pulse;
+          blackoutScene.huntLight.target=root;
+        }
+        return root;
+      };
+      pickups.base={ammo:.24,med:.085};pickups.cap={ammo:12,med:4};
+    }
+    function blackoutPackage(includeWarden=false){
+      const units=[];if(includeWarden)units.push('warden');
+      for(let i=0;i<10;i++)units.push('grunt');for(let i=0;i<10;i++)units.push('gruntling');
+      for(let i=0;i<12;i++)units.push('rusher');for(let i=0;i<3;i++)units.push('tank');
+      if(!includeWarden)for(let i=0;i<5;i++)units.push('flyer');units.push('healer');
+      return units.map((type,index)=>({type,sector:(index+blackoutState.surge*2)%blackoutScene.spawnSectors.length}));
+    }
+    function commitBlackoutSurge(initial=false){
+      if(!blackoutState||blackoutState.surge>=blackoutState.totalSurges)return;
+      blackoutState.surge++;blackoutState.lastSurgeAt=gameTime;blackoutState.nextSurgeKill=blackoutState.kills+17;
+      blackoutState.reserve.push(...blackoutPackage(initial));blackoutState.allCommitted=blackoutState.surge>=blackoutState.totalSurges;
+      spawning=true;blackoutScene.alarm=3.2;if(blackoutState.allCommitted)blackoutScene.finalHunt=true;
+      const packageLabel=initial?'LIGHT FAILURE':`SURGE ${blackoutState.surge}/${blackoutState.totalSurges}`;
+      showBanner(packageLabel,initial?'The cistern wakes':'More contacts in the dark',2100);
+      $('objectiveText').textContent=blackoutState.allCommitted?'Break the final swarm and kill the Warden':'Hold the light · listen for the next surge';
+      const supplyPosition=new THREE.Vector3(4.2,0,.4);pickups.dropMultiple('ammo',supplyPosition,initial?2:3);
+      if(initial||blackoutState.surge%2===0)pickups.dropMultiple('med',new THREE.Vector3(-4.2,0,.4),1);
+      updateHUD();
+    }
+    function blackoutSpawnPosition(item){
+      const sector=blackoutScene.spawnSectors[item.sector%blackoutScene.spawnSectors.length],spread=(seeded()-.5)*5.2,radial=(seeded()-.5)*2;
+      return new THREE.Vector3(sector.x+Math.cos(sector.angle)*radial-Math.sin(sector.angle)*spread,.8,sector.z+Math.sin(sector.angle)*radial+Math.cos(sector.angle)*spread);
+    }
+    function pumpBlackoutReserve(dt){
+      if(!blackoutState||!started||ended)return;blackoutState.spawnCooldown=Math.max(0,blackoutState.spawnCooldown-dt);
+      if(blackoutState.spawnCooldown>0||!blackoutState.reserve.length||enemyManager.enemies.size>=blackoutState.activeCap)return;
+      const index=blackoutState.reserve.findIndex(item=>blackoutCanSpawn(item.type));if(index<0)return;
+      const [item]=blackoutState.reserve.splice(index,1),root=enemyManager.spawnAt(item.type,blackoutSpawnPosition(item),{countsTowardAlive:true});
+      if(!root)blackoutState.reserve.unshift(item);blackoutState.spawnCooldown=root ? .12 : .24;spawning=blackoutState.reserve.length>0;
+      if(!spawning&&blackoutState.allCommitted&&enemyManager.alive<=0&&!blackoutState.clearing){blackoutState.clearing=true;setTimeout(()=>endDemo(true),800);}
+    }
+    function updateBlackout(dt){
+      if(!blackoutState||!started||ended)return;pumpBlackoutReserve(dt);
+      if(blackoutState.surge<blackoutState.totalSurges&&blackoutState.kills>=blackoutState.nextSurgeKill&&gameTime-blackoutState.lastSurgeAt>=18)commitBlackoutSurge(false);
+      if(blackoutState.wardenPulse){const phase=visualTime%9;blackoutState.wardenPulse.intensity=phase<1.2?2.5+Math.sin(phase*Math.PI/1.2)*8:.32;}
+      if(blackoutState.allCommitted&&!blackoutState.reserve.length&&enemyManager.alive<=0&&!blackoutState.clearing){blackoutState.clearing=true;setTimeout(()=>endDemo(true),800);}
+    }
+    function setHudText(id,value){const text=String(value);if(hudValues.get(id)===text)return;hudValues.set(id,text);$(id).textContent=text;}
+    function setHudWidth(id,value){const width=`${Math.max(0,Math.min(100,Math.round(value)))}%`;if(hudValues.get(id)===width)return;hudValues.set(id,width);$(id).style.width=width;}
+    function updateHUD(){
+      setHudText('wave',level.absoluteWave??Math.max(1,waveIndex+1));
+      if(blackoutState&&!blackoutState.allCommitted){setHudText('remaining',`${blackoutState.surge}/${blackoutState.totalSurges}`);setHudText('remainingUnit','surges');}
+      else{setHudText('remaining',enemyManager.alive+(blackoutState?blackoutState.reserve.length:0));setHudText('remainingUnit','remaining');}
+      setHudText('score',String(score).padStart(5,'0'));
+      setHudText('hpText',Math.max(0,Math.ceil(playerHP)));setHudWidth('hpBar',playerHP);setHudWidth('staminaBar',player.stamina);
+      setHudText('weaponName',weaponSystem.getPrimaryName());setHudText('ammo',weaponSystem.getAmmo());setHudText('reserve',weaponSystem.getReserve());
+    }
+    function showBanner(kicker,title,duration=1800){$('bannerKicker').textContent=kicker;$('bannerTitle').textContent=title;$('banner').classList.add('show');setTimeout(()=>$('banner').classList.remove('show'),duration);}
+    let toastTimer=0;function toast(text){clearTimeout(toastTimer);$('toast').textContent=text;$('toast').classList.add('show');toastTimer=setTimeout(()=>$('toast').classList.remove('show'),1400);}
+    window._HUD={showHitmarker(){const el=$('hitmarker');el.classList.remove('show');void el.offsetWidth;el.classList.add('show');}};
+    function damagePlayer(amount){if(ended)return;playerHP=Math.max(0,playerHP-amount);S.hurt?.();$('damageFlash').classList.add('show');setTimeout(()=>$('damageFlash').classList.remove('show'),110);updateHUD();if(playerHP<=0)endDemo(false);}
+    function launchWave(index){
+      if(ended||index>=waves.length)return;waveIndex=index;spawning=true;transitionPending=false;const wave=waves[index];pickups.onWave(level.absoluteWave??index+1);
+      if(blackoutState){commitBlackoutSurge(true);return;}
+      $('objectiveText').textContent=wave.objective;showBanner(`Wave ${String(index+1).padStart(2,'0')}`,wave.title,2100);
+      wave.units.forEach(([type,x,z],i)=>setTimeout(()=>{if(ended)return;enemyManager.spawnAt(type,new THREE.Vector3(x,.8,z),{countsTowardAlive:true});updateHUD();if(i===wave.units.length-1)spawning=false;},i*280));
+    }
+    enemyManager.onRemaining=count=>{
+      if(blackoutState){if(count<blackoutState.lastAlive)blackoutState.kills+=blackoutState.lastAlive-count;blackoutState.lastAlive=count;updateHUD();return;}
+      updateHUD();if(started&&!ended&&!spawning&&count<=0&&!transitionPending){transitionPending=true;if(waveIndex+1<waves.length){$('objectiveText').textContent=`${level.shortName} temporarily secure`;showBanner('Area clear','Response broken',1500);setTimeout(()=>launchWave(waveIndex+1),2400);}else setTimeout(()=>endDemo(true),900);}
+    };
+    function endDemo(victory){ended=true;weaponSystem.triggerUp();controls.unlock();document.body.classList.add(victory?'victory':'dead');$('overlay').classList.remove('hidden');$('overlayKicker').textContent=victory?`Operation complete · ${level.name} secured`:'Signal lost · Bureau retained control';$('overlayTitle').innerHTML=victory?`${level.shortName} <span>secured.</span>`:'You were <span>contained.</span>';$('overlayCopy').textContent=victory?(level.victoryCopy||`All ${waves.length} response waves broken. Final suppression score: ${score}.`):`Use the ${level.route.toLowerCase()}, break enemy sightlines, and collect field drops before the final response.`;$('startButton').textContent='Restart operation';$('loadingStatus').textContent='Click to rebuild the encounter';$('startButton').onclick=()=>location.reload();}
+
+    // Pointer lock and combat input.
+    controls.addEventListener('lock',()=>{document.body.classList.add('locked');$('overlay').classList.add('hidden');paused=false;if(!started){started=true;launchWave(0);}});
+    controls.addEventListener('unlock',()=>{document.body.classList.remove('locked');weaponSystem.triggerUp();if(started&&!ended){paused=true;$('overlay').classList.remove('hidden');$('overlayKicker').textContent=`Gameplay paused · ${level.name}`;$('overlayTitle').innerHTML='Return to the <span>operation.</span>';$('overlayCopy').textContent='The Bureau response remains active. Resume when ready.';$('startButton').textContent='Resume';$('loadingStatus').textContent='Pointer lock released';}});
+    $('startButton').addEventListener('click',()=>{if(ended)return;try{S.ensure();audioContext?.resume?.();}catch{}controls.lock();});
+    window.addEventListener('mousedown',event=>{if(!controls.isLocked)return;if(event.button===0)weaponSystem.triggerDown();if(event.button===2)weaponSystem.triggerAltDown();});
+    window.addEventListener('mouseup',event=>{if(event.button===0)weaponSystem.triggerUp();if(event.button===2)weaponSystem.triggerAltUp();});
+    window.addEventListener('contextmenu',event=>event.preventDefault());
+    window.addEventListener('keydown',event=>{if(event.code==='KeyR')weaponSystem.reload();if(event.code==='Digit1')weaponSystem.switchSlot(1);if(event.code==='Digit2')weaponSystem.switchSlot(2);});
+
+    // Load the production enemy registry; procedural fallbacks still keep the demo playable.
+    if(!diagnosticMode){
+      try{await loadAllModels({renderer});$('loadingStatus').textContent='Engine ready · click to acquire pointer lock';}catch(error){$('loadingStatus').textContent='Fallback assets ready · click to play';}
+    }else{
+      weaponView.root.visible=false;
+      $('loadingStatus').textContent='Environment diagnostic ready';
+    }
+    updateHUD();
+    const clock=new THREE.Clock();let hudRefreshIn=0;
+    function loop(){
+      requestAnimationFrame(loop);const dt=Math.min(.033,clock.getDelta());visualTime+=dt;environmentUpdaters.forEach(update=>update(dt,visualTime));
+      if(controls.isLocked&&!ended){gameTime+=dt;player.update(dt);weaponView.setMove?.(player.velXZ.x/6,player.velXZ.z/6);weaponView.update?.(dt);weaponSystem.update(dt);updateBlackout(dt);enemyManager.tickAI(controls.getObject(),dt,damagePlayer);pickups.update(dt,controls.getObject().position,(type,amount)=>{if(type==='med'){playerHP=Math.min(100,playerHP+amount);toast(`Integrity +${amount}`);}else{weaponSystem.onAmmoPickup(amount);toast(`Ammunition +${amount}`);}S.ui?.('pickup');updateHUD();});combo.multiplier=Math.max(1,combo.multiplier-dt*.025);if(hazardTest){hazardTick-=dt;if(hazardTick<=0&&hazardTest(controls.getObject().position)){hazardTick=.85;damagePlayer(6);toast('Toxic floodwater · reach a concrete island');}}}
+      effects.update(dt);skyMat.uniforms.time.value+=dt;hudRefreshIn-=dt;if(hudRefreshIn<=0){hudRefreshIn=.1;updateHUD();}renderer.render(scene,camera);
+    }
+    if(!diagnosticMode)loop();
+    window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+    let diagnosticSnapshot=null;
+    if(diagnosticMode){
+      renderer.render(scene,camera);
+      let nodes=0,meshes=0,visibleMeshes=0,instancedMeshes=0,instances=0;
+      scene.traverse(object=>{
+        nodes++;
+        if(object.isMesh||object.isSkinnedMesh||object.isInstancedMesh){meshes++;if(object.visible)visibleMeshes++;}
+        if(object.isInstancedMesh){instancedMeshes++;instances+=object.count||0;}
+      });
+      diagnosticSnapshot={
+        nodes,meshes,visibleMeshes,instancedMeshes,instances,
+        drawCalls:renderer.info.render.calls||0,
+        triangles:renderer.info.render.triangles||0,
+        geometries:renderer.info.memory.geometries||0,
+        textures:renderer.info.memory.textures||0
+      };
+      document.documentElement.dataset.environmentDiagnostic=JSON.stringify(diagnosticSnapshot);
+      $('overlay').classList.add('hidden');
+      $('loadingStatus').textContent=`${selectedLevel}: ${diagnosticSnapshot.drawCalls} calls · ${diagnosticSnapshot.visibleMeshes} visible meshes`;
+    }
+    window.demoLevelEnvironment={ready:true,renderer,scene,camera,objects,updaters:environmentUpdaters,level:selectedLevel,diagnosticSnapshot};
+    window.demoLevel={scene,renderer,camera,player,enemyManager,weaponSystem,objects,launchWave,blackoutState,blackoutScene};
+  </script>
+</body>
+</html>

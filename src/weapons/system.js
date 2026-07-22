@@ -261,11 +261,15 @@ export class WeaponSystem {
       weapon?.altTriggerCancel?.(this.context());
       weapon?.clearWorld?.(this.context());
     }
-    // Checkpoint resumes must remain a continuation of the late game, not a
-    // pistol-only fresh run. Rifle covers the long galleries and SMG protects
-    // the flooded crossings; the normal sidearm and owned tactical stay intact.
+    // This is only a migration fallback for old post-campaign saves. Never
+    // grant a classified primary that the Archive has not licensed.
+    const classifiedPrimary = this.mutations?.isWeaponOwned?.('rifle') === true
+      ? new Rifle({ mastery: this.mutations })
+      : this.mutations?.isWeaponOwned?.('dmr') === true
+        ? new DMR({ mastery: this.mutations })
+        : null;
     this.inventory = [
-      new Rifle({ mastery: this.mutations }),
+      ...(classifiedPrimary ? [classifiedPrimary] : []),
       new SMG({ mastery: this.mutations }),
       new Pistol()
     ].map(weapon => this._configureReserveLimit(weapon, { reset: true }));
@@ -275,6 +279,40 @@ export class WeaponSystem {
     this.primarySlotEmpty = false;
     this.currentIndex = 0;
     this.notifyInventoryChange();
+  }
+
+  exportCheckpointState() {
+    return {
+      inventory: this.inventory.map(weapon => weapon?.name).filter(Boolean),
+      primarySlotEmpty: this.primarySlotEmpty === true,
+      currentIndex: this.currentIndex
+    };
+  }
+
+  restoreCheckpointState(snapshot) {
+    if (!snapshot || !Array.isArray(snapshot.inventory)) return false;
+    this.cancelZoom();
+    for (const weapon of this.inventory) {
+      weapon?.triggerUp?.();
+      weapon?.altTriggerCancel?.(this.context());
+      weapon?.clearWorld?.(this.context());
+    }
+    const inventory = snapshot.inventory
+      .map(name => this._makeCheckpointWeapon(name))
+      .filter(Boolean)
+      .map(weapon => this._configureReserveLimit(weapon, { reset: true }));
+    if (!inventory.length) {
+      this.resetRunInventory();
+      return false;
+    }
+    this.inventory = inventory;
+    this.primarySlotEmpty = snapshot.primarySlotEmpty === true;
+    this.currentIndex = Math.max(0, Math.min(
+      this.inventory.length - 1,
+      Math.floor(Number(snapshot.currentIndex) || 0)
+    ));
+    this.notifyInventoryChange();
+    return true;
   }
 
   ensureGrenadeSlot() {
@@ -307,6 +345,23 @@ export class WeaponSystem {
 
   _makeTacticalWeapon(weaponId) {
     if (weaponId === 'grenade') return this._configureReserveLimit(new GrenadePistol(), { reset: true });
+    return null;
+  }
+
+  _makeCheckpointWeapon(name) {
+    const weaponName = String(name || '');
+    const classifiedId = weaponName === 'Rifle' ? 'rifle'
+      : weaponName === 'DMR' ? 'dmr'
+        : weaponName === 'Grenade' ? 'grenade' : null;
+    if (classifiedId && this.mutations?.hasWeaponAccess?.(classifiedId) === false) return null;
+    if (weaponName === 'Rifle') return new Rifle({ mastery: this.mutations });
+    if (weaponName === 'SMG') return new SMG({ mastery: this.mutations });
+    if (weaponName === 'Shotgun') return new Shotgun();
+    if (weaponName === 'DMR') return new DMR({ mastery: this.mutations });
+    if (weaponName === 'Pistol') return new Pistol();
+    if (weaponName === 'Grenade') return new GrenadePistol();
+    if (weaponName === 'Minigun') return new Minigun({ mastery: this.mutations });
+    if (weaponName === 'BeamSaber') return new BeamSaber();
     return null;
   }
 

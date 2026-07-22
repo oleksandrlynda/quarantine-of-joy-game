@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Quarantine of Joy — Level Obstacle Diagnostic</title>
+  <link rel="icon" href="assets/icons/favicon.svg" type="image/svg+xml" />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta http-equiv="Cache-Control" content="no-store" />
+  <style>
+    :root { color-scheme: dark; font-family: Inter, system-ui, sans-serif; background: #07111f; color: #e8f1ff; }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    body { background: #07111f; }
+    canvas { display: block; position: fixed; inset: 0; width: 100%; height: 100%; }
+    #panel {
+      position: fixed; z-index: 20; top: 14px; left: 14px; width: min(940px, calc(100vw - 28px));
+      max-height: calc(100vh - 28px); overflow: auto; padding: 16px; border: 1px solid #55e5d642;
+      border-radius: 16px; background: #07111ff2; box-shadow: 0 22px 70px #0009; contain: layout paint;
+    }
+    .diagnosticTabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+    .diagnosticTabs a { min-height: 34px; display: inline-flex; align-items: center; padding: 0 13px; border: 1px solid #ffffff24; border-radius: 9px; color: #b9c8dc; text-decoration: none; font-size: 12px; font-weight: 800; }
+    .diagnosticTabs a[aria-current="page"] { color: #edfffc; border-color: #55e5d677; background: #087e7455; }
+    h1 { margin: 0; font-size: 18px; }
+    p { margin: 7px 0 0; color: #b9c8dc; font-size: 12px; line-height: 1.45; }
+    .warning { color: #ffd08a; }
+    .legend { color: #8feadd; }
+    .statusRow { display: flex; justify-content: space-between; gap: 12px; margin-top: 14px; font-size: 12px; font-weight: 750; }
+    #status { color: #67ead9; }
+    #elapsed { color: #99a9bc; font-variant-numeric: tabular-nums; }
+    .track { height: 8px; margin-top: 8px; overflow: hidden; border-radius: 999px; background: #ffffff18; }
+    #progress { width: 0; height: 100%; background: linear-gradient(90deg, #38cbb9, #a1f55c); transition: width 120ms linear; }
+    .filters { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    select, button { min-height: 36px; border: 1px solid #ffffff24; border-radius: 10px; padding: 0 12px; background: #15243a; color: #eef6ff; font: inherit; font-weight: 700; }
+    button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: .42; }
+    #copyReport { background: #087e74; }
+    .summary { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; font-size: 11px; font-weight: 800; }
+    .pass { color: #54e6a5; } .warn { color: #ffd08a; } .fail { color: #ff7a7a; } .inconclusive { color: #9fc5ff; }
+    .tableWrap { margin-top: 12px; overflow: auto; border: 1px solid #ffffff17; border-radius: 12px; max-height: 44vh; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; font-variant-numeric: tabular-nums; }
+    th, td { padding: 7px 8px; border-bottom: 1px solid #ffffff12; text-align: center; white-space: nowrap; }
+    th { position: sticky; top: 0; z-index: 1; color: #89a0b9; background: #101b2c; }
+    th:first-child, td:first-child, th:nth-child(2), td:nth-child(2), th:nth-child(3), td:nth-child(3) { text-align: left; }
+    tbody tr { cursor: pointer; }
+    tr[data-state="running"] { background: #38cbb922; }
+    tr[data-state="pass"] td:last-child { color: #54e6a5; }
+    tr[data-state="warn"] td:last-child { color: #ffd08a; }
+    tr[data-state="fail"] td:last-child { color: #ff7a7a; }
+    tr[data-state="inconclusive"] td:last-child { color: #9fc5ff; }
+    #output { display: none; width: 100%; height: 180px; margin-top: 12px; resize: vertical; border: 1px solid #ffffff24; border-radius: 10px; padding: 10px; background: #020812; color: #c4fff7; font: 10px/1.4 Consolas, monospace; }
+    #output.ready { display: block; }
+    @media (max-width: 760px) {
+      #panel { top: 8px; left: 8px; width: calc(100vw - 16px); padding: 12px; }
+      th:nth-child(5), td:nth-child(5), th:nth-child(7), td:nth-child(7) { display: none; }
+    }
+  </style>
+  <script type="importmap">
+    { "imports": { "three": "https://unpkg.com/three@0.159.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.159.0/examples/jsm/" } }
+  </script>
+</head>
+<body>
+  <main id="panel">
+    <nav class="diagnosticTabs" aria-label="Behavior diagnostics">
+      <a href="test-enemy-reactions.html">Regular enemies</a>
+      <a href="test-boss-reactions.html">Bosses</a>
+      <a href="test-level-collisions.html" aria-current="page">Level obstacles</a>
+      <a href="test-campaign-simulation.html">Campaign simulation</a>
+    </nav>
+    <h1 id="diagnosticTitle">Level obstacle and boundary diagnostic</h1>
+    <p id="diagnosticDescription">Runs full-scene player and enemy journeys plus adaptive perimeter approaches around every visible asset. It checks production movement, hitscan, projectiles, phase visibility, precise world-space mesh contact, and visible-object boundaries without treating a legal slide around cover as a crossing.</p>
+    <p class="warning">Choose filters before Run. Nothing starts automatically unless <code>?autorun=1</code> is present. Click any row to focus its collider or visible asset.</p>
+    <p class="legend">Yellow marker = player journey; red marker = enemy journey; route line and compact footprints remain in the report. Cyan = solid boundary; green = walkable surface. Add <code>?blockBoxes=all</code> to overlay MOVE (blue), SHOOT (red), and SEE (yellow) channel boundaries without changing collision.</p>
+    <div class="filters">
+      <select id="levelFilter" aria-label="Level filter">
+        <option value="relay-district">Level 1 — Relay District</option>
+        <option value="sanitizer-spire">Level 2 — Sanitizer Spire</option>
+        <option value="ad-zone-arena">Level 3 — Ad-Zone Arena</option>
+        <option value="trend-wastes">Level 4 — Trend Wastes</option>
+        <option value="freight-annex">Level 5 — Freight Annex</option>
+        <option value="mirror-garden">Level 6 — Mirror Garden</option>
+        <option value="content-court">Level 7 — Content Court</option>
+        <option value="server-cathedral">Server Cathedral — Waves 36–40</option>
+        <option value="last-order-base">Special — Last Order Base (Wave 41)</option>
+        <option value="sandstorm-expanse">Sandstorm Expanse — Waves 42–51</option>
+        <option value="floodgate-continuity">Floodgate Continuity — Waves 52–72</option>
+        <option value="blackout-cistern">Blackout Cistern — Wave 73</option>
+      </select>
+      <select id="phaseFilter" aria-label="Level phase filter">
+        <option value="">All phases</option>
+      </select>
+      <select id="kindFilter" aria-label="Object kind filter">
+        <option value="">All checks</option>
+        <option value="journey">Full-scene journeys</option>
+        <option value="portal_transit">Player/enemy portal parity</option>
+        <option value="approach">Asset perimeter approaches</option>
+        <option value="solid">Solid boundaries</option>
+        <option value="visual_asset">Visual asset boundaries</option>
+      </select>
+      <select id="objectFilter" aria-label="Level object filter"><option value="">All objects</option></select>
+      <button id="run" type="button">Run diagnostic</button>
+      <button id="stop" type="button" disabled>Stop</button>
+      <button id="copyReport" type="button" disabled>Copy JSON</button>
+      <button id="downloadReport" type="button" disabled>Download JSON</button>
+    </div>
+    <div class="statusRow"><span id="status">Loading level…</span><span id="elapsed">0.0s</span></div>
+    <div class="track" aria-hidden="true"><div id="progress"></div></div>
+    <div class="summary"><span id="passCount" class="pass">Pass 0</span><span id="warnCount" class="warn">Warn 0</span><span id="failCount" class="fail">Fail 0</span><span id="inconclusiveCount" class="inconclusive">Inconclusive 0</span></div>
+    <div class="tableWrap">
+      <table><thead><tr><th>Object</th><th>Phase</th><th>Kind</th><th>Player walk</th><th>Jump + walk</th><th>Enemy walk</th><th>Player shot</th><th>Enemy shot</th><th>Boundary</th><th>Result</th></tr></thead><tbody id="rows"></tbody></table>
+    </div>
+    <textarea id="output" readonly spellcheck="false" aria-label="Level collision JSON report"></textarea>
+  </main>
+  <script type="module" src="./src/debug/level-collision-diagnostic-runner.js?v=1.6.0"></script>
+</body>
+</html>

@@ -74,7 +74,13 @@ const assetProfile = (placement, idPrefix, primitives) => instantiateAssetCollid
   assetId: placement.asset, idPrefix, placement, primitives
 });
 const G = counts => Object.entries(counts).flatMap(([type, count]) => Array(count).fill(type));
-const W = data => defineEncounterWave(data);
+export const FLOODGATE_WAVE_AMMO_PACKAGES = Object.freeze([
+  Object.freeze([-26, 22]),
+  Object.freeze([26, 22]),
+  Object.freeze([-26, 8]),
+  Object.freeze([26, 8])
+]);
+const W = data => defineEncounterWave({ ammoPackages: FLOODGATE_WAVE_AMMO_PACKAGES, ...data });
 const GROUND_TYPES = Object.freeze(['grunt', 'shooter', 'rusher', 'rusher_elite', 'rusher_explosive', 'tank', 'healer', 'sniper']);
 const AIR_TYPES = Object.freeze(['flyer', 'warden']);
 const S = (id, position, facing, allow = GROUND_TYPES, clearance = { default: 1.5, tank: 2.7 }, air = false, activeWaves = [51, 71]) => defineSpawnEntrance({

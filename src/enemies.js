@@ -1,2 +1,2 @@
-export { EnemyManager } from './enemies/manager.js?v=1.0.7&rev=boss-pressure7';
+export { EnemyManager } from './enemies/manager.js?v=1.0.4';
 export { ENEMY_BEHAVIOR_PROFILES, resolveBehaviorProfile } from './enemies/behavior-profiles.js';

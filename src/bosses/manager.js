@@ -7,7 +7,7 @@ import { Captain } from './captain.js?rev=readable-ballistic-rocket2';
 import { ShardAvatar } from './shard.js?rev=campaign-aim-resource-recovery1';
 import { Hydraclone } from './hydraclone.js?rev=mirror-intercept2';
 import { StrikeAdjudicator } from './adjudicator.js';
-import { AlgorithmBoss } from './algorithm.js?rev=outer-cover-ring1';
+import { AlgorithmBoss } from './algorithm.js?rev=wave40-cleanup1';
 import { ReusablePool } from './reusable-pool.js';
 import { getBossSharedGeometry } from './visual-cache.js';
 

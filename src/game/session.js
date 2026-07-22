@@ -166,6 +166,27 @@ export class GameSession {
     sfx?.stopBreath?.();
   }
 
+  exportCheckpointState() {
+    return {
+      maxHp: this.maxHp,
+      maxArmor: this.maxArmor,
+      score: this.score
+    };
+  }
+
+  restoreCheckpointState(snapshot) {
+    if (!snapshot) return false;
+    this.maxHp = Math.max(this.baseMaxHp, Number(snapshot.maxHp) || this.baseMaxHp);
+    this.hp = this.maxHp;
+    this.maxArmor = Math.max(0, Number(snapshot.maxArmor) || 0);
+    this.armor = this.maxArmor;
+    this.score = Math.max(0, Math.floor(Number(snapshot.score) || 0));
+    this.gameOver = false;
+    this.lastEmergencyAmmoAt = -1000;
+    this.resetCombo();
+    return true;
+  }
+
   applyPickup(type, amount, { weaponSystem, story, sfx } = {}) {
     if (type === 'ammo') {
       const gained = weaponSystem?.onAmmoPickup?.(amount);
@@ -181,12 +202,12 @@ export class GameSession {
     return { type, hp: this.hp, amount: 0 };
   }
 
-  onWaveStart(wave, startingAlive, { pickups, weather, player, objects, progression, story } = {}) {
+  onWaveStart(wave, startingAlive, { pickups, weather, player, objects, progression, progressionOptions, story } = {}) {
     this.waveStartingAlive = startingAlive || 0;
     pickups?.onWave?.(wave);
     weather?.onWave?.();
     player?.refreshColliders?.(objects);
-    progression?.onWave?.(wave);
+    progression?.onWave?.(wave, progressionOptions);
     story?.onWave?.(wave);
     return this.waveStartingAlive;
   }

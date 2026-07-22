@@ -84,6 +84,23 @@ test('run stat mutations reset to base values', () => {
   assert.equal(player.stamina, 100);
 });
 
+test('chapter checkpoint restores build capacities and score with full resources', () => {
+  const session = new GameSession();
+  session.addMaxHp(20);
+  session.addArmorCapacity(12);
+  session.addScore(875);
+  session.damage(37);
+  const checkpoint = session.exportCheckpointState();
+
+  session.reset();
+  assert.equal(session.restoreCheckpointState(checkpoint), true);
+  assert.equal(session.maxHp, 120);
+  assert.equal(session.hp, 120);
+  assert.equal(session.maxArmor, 12);
+  assert.equal(session.armor, 12);
+  assert.equal(session.score, 875);
+});
+
 test('reset restores HP, score, combo, stamina-facing hooks, and game-over flag', () => {
   const session = new GameSession();
   const weaponSystem = makeWeaponSystem();

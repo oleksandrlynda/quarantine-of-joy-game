@@ -1,5 +1,6 @@
 import { createEnhancedHealerBot } from '../assets/enemy-retrofits.js';
 import { cloneNodeMaterial, instantiateSharedTemplate } from './render-template.js';
+import { clampToNavigationBounds, resolveNavigationBounds } from './navigation-bounds.js';
 
 const _healerTemplates = new WeakMap();
 const HEALER_BOMB_COLOR = 0xef233c;
@@ -49,6 +50,10 @@ export class HealerEnemy {
     this.coverAnchor = null;
     this._coverRefresh = 0;
     this._retreatSign = this.rng() < 0.5 ? -1 : 1;
+    this._boundaryEscapeSign = this._retreatSign;
+    this._boundaryEscapeTimer = 0;
+    this._blockedMovementTime = 0;
+    this._navigationBounds = null;
     this._path = null;
     this._bombArmed = false;
     this._bombExploded = false;
@@ -106,7 +111,10 @@ export class HealerEnemy {
       ctx.setAIState?.(root, 'retreating', { reason: 'no_injured_allies' });
     }
 
-    if (movementTarget) this._moveToward(movementTarget, playerPos, dt, ctx);
+    if (movementTarget) {
+      this._navigationBounds ||= resolveNavigationBounds(ctx, 1.6, 38);
+      this._moveToward(clampToNavigationBounds(movementTarget, this._navigationBounds), playerPos, dt, ctx);
+    }
 
     const injuredInPulse = this._collectAlliesInRadius(ctx, this.radius, true);
     if (this.pulseCooldown <= 0 && this.pulseTimer <= 0 && injuredInPulse.length > 0) {
@@ -252,8 +260,40 @@ export class HealerEnemy {
     const separation = ctx.separation?.(root.position, 1.7, root) || new THREE.Vector3();
     desired.add(avoid.multiplyScalar(1.1)).add(separation.multiplyScalar(1.35));
     if (desired.lengthSq() > 0) {
-      desired.normalize().multiplyScalar(this.speed * dt);
-      ctx.moveWithCollisions?.(root, desired);
+      desired.normalize();
+      if (this._boundaryEscapeTimer > 0) {
+        const forwardX = desired.x;
+        desired.x = -desired.z * this._boundaryEscapeSign;
+        desired.z = forwardX * this._boundaryEscapeSign;
+        this._boundaryEscapeTimer = Math.max(0, this._boundaryEscapeTimer - dt);
+      }
+      const step = desired.multiplyScalar(this.speed * dt);
+      const movement = ctx.moveWithCollisions?.(root, step);
+      const requested = Number(movement?.requestedDistance) || step.length();
+      const applied = Number(movement?.appliedDistance) || 0;
+      const pinned = movement?.blockedBy && applied < requested * .25;
+      this._blockedMovementTime = pinned ? this._blockedMovementTime + dt : 0;
+      if (pinned) {
+        // Retreating supports can otherwise remain pinned to an arena edge
+        // or body indefinitely. Try deterministic tangents and keep the
+        // successful one briefly instead of submitting the same collision.
+        for (const sign of [this._boundaryEscapeSign, -this._boundaryEscapeSign]) {
+          const tangent = new THREE.Vector3(-step.z * sign, 0, step.x * sign);
+          const escape = ctx.moveWithCollisions?.(root, tangent);
+          if ((Number(escape?.appliedDistance) || 0) <= requested * .25) continue;
+          this._boundaryEscapeSign = sign;
+          this._boundaryEscapeTimer = .75;
+          break;
+        }
+        if (this._blockedMovementTime >= .45) {
+          this.coverAnchor = null;
+          this._coverRefresh = 0;
+          this._retreatSign *= -1;
+          this._blockedMovementTime = 0;
+          ctx.pathfind?.clear?.(this);
+          ctx.emitAIEvent?.(root, 'healer_route_replanned', { reason: movement.blockedBy });
+        }
+      }
     }
   }
 
@@ -312,9 +352,8 @@ export class HealerEnemy {
     away.normalize();
     const side = new THREE.Vector3(-away.z, 0, away.x).multiplyScalar(this._retreatSign * 0.25);
     const target = this.root.position.clone().add(away.add(side).normalize().multiplyScalar(8));
-    const clamp = Number.isFinite(ctx.enemyManager?.arenaRadius) ? Math.max(2, ctx.enemyManager.arenaRadius - 2.5) : 38;
-    target.x = Math.max(-clamp, Math.min(clamp, target.x));
-    target.z = Math.max(-clamp, Math.min(clamp, target.z));
+    this._navigationBounds ||= resolveNavigationBounds(ctx, 1.6, 38);
+    clampToNavigationBounds(target, this._navigationBounds);
     target.y = this.root.position.y;
     return target;
   }

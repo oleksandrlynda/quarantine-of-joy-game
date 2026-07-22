@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Fire">
+  <g fill="none" stroke="#0b1720" stroke-width="5" stroke-linecap="round">
+    <path d="M32 8v9M32 47v9M8 32h9M47 32h9"/>
+    <circle cx="32" cy="32" r="12"/>
+  </g>
+  <path fill="#67e8f9" d="m32 23 6 9-6 9-6-9z"/>
+</svg>

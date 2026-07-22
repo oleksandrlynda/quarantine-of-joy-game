@@ -1,5 +1,5 @@
 import { logError } from './util/log.js';
-import { t } from './i18n/index.js?v=1.0.3&rev=archive-achievements4-i18n-shared1';
+import { t } from './i18n/index.js?v=1.0.4';
 import { getJSON, setJSON } from './util/storage.js';
 
 const STORAGE_KEY = 'achievements_v2';
@@ -227,6 +227,71 @@ function emptyRun() {
   };
 }
 
+function serialiseSetMap(map) {
+  return [...map.entries()].map(([key, values]) => [String(key), [...values].map(String)]);
+}
+
+function hydrateSetMap(raw) {
+  const map = new Map();
+  if (!Array.isArray(raw)) return map;
+  for (const entry of raw) {
+    if (!Array.isArray(entry) || entry.length < 2 || !Array.isArray(entry[1])) continue;
+    map.set(String(entry[0]), new Set(entry[1].map(String)));
+  }
+  return map;
+}
+
+function serialiseRun(run) {
+  return {
+    ...run,
+    weaponOnlyStreaks: { ...run.weaponOnlyStreaks },
+    pistolOnlyWaves: [...run.pistolOnlyWaves],
+    minigunKillTimes: [...run.minigunKillTimes],
+    attackKills: serialiseSetMap(run.attackKills),
+    abilityAttackKills: serialiseSetMap(run.abilityAttackKills),
+    flawlessBossWaves: [...run.flawlessBossWaves]
+  };
+}
+
+function hydrateRun(raw = {}) {
+  const run = emptyRun();
+  run.active = raw.active === true;
+  run.mode = raw.mode === 'standard' ? 'standard' : null;
+  for (const key of [
+    'score',
+    'time',
+    'highestWave',
+    'completedWaves',
+    'maxComboTier',
+    'hotMicKills',
+    'bossKills',
+    'noPickupStreak',
+    'hydraMaxGeneration',
+    'maxShotgunAttackKills',
+    'maxAbilityAttackKills',
+    'maxGravityWellAttackKills',
+    'maxBaitAffected'
+  ]) run[key] = Math.max(0, Number(raw[key]) || 0);
+  run.maxComboActive = raw.maxComboActive === true;
+  run.weaponOnlyStreaks = {
+    BeamSaber: Math.max(0, Math.floor(Number(raw.weaponOnlyStreaks?.BeamSaber) || 0)),
+    Shotgun: Math.max(0, Math.floor(Number(raw.weaponOnlyStreaks?.Shotgun) || 0))
+  };
+  run.pistolOnlyWaves = new Set((Array.isArray(raw.pistolOnlyWaves) ? raw.pistolOnlyWaves : [])
+    .map(value => Math.floor(Number(value) || 0))
+    .filter(value => value > 0));
+  run.defaultSettingsValid = raw.defaultSettingsValid !== false;
+  run.minigunKillTimes = (Array.isArray(raw.minigunKillTimes) ? raw.minigunKillTimes : [])
+    .map(Number)
+    .filter(Number.isFinite);
+  run.attackKills = hydrateSetMap(raw.attackKills);
+  run.abilityAttackKills = hydrateSetMap(raw.abilityAttackKills);
+  run.flawlessBossWaves = new Set((Array.isArray(raw.flawlessBossWaves) ? raw.flawlessBossWaves : [])
+    .map(value => Math.floor(Number(value) || 0))
+    .filter(value => value > 0));
+  return run;
+}
+
 function hydrateCareer(raw = {}) {
   const career = emptyCareer();
   career.kills = Math.max(0, Number(raw.kills) || 0);
@@ -339,6 +404,20 @@ export class AchievementsManager {
     this.bossFight = null;
     this.run.mode = mode;
     this.run.active = mode === 'standard';
+  }
+
+  exportRunCheckpoint() {
+    return { run: serialiseRun(this.run) };
+  }
+
+  restoreRunCheckpoint(snapshot) {
+    if (!snapshot?.run) return false;
+    this.run = hydrateRun(snapshot.run);
+    this.run.mode = 'standard';
+    this.run.active = true;
+    this.wave = emptyWave();
+    this.bossFight = null;
+    return true;
   }
 
   getCollection() {

@@ -7,7 +7,7 @@
     "assets:build": "node scripts/build-assets.mjs",
     "assets:validate": "node scripts/build-assets.mjs --validate-only",
     "assets:verify": "node scripts/verify-generated-assets.mjs",
-    "test": "node --test test/*.test.js",
+    "test": "node --test --test-reporter=dot test/*.test.js",
     "lint": "eslint src test",
     "resource-check": "node test/resource-check.js",
     "version:patch": "node scripts/bump-version.mjs"

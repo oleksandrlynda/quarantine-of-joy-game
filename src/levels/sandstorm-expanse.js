@@ -66,7 +66,13 @@ const assetProfile = (placement, idPrefix, primitives) => instantiateAssetCollid
   assetId: placement.asset, idPrefix, placement, primitives
 });
 const G = counts => Object.entries(counts).flatMap(([type, count]) => Array(count).fill(type));
-const W = data => defineEncounterWave(data);
+export const SANDSTORM_WAVE_AMMO_PACKAGES = Object.freeze([
+  Object.freeze([-8, 18]),
+  Object.freeze([-24, 6]),
+  Object.freeze([24, 6]),
+  Object.freeze([-8, -12])
+]);
+const W = data => defineEncounterWave({ ammoPackages: SANDSTORM_WAVE_AMMO_PACKAGES, ...data });
 const GROUND_TYPES = Object.freeze(['grunt', 'shooter', 'rusher', 'rusher_elite', 'rusher_explosive', 'tank', 'healer', 'sniper']);
 const GROUND_TYPES_NO_TANK = Object.freeze(GROUND_TYPES.filter(type => type !== 'tank'));
 const AIR_TYPES = Object.freeze(['flyer', 'warden']);
@@ -221,7 +227,14 @@ export const SANDSTORM_EXPANSE = shiftLevelWaves(defineLevel({
     ])
   }),
   waves: Object.freeze({
-    41: W({ id: 'into-dust', titleKey: 'level.expanse.wave41', activeCap: 22, ammoPackages: [[-8,18]], healthPackages: [[8,18]], packages: [
+    41: W({
+      id: 'into-dust',
+      titleKey: 'level.expanse.wave41',
+      activeCap: 22,
+      // Wave 42 is the player's first storm push. Four separated caches give
+      // each broad route a recovery option without creating one safe bunker.
+      healthPackages: [[8,18], [-18,9], [0,-10], [18,-12]],
+      packages: [
       G({ grunt: 4, shooter: 4, flyer: 4, rusher: 2 }), G({ grunt: 3, shooter: 4, flyer: 4, tank: 1, healer: 1, sniper: 1 }),
       G({ grunt: 3, shooter: 3, flyer: 4, rusher: 2, tank: 1, healer: 1 }), G({ grunt: 3, shooter: 3, flyer: 4, rusher: 1, sniper: 1, healer: 1 })
     ] }),
