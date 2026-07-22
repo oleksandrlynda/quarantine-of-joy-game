@@ -11,6 +11,14 @@ export function pickTwoDistinct(pool, rng = Math.random){
   return [pool[i], pool[j]];
 }
 
+function normalizeEntryOffer(raw) {
+  const mode = ['weapon', 'sidearm', 'mutation'].includes(raw?.mode) ? raw.mode : null;
+  const choices = Array.isArray(raw?.choices)
+    ? [...new Set(raw.choices.map(value => String(value || '')).filter(Boolean))].slice(0, 3)
+    : [];
+  return mode && choices.length ? { mode, choices } : null;
+}
+
 export class Progression {
   constructor({
     weaponSystem,
@@ -49,6 +57,8 @@ export class Progression {
     this.sidearmOfferShown = false;
     this.selectedPick = null;
     this.declineSelected = false;
+    this.activeOfferSnapshot = null;
+    this.restoredEntryOffer = null;
     this._bindOfferUI();
   }
 
@@ -68,7 +78,40 @@ export class Progression {
     this.offerOpen = false;
     this.selectedPick = null;
     this.declineSelected = false;
+    this.activeOfferSnapshot = null;
+    this.restoredEntryOffer = null;
     if (this.offerEl) this.offerEl.style.display = 'none';
+  }
+
+  exportRunCheckpoint() {
+    return {
+      offerCooldown: this.offerCooldown,
+      bossKills: this.bossKills,
+      defeatedBossWaves: [...this.defeatedBossWaves],
+      sidearmOfferShown: this.sidearmOfferShown,
+      entryOffer: this.activeOfferSnapshot ? {
+        mode: this.activeOfferSnapshot.mode,
+        choices: [...this.activeOfferSnapshot.choices]
+      } : null
+    };
+  }
+
+  restoreRunCheckpoint(snapshot) {
+    if (!snapshot) return false;
+    this.offerCooldown = Math.max(0, Math.floor(Number(snapshot.offerCooldown) || 0));
+    this.bossKills = Math.max(0, Math.floor(Number(snapshot.bossKills) || 0));
+    this.defeatedBossWaves = new Set((Array.isArray(snapshot.defeatedBossWaves) ? snapshot.defeatedBossWaves : [])
+      .map(value => Math.floor(Number(value) || 0))
+      .filter(value => value > 0));
+    this.sidearmOfferShown = snapshot.sidearmOfferShown === true;
+    this.offerQueue.length = 0;
+    this.offerOpen = false;
+    this.selectedPick = null;
+    this.declineSelected = false;
+    this.activeOfferSnapshot = null;
+    this.restoredEntryOffer = normalizeEntryOffer(snapshot.entryOffer);
+    if (this.offerEl) this.offerEl.style.display = 'none';
+    return true;
   }
 
   _isProgressionRun() {
@@ -103,8 +146,8 @@ export class Progression {
     ) this._saveUnlocks();
   }
 
-  onWave(wave){
-    this.mutations?.onWaveStarted?.(wave);
+  onWave(wave, { awardPriorWave = true, forceWeaponOffer = false } = {}){
+    if (awardPriorWave) this.mutations?.onWaveStarted?.(wave);
     const runState = this.mutations?.getRunState?.();
     if (runState?.tutorial === true) return;
     const persistentRun = this._isProgressionRun();
@@ -133,6 +176,12 @@ export class Progression {
       return;
     }
     let guided = false;
+    let weaponOfferScheduled = false;
+    const requestWeaponOffer = (restrictNames, unlockOverrides) => {
+      const result = this._runOrQueue(() => this._presentOffer(restrictNames, unlockOverrides));
+      if (result !== false) weaponOfferScheduled = true;
+      return result;
+    };
     const guidedOffers = new Map([
       [3, ['Shotgun', 'SMG']],
       [4, ['BeamSaber']],
@@ -144,13 +193,17 @@ export class Progression {
     if (guidedOffers.has(wave)) {
       guided = true;
       const names = guidedOffers.get(wave);
-      this._runOrQueue(() => this._presentOffer(names, this.unlocks));
+      requestWeaponOffer(names, this.unlocks);
     }
 
     if (!guided && wave >= 6 && wave % 2 === 0){
       if (this.offerCooldown > 0) this.offerCooldown -= 1;
-      else this._runOrQueue(() => this._presentOffer());
+      else requestWeaponOffer();
     }
+
+    // Only legacy checkpoints without a state snapshot need a compensating
+    // Armory choice. Restored checkpoints use the authored wave cadence.
+    if (forceWeaponOffer && !weaponOfferScheduled) requestWeaponOffer();
 
     if (this.mutations?.shouldOfferAtWave?.(wave)) this.requestMutationOffer();
   }
@@ -259,8 +312,20 @@ export class Progression {
     return picks;
   }
 
+  _consumeRestoredEntryOffer(mode) {
+    if (this.restoredEntryOffer?.mode !== mode) return null;
+    const restored = this.restoredEntryOffer;
+    this.restoredEntryOffer = null;
+    return restored;
+  }
+
+  _rememberEntryOffer(mode, choices) {
+    this.activeOfferSnapshot = normalizeEntryOffer({ mode, choices });
+  }
+
   _prepareOffer(mode, titleKey, copyKey) {
     this.offerMode = mode;
+    this.activeOfferSnapshot = null;
     this.offerEl?.classList?.toggle?.('mutation-offer', mode === 'mutation');
     if (this.titleEl) this.titleEl.textContent = this.translate(titleKey);
     if (this.copyEl) this.copyEl.textContent = this.translate(copyKey);
@@ -314,10 +379,14 @@ export class Progression {
     }
     if (!pool.length) pool = basePool.slice();
     if (!pool.length) return false;
-    let picks = pickTwoDistinct(pool, this.rng);
+    const restored = this._consumeRestoredEntryOffer('weapon');
+    let picks = restored
+      ? restored.choices.map(name => basePool.find(candidate => candidate.name === name)).filter(Boolean)
+      : pickTwoDistinct(pool, this.rng);
     picks = this._expandIfTooShort(picks, basePool);
     this._prepareOffer('weapon', 'offer.title', 'offer.select');
     picks.forEach((p, index) => this._appendWeaponChoice(p, index));
+    this._rememberEntryOffer('weapon', picks.map(pick => pick.name));
     this.ws.switchSlot(1);
     this.ws.updateHUD?.();
     return this._showOffer();
@@ -328,14 +397,32 @@ export class Progression {
     const raw = this.ws.getSidearms ? this.ws.getSidearms() : [];
     const sidearms = raw.filter(p => p && p.name !== this._currentSidearmName());
     if (!sidearms.length) return false;
+    const restored = this._consumeRestoredEntryOffer('sidearm');
+    let picks = restored
+      ? restored.choices.map(name => sidearms.find(candidate => candidate.name === name)).filter(Boolean)
+      : sidearms;
+    if (!picks.length) picks = sidearms;
     this._prepareOffer('sidearm', 'offer.sidearmTitle', 'offer.sidearmSelect');
-    sidearms.forEach((p, index) => this._appendWeaponChoice(p, index, { sidearm: true }));
+    picks.forEach((p, index) => this._appendWeaponChoice(p, index, { sidearm: true }));
+    this._rememberEntryOffer('sidearm', picks.map(pick => pick.name));
     return this._showOffer();
   }
 
   _presentMutationOffer() {
     if (!this.offerEl || !this.choicesEl) return false;
-    const picks = this.mutations?.getOffer?.(3) || [];
+    const restored = this._consumeRestoredEntryOffer('mutation');
+    const eligible = restored ? this.mutations?.getEligibleDefinitions?.() || [] : [];
+    let picks = restored
+      ? restored.choices.map(id => eligible.find(definition => definition.id === id)).filter(Boolean)
+      : this.mutations?.getOffer?.(3) || [];
+    const restoredChoiceCount = Math.min(restored?.choices.length || 0, eligible.length);
+    if (restored && picks.length < restoredChoiceCount) {
+      const selected = new Set(picks.map(definition => definition.id));
+      for (const definition of eligible) {
+        if (!selected.has(definition.id)) picks.push(definition);
+        if (picks.length >= restoredChoiceCount) break;
+      }
+    }
     if (!picks.length) return false;
     this._prepareOffer('mutation', 'mutation.offer.title', 'mutation.offer.select');
     picks.forEach((def, index) => {
@@ -370,6 +457,7 @@ export class Progression {
       card.onclick = () => this._selectPick({ mutationId: def.id }, card);
       this.choicesEl.appendChild(card);
     });
+    this._rememberEntryOffer('mutation', picks.map(definition => definition.id));
     return this._showOffer();
   }
 
@@ -448,6 +536,7 @@ export class Progression {
     this.offerOpen = false;
     this.selectedPick = null;
     this.declineSelected = false;
+    this.activeOfferSnapshot = null;
     this.declineBtn?.classList?.remove?.('selected');
     if (this.acceptBtn) this.acceptBtn.disabled = true;
     Array.from(this.choicesEl?.children || []).forEach(child => child.classList?.remove?.('selected'));

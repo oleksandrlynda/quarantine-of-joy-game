@@ -68,6 +68,24 @@ test('wave start after wave one emits wave completion duration before new wave e
   assert.equal(enemyManager.waveStartingAlive, 11);
 });
 
+test('checkpoint resume starts a later wave without awarding the previous wave', () => {
+  const session = new GameSession();
+  const checks = [];
+  const progressionCalls = [];
+  const enemyManager = { wave: 11, waveStartingAlive: 0 };
+  const handler = createWaveStartHandler({
+    session,
+    enemyManager,
+    achievements: { check: event => checks.push(event) },
+    progression: { onWave: (wave, options) => progressionCalls.push([wave, options]) }
+  });
+
+  handler(11, 18, { recordPreviousWave: false, forceWeaponOffer: true });
+
+  assert.deepEqual(checks, [{ type: 'waveStart', number: 11 }]);
+  assert.deepEqual(progressionCalls, [[11, { awardPriorWave: false, forceWeaponOffer: true }]]);
+});
+
 test('wave start resolves progression and story lazily for late main initialization', () => {
   const session = new GameSession();
   const calls = [];

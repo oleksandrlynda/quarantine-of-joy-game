@@ -17,9 +17,12 @@ export function createWaveStartHandler({
   updateHUD = () => {},
   showToast = () => {}
 } = {}) {
-  return function onWaveStart(wave, startingAlive) {
+  return function onWaveStart(wave, startingAlive, {
+    recordPreviousWave = true,
+    forceWeaponOffer = false
+  } = {}) {
     const now = Number(getGameTime()) || 0;
-    if (wave > 1) {
+    if (wave > 1 && recordPreviousWave) {
       achievements?.check?.({
         type: 'waveComplete',
         number: wave - 1,
@@ -38,6 +41,7 @@ export function createWaveStartHandler({
         player,
         objects,
         progression: currentProgression,
+        progressionOptions: { awardPriorWave: recordPreviousWave, forceWeaponOffer },
         story: currentStory
       });
     }

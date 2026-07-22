@@ -465,3 +465,25 @@ test('Clean Sweep requires flawless Wave 5, 10, and 15 boss fights in one run', 
   start(manager);
   assert.equal(manager.run.flawlessBossWaves.size, 0);
 });
+
+test('chapter checkpoint restores run-scoped achievement progress', () => {
+  const { manager } = makeManager();
+  start(manager);
+  manager.check({ type: 'score', amount: 950 });
+  completeWave(manager, 4);
+  manager.check({ type: 'bossStart', wave: 5, bossId: 'boss_5' });
+  manager.check({ type: 'bossDefeated', wave: 5, bossId: 'boss_5' });
+  const checkpoint = manager.exportRunCheckpoint();
+
+  start(manager);
+  assert.equal(manager.run.score, 0);
+  assert.equal(manager.restoreRunCheckpoint(checkpoint), true);
+  assert.equal(manager.run.score, 950);
+  assert.equal(manager.run.completedWaves, 4);
+  assert.equal(manager.run.bossKills, 1);
+  assert.deepEqual([...manager.run.flawlessBossWaves], [5]);
+
+  manager.check({ type: 'score', amount: 50 });
+  assert.equal(manager.run.score, 1000);
+  assert.equal(manager.unlocked.has('rookieScore'), true);
+});

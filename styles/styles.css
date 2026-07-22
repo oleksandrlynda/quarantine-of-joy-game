@@ -639,9 +639,16 @@ body.debug-mode .debug-only-control{ display:block !important; }
 #center.menu-bleed .primary > span,
 #center.menu-bleed .secondary > span{ display:inline-block; transform:skewX(6deg); }
 #center.menu-bleed #play.primary{
+  display:flex; flex-direction:column; align-items:flex-start; gap:3px;
   background:var(--bj-wave, #3dcf7a); color:#062e12;
   padding:16px 22px; font-size:1.18rem; text-align:left; width:100%;
 }
+#center.menu-bleed #play.primary > small{
+  display:block; transform:skewX(6deg); color:#062e12b8;
+  font:600 10px/1.25 "IBM Plex Mono",ui-monospace,monospace;
+  letter-spacing:.04em;
+}
+#center.menu-bleed #play.primary > small[hidden]{ display:none; }
 #center.menu-bleed .menu-sec-row .secondary,
 #center.menu-bleed .menu-settings.secondary{
   flex:1; background:#ffffff14; border:1px solid #ffffff28; color:#fff;
@@ -792,6 +799,13 @@ html[lang="en"] #center.menu-bleed .menu-settings.secondary{
 #center.menu-bleed .reset-data-dialog-actions{ display:flex; flex-direction:column; gap:8px; margin-top:20px; }
 #center.menu-bleed .reset-data-dialog .secondary{
   background:#ffffff12; border:1px solid #ffffff22; color:#fff; padding:11px 14px; text-align:left;
+}
+#center.menu-bleed .new-game-dialog{
+  background:#07140ff7; border-color:#6ecf8e99;
+}
+#center.menu-bleed .new-game-dialog h2{ color:#d9ffe5; }
+#center.menu-bleed .new-game-dialog .primary{
+  width:100%; padding:11px 14px; text-align:left; background:var(--bj-wave, #3dcf7a); color:#062e12;
 }
 #center.menu-bleed .menu-modal-actions{
   display:flex; flex-direction:column; gap:8px; margin-top:8px;
@@ -1313,9 +1327,17 @@ body:has(#newsTicker:not(:empty)) .hud-br{
   #mobileControls #joystick .base{ position:absolute; inset:0; background:#ffffff55; border:2px solid #00000033; border-radius:50%; }
   #mobileControls #joystick .knob{ position:absolute; left:50%; top:50%; width:40px; height:40px; margin-left:-20px; margin-top:-20px; background:var(--panel); border:2px solid #00000055; border-radius:50%; }
   #mobileControls #actionButtons{ position:absolute; right:20px; bottom:20px; display:flex; flex-direction:column; gap:12px; pointer-events:auto; }
-  #mobileControls #actionButtons button{ width:60px; height:60px; border-radius:50%; background:var(--panel); border:2px solid #00000018; box-shadow:0 10px 30px #00000022; font-size:24px; font-weight:800; }
+  #mobileControls #actionButtons button{ position:relative; display:grid; place-items:center; width:60px; height:60px; padding:0; border-radius:50%; background:#f7fbfff2; border:2px solid #ffffff80; box-shadow:0 10px 30px #00000055; font-size:24px; font-weight:800; }
+  #mobileControls #actionButtons button[hidden]{ display:none !important; }
   #mobileControls #actionButtons button:disabled{ opacity:.35; filter:grayscale(1); }
+  #mobileControls #actionButtons .mobile-action img{ display:block; width:31px; height:31px; pointer-events:none; }
   #mobileControls #btnRush{ color:#67e8f9; border-color:#67e8f988; font-size:18px; }
+  #mobileControls #btnRush:disabled{ opacity:.78; filter:none; }
+  .mobile-action-value{
+    position:absolute; right:-3px; top:-3px; display:grid; place-items:center; min-width:18px; height:18px; padding:0 3px;
+    border-radius:9px; color:#06131b; background:#67e8f9; border:2px solid #f7fbff; font:800 9px/1 "IBM Plex Mono",monospace;
+  }
+  .mobile-action-value:empty{ display:none; }
   #achievements{ top:20px; bottom:auto; left:50%; right:auto; transform:translateX(-50%); width:min(calc(100% - 40px),360px); }
   #achievements .achievement{ width:100%; }
   #toasts{ top:64px; right:12px; }
@@ -1332,6 +1354,152 @@ body:has(#newsTicker:not(:empty)) .hud-br{
   #offer .card{ width:min(94vw,500px); padding:18px; }
   #offer .choices{ grid-template-columns:1fr; }
   #offer .actions{ grid-template-columns:1fr; }
+}
+
+/* Landscape phones need their own HUD composition. The desktop panels are too
+   tall for the space between the top rail and the touch controls, and the ammo
+   stack otherwise sits directly underneath the action buttons. */
+@media (pointer:coarse) and (orientation:landscape){
+  .hud-tl{
+    top:50%;
+    left:max(10px,env(safe-area-inset-left,0px));
+  }
+  .hud-tl #wavePill{ min-width:78px; padding:6px 9px; }
+  .hud-tl .wave-num{ font-size:11px; }
+  .hud-tl .wave-sub{ font-size:9px; }
+
+  .hud-tc{ top:max(8px,env(safe-area-inset-top,0px)); gap:4px; }
+  .hud-tc .score-block{ min-width:68px; padding:4px 10px 5px; font-size:19px; }
+  .hud-tc #combo{ padding:3px 9px 5px; font-size:9px; }
+  #hud.boss-active .hud-tc{ gap:6px; }
+
+  .hud-bl{
+    left:max(10px,env(safe-area-inset-left,0px));
+    bottom:max(112px,calc(env(safe-area-inset-bottom,0px) + 104px));
+    gap:7px; transform:scale(.68); transform-origin:bottom left;
+  }
+  .hud-bl .hp-label,.hud-bl .stam-label,.hud-bl .armor-label{ display:none; }
+  .hud-bl .meter-blocks{ padding:6px 8px; }
+  .hud-br{
+    top:max(8px,env(safe-area-inset-top,0px)); right:max(80px,calc(env(safe-area-inset-right,0px) + 72px)); bottom:auto;
+    gap:6px; transform:scale(.72); transform-origin:top right;
+  }
+  #hud.ability-active .hud-br{
+    flex-direction:row; align-items:flex-start; transform:scale(.62);
+  }
+  #hud.ability-active .hud-tc{ left:45%; }
+  body:has(#newsTicker:not(:empty)) .hud-bl{
+    bottom:max(112px,calc(env(safe-area-inset-bottom,0px) + 104px));
+  }
+  body:has(#newsTicker:not(:empty)) .hud-br{ bottom:auto; }
+
+  .objective-tracker{
+    top:max(8px,env(safe-area-inset-top,0px));
+    left:max(120px,calc(env(safe-area-inset-left,0px) + 116px));
+    right:calc(50% + 54px); width:auto; max-width:none; min-width:0; transform:none;
+    padding:5px 8px 6px; border-left-width:3px; overflow:hidden;
+  }
+  #hud.ability-active .objective-tracker{ right:calc(55% + 60px); }
+  .objective-tracker .objective-kicker{
+    overflow:hidden; font-size:6px; line-height:1.1; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .objective-tracker strong{
+    overflow:hidden; margin-top:2px; font-size:clamp(8px,1.55vw,11px); line-height:1.1; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .objective-tracker #objectiveDetail{ display:none; }
+  .objective-progress{ height:3px; margin-top:5px; }
+
+  .hud-util{ display:none; }
+  .hud-help{ bottom:max(102px,calc(env(safe-area-inset-bottom,0px) + 94px)); padding:4px 9px; font-size:8px; }
+  .hud-weapon-picker{ bottom:max(102px,calc(env(safe-area-inset-bottom,0px) + 94px)); }
+  #toasts{ top:62px; right:max(76px,calc(env(safe-area-inset-right,0px) + 68px)); }
+
+  #mobileControls #joystick{
+    left:max(14px,env(safe-area-inset-left,0px)); bottom:max(14px,env(safe-area-inset-bottom,0px));
+    width:90px; height:90px;
+  }
+  #mobileControls #joystick .knob{ width:36px; height:36px; margin-left:-18px; margin-top:-18px; }
+  #mobileControls #actionButtons{
+    right:max(14px,env(safe-area-inset-right,0px)); bottom:max(14px,env(safe-area-inset-bottom,0px)); gap:7px;
+  }
+  #mobileControls #actionButtons button{ width:52px; height:52px; font-size:21px; }
+  #mobileControls #actionButtons .mobile-action img{ width:28px; height:28px; }
+  #mobileControls #btnRush{ font-size:15px; }
+}
+
+@media (pointer:coarse) and (orientation:landscape) and (max-width:620px){
+  #hud.ability-active .hud-tc{ left:44%; }
+  #hud.ability-active .hud-br{
+    right:max(68px,calc(env(safe-area-inset-right,0px) + 60px));
+    transform:scale(.56);
+  }
+}
+
+/* Keep menu dialogs compact on landscape phones. They share the short screen
+   with browser chrome and safe areas, so desktop modal widths feel oversized
+   even when their content technically fits. */
+@media (pointer:coarse) and (orientation:landscape){
+  #center.menu-bleed > #defeatMenu.menu-modal,
+  #center.menu-bleed > #pauseMenu.menu-modal,
+  #center.menu-bleed > #settingsMenu.menu-modal,
+  #center.menu-bleed > #achievementsMenu.menu-modal,
+  #center.menu-bleed > #archiveMenu.menu-modal,
+  #center.menu-bleed > #debugLogMenu.menu-modal,
+  #center.menu-bleed > #tutorialCompleteMenu.menu-modal{
+    top:max(8px,env(safe-area-inset-top,0px));
+    width:min(78vw,600px);
+    max-height:calc(100svh - 16px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));
+    padding:14px 16px;
+    transform:translate(-50%,-50%);
+    box-sizing:border-box;
+    scrollbar-width:thin;
+  }
+  #center.menu-bleed > #settingsMenu.settings-menu,
+  #center.menu-bleed > #achievementsMenu.achievements-board,
+  #center.menu-bleed > #archiveMenu.archive-menu,
+  #center.menu-bleed > #debugLogMenu.debug-log-menu{ width:min(82vw,660px); }
+  #center.menu-bleed > #pauseMenu.pause-menu{ width:min(76vw,520px); padding:0; }
+  #center.menu-bleed > #tutorialCompleteMenu.tutorial-complete-menu{ width:min(76vw,520px); padding:16px 18px; }
+
+  #center.menu-bleed .menu-modal h2{ margin-bottom:8px; font-size:1.1rem; }
+  .menu-eyebrow{ font-size:8px; }
+  .defeat-stats{ grid-template-columns:repeat(4,minmax(0,1fr)); gap:5px; margin:10px 0; }
+  .defeat-stats div{ gap:4px; min-width:0; padding:8px; }
+  .defeat-stats span{ overflow-wrap:anywhere; font-size:7px; }
+  .defeat-stats strong{ overflow:hidden; font-size:1.1rem; text-overflow:ellipsis; }
+  #center.menu-bleed #defeatMenu .menu-modal-actions{
+    display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; margin-top:0;
+  }
+  #center.menu-bleed #defeatMenu .primary,
+  #center.menu-bleed #defeatMenu .secondary{
+    min-width:0; min-height:34px; padding:7px 9px; font-size:.74rem; overflow-wrap:anywhere;
+  }
+
+  .pause-head{ padding:11px 14px 8px; }
+  .pause-head h2{ margin:3px 0 0 !important; font-size:1.35rem !important; }
+  .pause-head p{ display:none; }
+  .pause-mark{ height:32px; padding:7px 8px; }
+  .pause-eyebrow{ font-size:8px; }
+  #center.menu-bleed .pause-stats{ margin:0 14px 8px; }
+  #center.menu-bleed .pause-stats > div{ padding:7px 9px; }
+  #center.menu-bleed .pause-stats span{ font-size:7px; }
+  #center.menu-bleed .pause-stats strong{ margin-top:5px; font-size:1rem; }
+  #center.menu-bleed .pause-actions{ gap:5px; padding:0 14px 11px; }
+  #center.menu-bleed .pause-resume{ min-height:42px; padding:8px 48px 8px 13px !important; }
+  #center.menu-bleed .pause-resume > span{ align-self:center; font-size:.9rem; }
+  #center.menu-bleed .pause-resume small{ display:none; }
+  .pause-action-grid{ grid-template-columns:repeat(3,minmax(0,1fr)); gap:5px; }
+  #center.menu-bleed .pause-action-grid .secondary{ min-height:34px; padding:7px 8px; font-size:.7rem; }
+  #center.menu-bleed .pause-main-menu{ margin-top:2px; padding-top:7px; font-size:.72rem; }
+
+  #center.menu-bleed .reset-data-dialog{
+    width:min(76vw,400px); max-height:calc(100svh - 16px); padding:14px 16px;
+  }
+  #center.menu-bleed .reset-data-dialog h2{ margin-bottom:7px; font-size:1.05rem; }
+  #center.menu-bleed .reset-data-dialog p{ font-size:12px; line-height:1.35; }
+  #center.menu-bleed .reset-data-dialog-actions{
+    display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; margin-top:12px;
+  }
 }
 
 /* Punchline Mutations */
@@ -1405,4 +1573,23 @@ body:has(#newsTicker:not(:empty)) .hud-br{
   .archive-grid,.defeat-stats{ grid-template-columns:1fr; }
   #offer.mutation-offer .choices{ grid-template-columns:1fr; }
   .mutation-choice{ min-height:190px; }
+}
+
+/* Defeat and Archive are authored later than the shared menus above, so their
+   landscape-phone sizing must finish the cascade here. */
+@media (pointer:coarse) and (orientation:landscape){
+  #center.menu-bleed > #defeatMenu.menu-modal,
+  #center.menu-bleed > #archiveMenu.menu-modal{
+    top:50%;
+    max-height:calc(100svh - 16px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));
+    padding:14px 16px;
+    transform:translate(-50%,-50%);
+  }
+  #center.menu-bleed > #defeatMenu.menu-modal{ width:min(78vw,600px); }
+  #center.menu-bleed > #archiveMenu.menu-modal{ width:min(82vw,660px); }
+  .menu-eyebrow{ font-size:8px; }
+  .defeat-stats{ grid-template-columns:repeat(4,minmax(0,1fr)); gap:5px; margin:10px 0; }
+  .defeat-stats div{ gap:4px; min-width:0; padding:8px; }
+  .defeat-stats span{ overflow-wrap:anywhere; font-size:7px; }
+  .defeat-stats strong{ overflow:hidden; font-size:1.1rem; text-overflow:ellipsis; }
 }

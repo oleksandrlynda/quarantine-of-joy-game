@@ -215,6 +215,42 @@ test('Grenade trial creates Slot 3 for one run but reset removes an unowned tria
   assert.deepEqual(ws.inventory.map(weapon => weapon.name), ['Pistol']);
 });
 
+test('chapter checkpoint restores the earned weapon and tactical layout at full ammo', () => {
+  const mutations = {
+    hasWeaponAccess: () => true,
+    isWeaponOwned: weapon => weapon === 'grenade',
+    discoverWeapon() {}
+  };
+  const ws = new WeaponSystem({ updateHUD: () => {}, mutations });
+  ws.swapPrimary(() => new Shotgun());
+  ws.ensureGrenadeSlot();
+  ws.switchSlot(2);
+  const checkpoint = ws.exportCheckpointState();
+  ws.inventory[0].ammoInMag = 0;
+
+  ws.resetRunInventory();
+  assert.equal(ws.restoreCheckpointState(checkpoint), true);
+  assert.deepEqual(ws.inventory.map(weapon => weapon.name), ['Shotgun', 'Pistol', 'Grenade']);
+  assert.equal(ws.current.name, 'Pistol');
+  assert.equal(ws.inventory[0].getAmmo() > 0, true);
+});
+
+test('legacy post-campaign fallback respects classified ownership', () => {
+  const unowned = new WeaponSystem({
+    updateHUD: () => {},
+    mutations: { isWeaponOwned: () => false, discoverWeapon() {} }
+  });
+  unowned.setPostCampaignLoadout();
+  assert.deepEqual(unowned.inventory.map(weapon => weapon.name), ['SMG', 'Pistol']);
+
+  const owned = new WeaponSystem({
+    updateHUD: () => {},
+    mutations: { isWeaponOwned: weapon => weapon === 'rifle', discoverWeapon() {} }
+  });
+  owned.setPostCampaignLoadout();
+  assert.deepEqual(owned.inventory.map(weapon => weapon.name), ['Rifle', 'SMG', 'Pistol']);
+});
+
 test('legacy Dynamite tactical state cannot create an active weapon slot', () => {
   const mutations = {
     getEquippedTactical: () => 'dynamite',

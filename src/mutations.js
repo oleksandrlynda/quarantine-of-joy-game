@@ -1,5 +1,6 @@
 import { getJSON, setJSON } from './util/storage.js';
 import { ABILITY_BY_ID, normalizeAbilityId } from './abilities/definitions.js?v=1.0.3-dynamite-grade2';
+import { CAMPAIGN_REWARD_LEDGER_KEY } from './game/campaign-checkpoint.js';
 
 export const ARCHIVE_STORAGE_KEY = 'qoj_archive_v1';
 export const ARCHIVE_SCHEMA_VERSION = 11;
@@ -201,6 +202,21 @@ function emptyRanks() {
   return Object.fromEntries(MUTATION_DEFINITIONS.map(def => [def.id, 0]));
 }
 
+function sanitizeRewardList(values) {
+  if (!Array.isArray(values)) return [];
+  return [...new Set(values
+    .map(value => Math.floor(Number(value) || 0))
+    .filter(value => value > 0))]
+    .sort((a, b) => a - b);
+}
+
+function sanitizeCampaignRewardLedger(raw) {
+  return {
+    waves: sanitizeRewardList(raw?.waves),
+    bosses: sanitizeRewardList(raw?.bosses)
+  };
+}
+
 function callbackProfileForRank(rank) {
   const resolvedRank = Math.min(10, Math.max(0, Math.floor(Number(rank) || 0)));
   if (resolvedRank <= 0) return { enabled: false, rank: 0, cadence: CALLBACK_ELIMINATION_CADENCE, radius: 0, pushDistance: 0 };
@@ -230,6 +246,7 @@ export class ArchiveMutations {
       : priorBestWave > SURVIVAL_EARLY_UNLOCK_WAVE ? SURVIVAL_EARLY_UNLOCK_WAVE : 0;
     if (priorSurvivalWave > this.state.survivalUnlockWave) this.state.survivalUnlockWave = priorSurvivalWave;
     if (JSON.stringify(raw) !== JSON.stringify(this.state)) setJSON(ARCHIVE_STORAGE_KEY, this.state, this.storage);
+    this.campaignRewards = sanitizeCampaignRewardLedger(getJSON(CAMPAIGN_REWARD_LEDGER_KEY, null, storage));
     this.resetRun({ tutorial: false });
   }
 
@@ -272,6 +289,50 @@ export class ArchiveMutations {
       trialWeapons: [...this.run.trialWeapons],
       callbackEliminations: this.run.callbackEliminations
     };
+  }
+
+  exportRunCheckpoint() {
+    return {
+      ranks: { ...this.run.ranks },
+      points: this.run.points,
+      fragmentsEarned: this.run.fragmentsEarned,
+      waveRewards: [...this.run.waveRewards],
+      bossRewards: [...this.run.bossRewards],
+      trialWeapons: [...this.run.trialWeapons],
+      callbackEliminations: this.run.callbackEliminations
+    };
+  }
+
+  restoreRunCheckpoint(snapshot) {
+    if (!snapshot || this.run.tutorial || this.run.debug) return false;
+    const ranks = emptyRanks();
+    for (const definition of MUTATION_DEFINITIONS) {
+      const rank = Math.max(0, Math.floor(Number(snapshot.ranks?.[definition.id]) || 0));
+      ranks[definition.id] = Math.min(definition.maxRank, this.getMutationRankCap(definition.id), rank);
+    }
+    this.run.ranks = ranks;
+    this.run.points = Math.min(MAX_RUN_MUTATION_POINTS, Math.max(0, Math.floor(Number(snapshot.points) || 0)));
+    this.run.fragmentsEarned = Math.max(0, Math.floor(Number(snapshot.fragmentsEarned) || 0));
+    this.run.waveRewards = new Set(sanitizeRewardList(snapshot.waveRewards));
+    this.run.bossRewards = new Set(sanitizeRewardList(snapshot.bossRewards));
+    this.run.trialWeapons = new Set((Array.isArray(snapshot.trialWeapons) ? snapshot.trialWeapons : [])
+      .map(normalizeWeaponId)
+      .filter(id => CLASSIFIED_BY_ID.has(id) && this.isWeaponRevealed(id) && !this.isWeaponOwned(id)));
+    this.run.callbackEliminations = Math.max(0, Math.floor(Number(snapshot.callbackEliminations) || 0));
+    this.onRunChange?.(this.getRunState());
+    return true;
+  }
+
+  _saveCampaignRewardLedger() {
+    setJSON(CAMPAIGN_REWARD_LEDGER_KEY, {
+      waves: [...this.campaignRewards.waves].sort((a, b) => a - b),
+      bosses: [...this.campaignRewards.bosses].sort((a, b) => a - b)
+    }, this.storage);
+  }
+
+  resetCampaignRewardLedger() {
+    this.campaignRewards = { waves: [], bosses: [] };
+    this._saveCampaignRewardLedger();
   }
 
   resetRun({ tutorial = false, debug = false } = {}) {
@@ -680,8 +741,17 @@ export class ArchiveMutations {
   onWaveStarted(wave) {
     const current = Math.max(1, Math.floor(Number(wave) || 1));
     const cleared = current - 1;
-    if (this.run.tutorial || this.run.debug || cleared < 2 || cleared % 2 !== 0 || this.run.waveRewards.has(cleared)) return 0;
+    if (
+      this.run.tutorial
+      || this.run.debug
+      || cleared < 2
+      || cleared % 2 !== 0
+      || this.run.waveRewards.has(cleared)
+      || this.campaignRewards.waves.includes(cleared)
+    ) return 0;
     this.run.waveRewards.add(cleared);
+    this.campaignRewards.waves.push(cleared);
+    this._saveCampaignRewardLedger();
     return this._awardFragments(cleared > 15 ? 2 : 1);
   }
 
@@ -689,8 +759,16 @@ export class ArchiveMutations {
     const bossWave = Math.max(0, Math.floor(Number(wave) || 0));
     session?.repairArmor?.();
     this.revealSurvivalMutations(bossWave);
-    if (this.run.tutorial || this.run.debug || bossWave <= 0 || this.run.bossRewards.has(bossWave)) return 0;
+    if (
+      this.run.tutorial
+      || this.run.debug
+      || bossWave <= 0
+      || this.run.bossRewards.has(bossWave)
+      || this.campaignRewards.bosses.includes(bossWave)
+    ) return 0;
     this.run.bossRewards.add(bossWave);
+    this.campaignRewards.bosses.push(bossWave);
+    this._saveCampaignRewardLedger();
     return this._awardFragments(bossWave > 15 ? 4 : 2);
   }
 

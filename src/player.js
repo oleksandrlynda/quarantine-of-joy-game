@@ -1,4 +1,4 @@
-import { PointerLockControls } from 'https://unpkg.com/three@0.159.0/examples/jsm/controls/PointerLockControls.js?module';
+import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { logError } from '../src/util/log.js';
 
 const MAX_LOOK_RADIANS_PER_EVENT = Math.PI / 4;
@@ -106,6 +106,7 @@ export class PlayerController {
       min: new THREE.Vector3(),
       max: new THREE.Vector3(),
       pbb: new THREE.Box3(),
+      sweptPbb: new THREE.Box3(),
       up: new THREE.Vector3(0,1,0),
       down: new THREE.Vector3(0,-1,0),
     };
@@ -415,22 +416,59 @@ export class PlayerController {
       t.min.set(nx - this.colliderHalf.x, Math.max(0.0, feetY + 0.05), nz - this.colliderHalf.z);
       t.max.set(nx + this.colliderHalf.x, feetY + this.fullHeight,  nz + this.colliderHalf.z);
       t.pbb.min.copy(t.min); t.pbb.max.copy(t.max);
+      const currentMinX = pos.x - this.colliderHalf.x;
+      const currentMaxX = pos.x + this.colliderHalf.x;
+      const currentMinZ = pos.z - this.colliderHalf.z;
+      const currentMaxZ = pos.z + this.colliderHalf.z;
+      // Test the complete axis motion, not only its destination. A boss
+      // impulse, rush, turbo frame, or long frame can otherwise move the body
+      // from one side of a thin post to the other without the final AABB ever
+      // touching it.
+      t.sweptPbb.min.set(
+        Math.min(currentMinX, t.min.x),
+        t.min.y,
+        Math.min(currentMinZ, t.min.z)
+      );
+      t.sweptPbb.max.set(
+        Math.max(currentMaxX, t.max.x),
+        t.max.y,
+        Math.max(currentMaxZ, t.max.z)
+      );
       for(const obb of this.objectBBs){
-        if(t.pbb.intersectsBox(obb)){
+        const nextIntersects = t.pbb.intersectsBox(obb);
+        if (!nextIntersects && !t.sweptPbb.intersectsBox(obb)) continue;
+
+        const currentOverlapX = Math.min(currentMaxX, obb.max.x) - Math.max(currentMinX, obb.min.x);
+        const currentOverlapY = Math.min(t.max.y, obb.max.y) - Math.max(t.min.y, obb.min.y);
+        const currentOverlapZ = Math.min(currentMaxZ, obb.max.z) - Math.max(currentMinZ, obb.min.z);
+        const currentlyPenetrating = currentOverlapX > 0 && currentOverlapY > 0 && currentOverlapZ > 0;
+
+        // A swept hit with a clear destination is either tunnelling from free
+        // space (block it), or a complete escape from an existing overlap
+        // caused by phase activation (allow it).
+        if (!nextIntersects) {
+          if (currentlyPenetrating) {
+            const currentAxisOffset = dx !== 0
+              ? pos.x - (obb.min.x + obb.max.x) * .5
+              : pos.z - (obb.min.z + obb.max.z) * .5;
+            const nextAxisOffset = dx !== 0
+              ? nx - (obb.min.x + obb.max.x) * .5
+              : nz - (obb.min.z + obb.max.z) * .5;
+            const crossesColliderCenter = currentAxisOffset * nextAxisOffset < 0;
+            const movesOutward = Math.abs(nextAxisOffset) > Math.abs(currentAxisOffset) + 1e-8;
+            if (!crossesColliderCenter && movesOutward) continue;
+          }
+          return false;
+        }
+
+        if(nextIntersects){
           // A collider can become active while the player is already touching
           // it (objective variants do this), and floating-point/axis-separated
           // movement can also leave a tiny overlap at a rounded prop. Blocking
           // every still-intersecting step traps the player permanently. Permit
           // only steps that strictly reduce the existing overlap volume; steps
           // that hold or increase penetration remain blocked.
-          const currentMinX = pos.x - this.colliderHalf.x;
-          const currentMaxX = pos.x + this.colliderHalf.x;
-          const currentMinZ = pos.z - this.colliderHalf.z;
-          const currentMaxZ = pos.z + this.colliderHalf.z;
-          const currentOverlapX = Math.min(currentMaxX, obb.max.x) - Math.max(currentMinX, obb.min.x);
-          const currentOverlapY = Math.min(t.max.y, obb.max.y) - Math.max(t.min.y, obb.min.y);
-          const currentOverlapZ = Math.min(currentMaxZ, obb.max.z) - Math.max(currentMinZ, obb.min.z);
-          if (currentOverlapX > 0 && currentOverlapY > 0 && currentOverlapZ > 0) {
+          if (currentlyPenetrating) {
             const nextOverlapX = Math.min(t.max.x, obb.max.x) - Math.max(t.min.x, obb.min.x);
             const nextOverlapZ = Math.min(t.max.z, obb.max.z) - Math.max(t.min.z, obb.min.z);
             const currentPenetration = currentOverlapX * currentOverlapY * currentOverlapZ;
@@ -605,6 +643,19 @@ export class PlayerController {
     this.stamina = this.staminaMax;
     this._staminaRegenCooldown = 0;
     return this.staminaMax;
+  }
+
+  exportCheckpointState(){
+    return { staminaMax: this.staminaMax };
+  }
+
+  restoreCheckpointState(snapshot){
+    if (!snapshot) return false;
+    this._finishRush();
+    this.staminaMax = Math.max(this.baseStaminaMax, Number(snapshot.staminaMax) || this.baseStaminaMax);
+    this.stamina = this.staminaMax;
+    this._staminaRegenCooldown = 0;
+    return true;
   }
 
   // --- Internal stamina helpers ---

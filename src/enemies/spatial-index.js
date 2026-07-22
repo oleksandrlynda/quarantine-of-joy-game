@@ -1,5 +1,4 @@
 const cellCoord = (value, cellSize) => Math.floor(value / cellSize);
-const cellKey = (x, y, z) => `${x},${y},${z}`;
 
 export function closestPointOnSegmentXZ(point, start, end) {
   const dx = end.x - start.x;
@@ -64,11 +63,20 @@ export class EnemySpatialIndex {
       const cx = cellCoord(root.position.x, this.cellSize);
       const cy = cellCoord(root.position.y, this.verticalCellSize);
       const cz = cellCoord(root.position.z, this.cellSize);
-      const key = cellKey(cx, cy, cz);
-      let bucket = this.cells.get(key);
+      let yCells = this.cells.get(cx);
+      if (!yCells) {
+        yCells = new Map();
+        this.cells.set(cx, yCells);
+      }
+      let zCells = yCells.get(cy);
+      if (!zCells) {
+        zCells = new Map();
+        yCells.set(cy, zCells);
+      }
+      let bucket = zCells.get(cz);
       if (!bucket) {
         bucket = [];
-        this.cells.set(key, bucket);
+        zCells.set(cz, bucket);
       }
       bucket.push(entry);
       this.size++;
@@ -86,26 +94,43 @@ export class EnemySpatialIndex {
     const maxX = cellCoord(position.x + radius, this.cellSize);
     const minZ = cellCoord(position.z - radius, this.cellSize);
     const maxZ = cellCoord(position.z + radius, this.cellSize);
-    const minY = Number.isFinite(verticalRadius)
-      ? cellCoord(position.y - verticalRadius, this.verticalCellSize)
-      : -100;
-    const maxY = Number.isFinite(verticalRadius)
-      ? cellCoord(position.y + verticalRadius, this.verticalCellSize)
-      : 100;
+    const hasVerticalLimit = Number.isFinite(verticalRadius);
+    const minY = hasVerticalLimit ? cellCoord(position.y - verticalRadius, this.verticalCellSize) : 0;
+    const maxY = hasVerticalLimit ? cellCoord(position.y + verticalRadius, this.verticalCellSize) : 0;
     const radiusSq = radius * radius;
     for (let cx = minX; cx <= maxX; cx++) {
-      for (let cy = minY; cy <= maxY; cy++) {
-        for (let cz = minZ; cz <= maxZ; cz++) {
-          const bucket = this.cells.get(cellKey(cx, cy, cz));
-          if (!bucket) continue;
-          for (const entry of bucket) {
-            if (entry.root === excludeRoot) continue;
-            if (layer && entry.profile.movementLayer !== layer) continue;
-            const dx = entry.root.position.x - position.x;
-            const dz = entry.root.position.z - position.z;
-            if (dx * dx + dz * dz > radiusSq) continue;
-            if (Number.isFinite(verticalRadius) && Math.abs(entry.root.position.y - position.y) > verticalRadius) continue;
-            out.push(entry);
+      const yCells = this.cells.get(cx);
+      if (!yCells) continue;
+      if (hasVerticalLimit) {
+        for (let cy = minY; cy <= maxY; cy++) {
+          const zCells = yCells.get(cy);
+          if (!zCells) continue;
+          for (let cz = minZ; cz <= maxZ; cz++) {
+            const bucket = zCells.get(cz);
+            if (!bucket) continue;
+            for (const entry of bucket) {
+              if (entry.root === excludeRoot) continue;
+              if (layer && entry.profile.movementLayer !== layer) continue;
+              const dx = entry.root.position.x - position.x;
+              const dz = entry.root.position.z - position.z;
+              if (dx * dx + dz * dz > radiusSq) continue;
+              if (Math.abs(entry.root.position.y - position.y) > verticalRadius) continue;
+              out.push(entry);
+            }
+          }
+        }
+      } else {
+        for (const zCells of yCells.values()) {
+          for (let cz = minZ; cz <= maxZ; cz++) {
+            const bucket = zCells.get(cz);
+            if (!bucket) continue;
+            for (const entry of bucket) {
+              if (entry.root === excludeRoot) continue;
+              if (layer && entry.profile.movementLayer !== layer) continue;
+              const dx = entry.root.position.x - position.x;
+              const dz = entry.root.position.z - position.z;
+              if (dx * dx + dz * dz <= radiusSq) out.push(entry);
+            }
           }
         }
       }

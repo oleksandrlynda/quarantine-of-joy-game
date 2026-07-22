@@ -28,11 +28,34 @@ test('all twelve Blackout Cistern spawn entrances survive authored collision val
   })), []);
 });
 
+test('Blackout Cistern tank pads also clear production runtime AABBs', () => {
+  const tankPads = BLACKOUT_CISTERN.entrances.filter(entrance => !entrance.air && entrance.allow.includes('tank'));
+  const failures = [];
+  for (const entrance of tankPads) {
+    const radius = entrance.clearance.tank;
+    const [x, , z] = entrance.position;
+    for (const collider of BLACKOUT_CISTERN.colliders) {
+      if (collider.blocksMovement === false || collider.blocksSpawn === false) continue;
+      const [cx, , cz] = collider.position;
+      const [width, , depth] = collider.size;
+      const yaw = collider.rotation?.[1] || 0;
+      const halfX = Math.abs(Math.cos(yaw)) * width / 2 + Math.abs(Math.sin(yaw)) * depth / 2;
+      const halfZ = Math.abs(Math.sin(yaw)) * width / 2 + Math.abs(Math.cos(yaw)) * depth / 2;
+      if (Math.abs(x - cx) <= radius + halfX && Math.abs(z - cz) <= radius + halfZ) {
+        failures.push({ entrance: entrance.id, collider: collider.id });
+      }
+    }
+  }
+
+  assert.deepEqual(failures, []);
+});
+
 test('campaign routing loads Blackout Cistern after Greywater and restarts after the finale', () => {
   const main = fs.readFileSync(new URL('../src/main.js', import.meta.url), 'utf8');
+  const checkpoints = fs.readFileSync(new URL('../src/game/campaign-checkpoint.js', import.meta.url), 'utf8');
   assert.match(main, /if \(wave >= 73\) return BLACKOUT_CISTERN/);
-  assert.match(main, /bs3d_greywater_complete[^\n]+return 73/);
-  assert.match(main, /bs3d_lastlight_complete[^\n]+return 1/);
+  assert.match(checkpoints, /greywaterComplete[^\n]+return 73/);
+  assert.match(checkpoints, /lastLightComplete[^\n]+return 1/);
   assert.match(main, /relayLevel\.load\(BLACKOUT_CISTERN\)/);
   assert.match(main, /setString\('bs3d_lastlight_complete', '1'\)/);
   assert.match(main, /wave72Visuals\.setFinalSearchlight\(true\)/);

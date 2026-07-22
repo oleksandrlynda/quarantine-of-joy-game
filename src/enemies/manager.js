@@ -2,7 +2,7 @@ import { MeleeEnemy } from './melee.js';
 import { ShooterEnemy } from './shooter.js';
 import { FlyerEnemy } from './flyer.js';
 import { PropagandaPelicanEnemy } from './pelican.js';
-import { HealerEnemy } from './healer.js';
+import { HealerEnemy } from './healer.js?rev=boundary-escape1';
 import { SniperEnemy } from './sniper.js';
 import { logError } from '../util/log.js';
 import { RusherEnemy } from './rusher.js?rev=campaign-aim-resource-recovery1';
@@ -58,6 +58,7 @@ export class EnemyManager {
     this._separationOrder = new WeakMap();
     this._nextSeparationOrder = 1;
     this._allyBypass = new WeakMap();
+    this._movementTelemetry = new WeakMap();
     this._airAttackReservations = new Map();
     this.onAIEvent = null;
     this.wave = 1;
@@ -338,9 +339,10 @@ export class EnemyManager {
 
   _profileForRoot(root) {
     const inst = this.instanceByRoot?.get(root);
-    const bossProfile = resolveBossBehaviorProfile(root?.userData?.type || inst?.root?.userData?.type);
-    if (bossProfile) return bossProfile;
     const behaviorId = root?.userData?.behaviorId || inst?.behaviorId || root?.userData?.type;
+    const bossProfile = resolveBossBehaviorProfile(behaviorId)
+      || resolveBossBehaviorProfile(root?.userData?.type || inst?.root?.userData?.type);
+    if (bossProfile) return bossProfile;
     return resolveBehaviorProfile(behaviorId);
   }
 
@@ -356,6 +358,27 @@ export class EnemyManager {
     if (!root || !type) return;
     const event = { at: this._aiClock || 0, root, enemyId: root.userData?.type || root.userData?.behaviorId, type, ...data };
     try { this.onAIEvent?.(event); } catch (e) { logError(e); }
+  }
+
+  _emitMovementTelemetry(root, type, data = {}) {
+    if (!root || !type) return;
+    let states = this._movementTelemetry.get(root);
+    if (!states) {
+      states = new Map();
+      this._movementTelemetry.set(root, states);
+    }
+    const key = `${type}:${data.blockedBy || ''}`;
+    const now = this._aiClock || 0;
+    const previous = states.get(key);
+    if (previous && previous.blockerRoot === (data.blockerRoot || null) && now - previous.at < 0.5) {
+      previous.suppressedRepeats++;
+      return;
+    }
+    this._emitAIEvent(root, type, {
+      ...data,
+      suppressedRepeats: previous?.suppressedRepeats || 0
+    });
+    states.set(key, { at: now, blockerRoot: data.blockerRoot || null, suppressedRepeats: 0 });
   }
 
   _setAIState(root, state, data = null) {
@@ -965,7 +988,7 @@ export class EnemyManager {
     other.position.x = nx;
     other.position.z = nz;
     if (otherProfile.movementLayer === 'ground') other.position.y = this._groundHeightAt(nx, nz) + otherProfile.groundOffset;
-    this._emitAIEvent(moverRoot, 'ally_displaced', { blockerRoot: other, distance });
+    this._emitMovementTelemetry(moverRoot, 'ally_displaced', { blockerRoot: other, distance });
     return true;
   }
 
@@ -1115,13 +1138,13 @@ export class EnemyManager {
           slid = true;
           result.slidAround = 'ally';
           result.blockerRoot = blocker;
-          this._emitAIEvent(enemy, 'movement_slid_around_ally', { blockerRoot: blocker, distance: slideLength });
+          this._emitMovementTelemetry(enemy, 'movement_slid_around_ally', { blockerRoot: blocker, distance: slideLength });
         }
       }
       if (!slid) {
         result.blockedBy = 'ally';
         result.blockerRoot = earliest.entry.root;
-        this._emitAIEvent(enemy, 'movement_blocked', { blockedBy: 'ally', blockerRoot: earliest.entry.root });
+        this._emitMovementTelemetry(enemy, 'movement_blocked', { blockedBy: 'ally', blockerRoot: earliest.entry.root });
       }
     }
 
@@ -1182,7 +1205,7 @@ export class EnemyManager {
 
     enemy.position.set(px, py, pz);
     result.appliedDistance = Math.hypot(px - startX, pz - startZ);
-    if (result.blockedBy === 'world') this._emitAIEvent(enemy, 'movement_blocked', { blockedBy: 'world' });
+    if (result.blockedBy === 'world') this._emitMovementTelemetry(enemy, 'movement_blocked', { blockedBy: 'world' });
     return result;
   }
 
@@ -1446,20 +1469,29 @@ export class EnemyManager {
     }
 
     let spawnBudget = 2;
-    while (spawnBudget > 0 && state.spawnCooldown <= 0 && state.reserve.length) {
+    let attemptsRemaining = state.reserve.length;
+    let spawnFailed = false;
+    while (spawnBudget > 0 && state.spawnCooldown <= 0 && state.reserve.length && attemptsRemaining-- > 0) {
       if (this.enemies.size >= definition.activeCap) break;
       const reserveIndex = state.reserve.findIndex(item => this._canSpawnSpecialWaveType(item.type));
       if (reserveIndex < 0) break;
       const [item] = state.reserve.splice(reserveIndex, 1);
       const root = this.spawn(item.type);
       if (!root) {
-        state.reserve.unshift(item);
-        state.spawnCooldown = definition.spawnIntervalSeconds * 2;
-        break;
+        // A temporarily blocked authored pad must not poison the whole surge.
+        // Rotate the failed entry so other roles can materialize, while keeping
+        // the enemy reserved for a later retry and preserving alive accounting.
+        item.spawnAttempts = Math.max(0, Number(item.spawnAttempts) || 0) + 1;
+        state.reserve.push(item);
+        spawnFailed = true;
+        continue;
       }
       root.userData.specialWavePackageIndex = item.packageIndex;
       state.spawnCooldown += definition.spawnIntervalSeconds;
       spawnBudget--;
+    }
+    if (spawnFailed && state.spawnCooldown <= 0) {
+      state.spawnCooldown = definition.spawnIntervalSeconds * 2;
     }
 
     if (state.packagesCommitted >= definition.packageCount) return;
@@ -2160,7 +2192,10 @@ export class EnemyManager {
   // --- Boss integration helpers ---
 
   registerExternalEnemy(instance, { countsTowardAlive = true, preserveParent = false } = {}) {
-    const behaviorId = resolveBehaviorId(instance?.behaviorId || instance?.root?.userData?.behaviorId || instance?.root?.userData?.type);
+    const requestedBehavior = instance?.behaviorId || instance?.root?.userData?.behaviorId || instance?.root?.userData?.type;
+    const behaviorId = resolveBossBehaviorProfile(requestedBehavior)
+      ? requestedBehavior
+      : resolveBehaviorId(requestedBehavior);
     instance.behaviorId = behaviorId;
     if (instance.root?.userData) instance.root.userData.behaviorId = behaviorId;
     // Some targetable boss components are authored as mounted children. Keep
@@ -2328,13 +2363,12 @@ export class EnemyManager {
 function segmentIntersectsExpandedAabbXZ(start, end, box, padding = 0) {
   let tMin = 0;
   let tMax = 1;
-  const axes = [
-    ['x', box.min.x - padding, box.max.x + padding],
-    ['z', box.min.z - padding, box.max.z + padding]
-  ];
-  for (const [axis, min, max] of axes) {
-    const origin = start[axis];
-    const delta = end[axis] - origin;
+  for (let axis = 0; axis < 2; axis++) {
+    const isX = axis === 0;
+    const origin = isX ? start.x : start.z;
+    const delta = (isX ? end.x : end.z) - origin;
+    const min = (isX ? box.min.x : box.min.z) - padding;
+    const max = (isX ? box.max.x : box.max.z) + padding;
     if (Math.abs(delta) < 1e-9) {
       if (origin < min || origin > max) return false;
       continue;
@@ -2369,10 +2403,11 @@ function firstExpandedAabbSweepT(startX, startZ, endX, endZ, box, padding = 0) {
 
   let tMin = 0;
   let tMax = 1;
-  for (const [origin, delta, min, max] of [
-    [startX, endX - startX, minX, maxX],
-    [startZ, endZ - startZ, minZ, maxZ]
-  ]) {
+  for (let axis = 0; axis < 2; axis++) {
+    const origin = axis === 0 ? startX : startZ;
+    const delta = axis === 0 ? endX - startX : endZ - startZ;
+    const min = axis === 0 ? minX : minZ;
+    const max = axis === 0 ? maxX : maxZ;
     if (Math.abs(delta) < 1e-9) {
       if (origin < min || origin > max) return null;
       continue;

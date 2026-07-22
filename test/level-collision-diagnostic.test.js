@@ -868,7 +868,7 @@ test('late campaign player objectives and enemy entrances remain routed through 
           { x: journey.goal[0], z: journey.goal[1] },
           movementBoxes,
           {
-            gridSize: 1,
+            gridSize: journey.gridSize ?? 1,
             radius: journey.pathRadius ?? Math.max(level.size[0], level.size[1]) / 2 + 8,
             agentRadius: journey.agentRadius ?? (journey.actor === 'player' ? .5 : .73)
           }

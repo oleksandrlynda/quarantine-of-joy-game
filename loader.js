@@ -13,10 +13,10 @@
 //   So we warm each material variant once per session.
 
 import * as THREE from 'https://unpkg.com/three@0.159.0/build/three.module.js';
-import { GLTFLoader } from 'https://unpkg.com/three@0.159.0/examples/jsm/loaders/GLTFLoader.js?module';
-import { MeshoptDecoder } from 'https://unpkg.com/three@0.159.0/examples/jsm/libs/meshopt_decoder.module.js?module';
-import * as SkeletonUtils from 'https://unpkg.com/three@0.159.0/examples/jsm/utils/SkeletonUtils.js?module';
-import { mergeGeometries } from 'https://unpkg.com/three@0.159.0/examples/jsm/utils/BufferGeometryUtils.js?module';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createRuntimeAssetManifest, GENERATED_ASSET_ROOT } from './src/assets/runtime-manifest.js';
 import { batchStaticPrefab } from './src/assets/static-batching.js';
 

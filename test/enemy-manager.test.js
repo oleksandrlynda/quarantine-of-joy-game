@@ -103,6 +103,37 @@ test('registered boss roots resolve boss-sized bodies before regular behavior fa
   assert.deepEqual(profile.preferredRange, [15, 22]);
 });
 
+test('registered Hydraclone descendants retain generation-scaled collision profiles', () => {
+  const { manager } = makeManager();
+  const root = {
+    userData: { type: 'hydraclone', behaviorId: 'hydraclone_gen3' },
+    position: new Vector3(0, 0.8, 0)
+  };
+  const instance = { root, behaviorId: 'hydraclone_gen3', update() {} };
+
+  manager.registerExternalEnemy(instance, { countsTowardAlive: false });
+
+  assert.equal(root.userData.behaviorId, 'hydraclone_gen3');
+  assert.equal(manager._profileForRoot(root).collisionRadius, 0.32);
+});
+
+test('repeated collision telemetry is coalesced without losing the suppressed count', () => {
+  const { manager } = makeManager();
+  const mover = { userData: { type: 'flyer' } };
+  const blocker = { userData: { type: 'flyer' } };
+  const events = [];
+  manager.onAIEvent = event => events.push(event);
+
+  manager._emitMovementTelemetry(mover, 'movement_blocked', { blockedBy: 'ally', blockerRoot: blocker });
+  manager._emitMovementTelemetry(mover, 'movement_blocked', { blockedBy: 'ally', blockerRoot: blocker });
+  manager._aiClock = 0.6;
+  manager._emitMovementTelemetry(mover, 'movement_blocked', { blockedBy: 'ally', blockerRoot: blocker });
+
+  assert.equal(events.length, 2);
+  assert.equal(events[0].suppressedRepeats, 0);
+  assert.equal(events[1].suppressedRepeats, 1);
+});
+
 function makeManager({
   objects = [],
   rng = sequenceRng([0.8, 0.2]),
@@ -472,6 +503,30 @@ test('Wave 73 emits Warden locator pulses and enables tracking on the final surg
   assert.deepEqual(locator.position, [4, 3, -6]);
   assert.equal(locator.totalSurges, 4);
   assert.equal(specialCalls.at(-1).type, 'final-searchlight');
+});
+
+test('Wave 73 rotates a blocked reserve entry so later special roles can spawn', () => {
+  const { manager } = makeManager();
+  manager.wave = 73;
+  manager.startWave();
+  manager.specialWaveState.reserve = [
+    { type: 'tank', packageIndex: 0 },
+    { type: 'flyer', packageIndex: 0 }
+  ];
+  const spawned = [];
+  manager.spawn = type => {
+    if (type === 'tank') return null;
+    spawned.push(type);
+    const root = { userData: { type }, position: new Vector3() };
+    manager.enemies.add(root);
+    return root;
+  };
+
+  manager._updateSpecialWave(1);
+
+  assert.deepEqual(spawned, ['flyer']);
+  assert.deepEqual(manager.specialWaveState.reserve.map(item => item.type), ['tank']);
+  assert.equal(manager.specialWaveState.reserve[0].spawnAttempts, 1);
 });
 
 test('Wave 73 warns after the clear threshold and commits its next package after the alarm', () => {

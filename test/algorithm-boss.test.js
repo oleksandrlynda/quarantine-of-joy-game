@@ -234,6 +234,37 @@ test('Algorithm ignores the duplicate active-boss update in one manager frame', 
   boss.onRemoved(manager.scene);
 });
 
+test('Algorithm releases its owned GPU resources after a repeated boss attempt', () => {
+  const manager = makeEnemyManager();
+  const boss = new AlgorithmBoss({
+    THREE,
+    mats: makeMaterials(),
+    spawnPos: new THREE.Vector3(0, 0.8, 0),
+    enemyManager: manager,
+    rng: () => 0.5
+  });
+  manager.registerExternalEnemy(boss, { countsTowardAlive: true });
+
+  const resources = new Set();
+  for (const root of [boss.root, ...Array.from(boss.nodes, node => node.root)]) {
+    root.traverse(object => {
+      if (object.geometry) resources.add(object.geometry);
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
+      for (const material of materials) if (material) resources.add(material);
+    });
+  }
+  const disposeCounts = new Map();
+  for (const resource of resources) {
+    resource.dispose = () => disposeCounts.set(resource, (disposeCounts.get(resource) || 0) + 1);
+  }
+
+  boss.onRemoved(manager.scene);
+
+  assert.ok(resources.size > 20);
+  assert.ok(Array.from(resources).every(resource => disposeCounts.get(resource) === 1));
+  assert.equal(boss.nodes.size, 0);
+});
+
 test('eye sweep applies damage from the same rotating beam pivot', () => {
   const manager = makeEnemyManager();
   const boss = new AlgorithmBoss({

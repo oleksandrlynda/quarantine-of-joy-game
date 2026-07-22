@@ -17,7 +17,7 @@ const CASES = Object.freeze([
   [MIRROR_GARDEN, 26],
   [CONTENT_COURT, 31],
   [SERVER_CATHEDRAL, 36],
-  [SANDSTORM_EXPANSE, 42]
+  [SANDSTORM_EXPANSE, 42, 4, 4]
 ]);
 
 function overlapsCollider([x, z], collider, margin = 1.05) {
@@ -34,11 +34,11 @@ function overlapsCollider([x, z], collider, margin = 1.05) {
   return Math.abs(localX) < width / 2 + margin && Math.abs(localZ) < depth / 2 + margin;
 }
 
-test('each seamless campaign level entry offers one clear ammo and health crate', () => {
-  for (const [level, wave] of CASES) {
+test('each seamless campaign level entry offers clear authored ammo and health crates', () => {
+  for (const [level, wave, expectedHealthCount = 1, expectedAmmoCount = 1] of CASES) {
     const encounter = level.waves[wave];
-    assert.equal(encounter.ammoPackages.length, 1, `${level.id} Wave ${wave} ammo crate count`);
-    assert.equal(encounter.healthPackages.length, 1, `${level.id} Wave ${wave} health crate count`);
+    assert.equal(encounter.ammoPackages.length, expectedAmmoCount, `${level.id} Wave ${wave} ammo crate count`);
+    assert.equal(encounter.healthPackages.length, expectedHealthCount, `${level.id} Wave ${wave} health crate count`);
     assert.equal(Object.isFrozen(encounter.ammoPackages), true);
     assert.equal(Object.isFrozen(encounter.healthPackages), true);
 
@@ -53,7 +53,15 @@ test('each seamless campaign level entry offers one clear ammo and health crate'
     }
 
     const [ammo] = encounter.ammoPackages;
-    const [health] = encounter.healthPackages;
-    assert.ok(Math.hypot(ammo[0] - health[0], ammo[1] - health[1]) >= 6, `${level.id} supplies should offer distinct routes`);
+    for (const health of encounter.healthPackages) {
+      assert.ok(Math.hypot(ammo[0] - health[0], ammo[1] - health[1]) >= 6, `${level.id} supplies should offer distinct routes`);
+    }
+    for (let first = 0; first < encounter.healthPackages.length; first += 1) {
+      for (let second = first + 1; second < encounter.healthPackages.length; second += 1) {
+        const a = encounter.healthPackages[first];
+        const b = encounter.healthPackages[second];
+        assert.ok(Math.hypot(a[0] - b[0], a[1] - b[1]) >= 3, `${level.id} health crates must not overlap`);
+      }
+    }
   }
 });

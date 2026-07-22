@@ -65,6 +65,7 @@ import {
   CARGO_GATE_COLLIDER_PROFILE,
   CARGO_LIFT_COLLIDER_PROFILE,
   CATHEDRAL_KIT_COLLIDER_PROFILE,
+  CATHEDRAL_ROUTES_COLLIDER_PROFILE,
   CATWALK_COLLIDER_PROFILE,
   CLINIC_WALL_COLLIDER_PROFILE,
   CORRIDOR_COLLIDER_PROFILE,
@@ -164,7 +165,7 @@ test('production asset profiles keep primitive counts bounded and channels expli
     PUMP_TURBINE_COLLIDER_PROFILE, SLUICE_CONDUITS_COLLIDER_PROFILE,
     ARCHIVE_SEED_COLLIDER_PROFILE, GREYWATER_CORE_COLLIDER_PROFILE,
     LAST_LIGHT_REACTOR_COLLIDER_PROFILE,
-    CATHEDRAL_KIT_COLLIDER_PROFILE, DASHBOARD_WINDOWS_COLLIDER_PROFILE,
+    CATHEDRAL_KIT_COLLIDER_PROFILE, CATHEDRAL_ROUTES_COLLIDER_PROFILE, DASHBOARD_WINDOWS_COLLIDER_PROFILE,
     CORRIDOR_COLLIDER_PROFILE, CLINIC_WALL_COLLIDER_PROFILE,
     ARCHIVES_COLLIDER_PROFILE, REINFORCEMENT_DOOR_COLLIDER_PROFILE, SHUTTER_COLLIDER_PROFILE,
     EMERGENCY_SIGN_COLLIDER_PROFILE, CARGO_LIFT_COLLIDER_PROFILE, CATWALK_COLLIDER_PROFILE,
@@ -174,8 +175,11 @@ test('production asset profiles keep primitive counts bounded and channels expli
     EXPANSE_WINDBREAK_COLLIDER_PROFILE, EXPANSE_DEAD_TREE_COLLIDER_PROFILE,
     EXPANSE_BENT_TREE_COLLIDER_PROFILE, EXPANSE_TOWER_EDGE_COLLIDER_PROFILE
   ];
-  assert.deepEqual(profiles.map(profile => profile.length), [12, 3, 2, 4, 7, 8, 2, 1, 5, 3, 3, 4, 4, 2, 6, 6, 6, 4, 4, 3, 7, 2, 7, 12, 2, 6, 3, 3, 5, 5, 4, 3, 2, 3, 2, 8, 7, 2, 8, 5, 5, 1, 1, 3, 3, 6, 3, 3, 2, 2, 3, 5, 3, 2, 3, 5, 2, 2, 5, 6, 4, 4, 9, 10, 6, 3, 3, 2, 2, 4, 3, 3, 3]);
-  assert.ok(profiles.every(profile => profile.length <= 12), 'asset profiles stay within the low-primitive production budget');
+  assert.deepEqual(profiles.map(profile => profile.length), [12, 3, 2, 4, 7, 8, 2, 1, 5, 3, 3, 4, 4, 2, 6, 6, 6, 4, 4, 3, 7, 2, 7, 12, 2, 6, 3, 3, 5, 5, 4, 3, 2, 3, 2, 8, 7, 2, 8, 5, 5, 1, 1, 3, 3, 6, 3, 3, 2, 2, 3, 5, 27, 3, 2, 3, 5, 2, 2, 5, 6, 4, 4, 9, 10, 6, 3, 3, 2, 2, 4, 3, 3, 3]);
+  assert.ok(profiles.every(profile => profile === CATHEDRAL_ROUTES_COLLIDER_PROFILE || profile.length <= 12),
+    'asset profiles stay within the low-primitive production budget except exact separated Cathedral cover');
+  assert.equal(CATHEDRAL_ROUTES_COLLIDER_PROFILE.length, 27,
+    'the Cathedral route profile owns 24 nave posts and three switch posts');
   for (const primitive of profiles.flat()) {
     assert.equal(typeof primitive.blocksMovement, 'boolean');
     assert.equal(typeof primitive.blocksShots, 'boolean');
@@ -188,6 +192,7 @@ test('shared catalog re-exports the canonical late structural profiles without a
     ARCHIVES_COLLIDER_PROFILE,
     CARGO_LIFT_COLLIDER_PROFILE,
     CATHEDRAL_KIT_COLLIDER_PROFILE,
+    CATHEDRAL_ROUTES_COLLIDER_PROFILE,
     CATWALK_COLLIDER_PROFILE,
     CLINIC_WALL_COLLIDER_PROFILE,
     CORRIDOR_COLLIDER_PROFILE,
@@ -262,6 +267,16 @@ test('late structural profiles preserve model openings instead of merging cages 
     assert.ok(CATHEDRAL_KIT_COLLIDER_PROFILE.some(primitive =>
       primitive.shape === 'box' && primitive.size.every((value, index) => value === size[index])));
   }
+
+  const routes = buildEnvironmentAsset('cathedralroutes');
+  assert.ok(modelHasBox(routes, [.12, .48, .12]));
+  assert.ok(modelHasBox(routes, [.18, .8, .18]));
+  assert.equal(CATHEDRAL_ROUTES_COLLIDER_PROFILE.filter(primitive => primitive.id.startsWith('nave-')).length, 24);
+  assert.equal(CATHEDRAL_ROUTES_COLLIDER_PROFILE.filter(primitive => primitive.id.startsWith('switch-')).length, 3);
+  assert.ok(CATHEDRAL_ROUTES_COLLIDER_PROFILE.every(primitive =>
+    primitive.blocksMovement && primitive.blocksShots && primitive.blocksSight));
+  assert.ok(!CATHEDRAL_ROUTES_COLLIDER_PROFILE.some(primitive => primitive.size[0] > .18 || primitive.size[2] > .18),
+    'separate pile colliders never bridge the visible lane gaps');
 
   const lift = buildEnvironmentAsset('cargolift');
   assert.ok(modelHasBox(lift, [.18, 3.2, .18]));
@@ -367,7 +382,8 @@ test('every authored objective prop uses its bounded asset profile', () => {
       const primitives = level.colliders.filter(collider => collider.assetId === assetId);
       assert.equal(primitives.length, placementCount * profile.length, `${level.id} ${assetId} profiles`);
     }
-    assert.ok(level.colliders.length <= 150, `${level.id} exceeds the static collider budget`);
+    const budget = level.id === 'server-cathedral' ? 240 : 150;
+    assert.ok(level.colliders.length <= budget, `${level.id} exceeds the static collider budget`);
   }
 
   assert.deepEqual(
@@ -412,6 +428,7 @@ test('post-campaign interior solids have model-backed colliders within the stati
     ['cornercover', CORNER_COVER_COLLIDER_PROFILE],
     ['sandbankkit', SANDBANK_COLLIDER_PROFILE],
     ['cathedralkit', CATHEDRAL_KIT_COLLIDER_PROFILE],
+    ['cathedralroutes', CATHEDRAL_ROUTES_COLLIDER_PROFILE],
     ['dashboardwindows', DASHBOARD_WINDOWS_COLLIDER_PROFILE],
     ['corridor', CORRIDOR_COLLIDER_PROFILE],
     ['servicewall', SERVICE_WALL_COLLIDER_PROFILE],
@@ -436,7 +453,7 @@ test('post-campaign interior solids have model-backed colliders within the stati
     [SERVER_CATHEDRAL, new Set([
       'cathedralkit', 'dashboardwindows', 'corridor', 'servicewall', 'clinicwall', 'archives', 'reinforcementdoor',
       'breachvent', 'emergencysign', 'shutter', 'terminal', 'powerrelay', 'cargolift', 'catwalk',
-      'ladderplatform', 'stairs', 'lightmast', 'mirrorchoir', 'rootaltar', 'capturebeacon', 'endchoice'
+      'ladderplatform', 'stairs', 'lightmast', 'mirrorchoir', 'rootaltar', 'capturebeacon', 'endchoice', 'cathedralroutes'
     ])],
     [SANDSTORM_EXPANSE, new Set([
       'sandbankkit', 'stormsiren', 'endurancemonument', 'stormbeacon', 'windbreaks', 'hesco', 'ammostation',
@@ -465,6 +482,7 @@ test('post-campaign interior solids have model-backed colliders within the stati
       const colliderCount = level.colliders.filter(collider => collider.assetId === assetId).length;
       assert.equal(colliderCount, placementCount * profile.length, `${level.id} ${assetId} collision coverage`);
     }
-    assert.ok(level.colliders.length <= 150, `${level.id} exceeds the static collider budget`);
+    const budget = level.id === 'server-cathedral' ? 240 : 150;
+    assert.ok(level.colliders.length <= budget, `${level.id} exceeds the static collider budget`);
   }
 });

@@ -9,7 +9,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=Syne:wght@700;800&display=swap" rel="stylesheet" />
-<link rel="stylesheet" href="styles/styles.css?v=1.0.3&amp;rev=level-transition1" />
+<link rel="stylesheet" href="styles/styles.css?v=1.0.3&amp;rev=mobile-dialog1" />
+<script type="importmap">
+  { "imports": { "three": "https://unpkg.com/three@0.159.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.159.0/examples/jsm/" } }
+</script>
 </head>
 <body class="menu-open">
 <div id="hud" class="hud-blockjoy">
@@ -164,7 +167,7 @@
         <option value="circle" data-i18n="arena.circle">Circle Arena</option>
         <option value="diamond" data-i18n="arena.diamond">Diamond Arena</option>
         <option value="triangle" data-i18n="arena.triangle">Triangle Arena</option>
-        <option value="pi" data-i18n="arena.pi">П Arena</option>
+        <option value="pi" data-i18n="arena.pi">Π Arena</option>
       </select>
       <select id="langSelect" class="menu-lang" aria-label="Language">
         <option value="en" data-i18n="lang.english">English</option>
@@ -179,11 +182,15 @@
 
     <div class="menu-bottom">
       <div class="menu-cta">
-        <button class="primary" id="play" type="button"><span data-i18n="start.play">Play</span></button>
+        <button class="primary" id="play" type="button">
+          <span id="playLabel" data-i18n="start.play">Play</span>
+          <small id="playSubtitle" hidden></small>
+        </button>
         <div class="menu-sec-row">
           <button class="secondary" id="tutorialBtn" type="button"><span data-i18n="start.tutorial">Tutorial</span></button>
           <button class="secondary" id="openAchievements" type="button"><span data-i18n="achievements.title">Achievements</span></button>
         </div>
+        <button class="secondary menu-settings" id="newGame" type="button" hidden><span data-i18n="start.newGame">New Game</span></button>
         <button class="secondary menu-settings" id="openArchive" type="button" disabled><span data-i18n="archive.title">Punchline Archive</span> <small id="archiveMenuBalance">0</small></button>
         <button class="secondary menu-settings" id="openSettings" type="button"><span data-i18n="settings.title">Settings</span></button>
         <button class="secondary menu-settings debug-only-control" id="openDebugLog" type="button"><span data-i18n="debugLog.open">Support logs</span></button>
@@ -401,6 +408,16 @@
       </div>
     </form>
   </dialog>
+  <dialog id="newGameDialog" class="reset-data-dialog new-game-dialog" aria-labelledby="newGameTitle" aria-describedby="newGameDescription">
+    <form method="dialog">
+      <h2 id="newGameTitle" data-i18n="start.newGameConfirmTitle">Start a new campaign?</h2>
+      <p id="newGameDescription" data-i18n="start.newGameConfirmText">Campaign checkpoints and the current run will reset. Archive fragments, purchases, weapon unlocks, and achievements are kept.</p>
+      <div class="reset-data-dialog-actions">
+        <button class="secondary" value="cancel" type="submit"><span data-i18n="settings.cancel">Cancel</span></button>
+        <button class="primary" id="confirmNewGame" type="button"><span data-i18n="start.newGameConfirmAction">Start from Wave 1</span></button>
+      </div>
+    </form>
+  </dialog>
 </div>
 <!-- Lightweight bootstrap overlay: the menu scene paints before the game graph loads. -->
 <div id="loading" role="progressbar" aria-live="polite" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
@@ -438,11 +455,11 @@
     m.innerHTML = `
       <div id="joystick" class="joy"><div class="base"></div><div class="knob"></div></div>
       <div id="actionButtons">
-        <button id="btnRush" style="display:none">Q</button>
-        <button id="btnAlt" style="display:none">ALT</button>
-        <button id="btnFire">🔥</button>
-        <button id="btnJump">⤴️</button>
-        <button id="btnReload">🔄</button>
+        <button type="button" id="btnRush" class="mobile-action mobile-action-ability" style="display:none" aria-label="${t('mobile.action.ability')}" title="${t('mobile.action.ability')}"><img src="assets/icons/mobile-ability.svg?rev=mobile-hud2" alt="" /><span id="btnRushValue" class="mobile-action-value" aria-hidden="true"></span></button>
+        <button type="button" id="btnAlt" class="mobile-action mobile-action-alt" style="display:none" hidden disabled aria-label="${t('mobile.action.alt')}" title="${t('mobile.action.alt')}"><img src="assets/icons/mobile-alt.svg?rev=mobile-hud2" alt="" /></button>
+        <button type="button" id="btnFire" class="mobile-action mobile-action-fire" aria-label="${t('mobile.action.fire')}" title="${t('mobile.action.fire')}"><img src="assets/icons/mobile-fire.svg?rev=mobile-hud2" alt="" /></button>
+        <button type="button" id="btnJump" class="mobile-action mobile-action-jump" aria-label="${t('mobile.action.jump')}" title="${t('mobile.action.jump')}"><img src="assets/icons/mobile-jump.svg?rev=mobile-hud2" alt="" /></button>
+        <button type="button" id="btnReload" class="mobile-action mobile-action-reload" aria-label="${t('mobile.action.reload')}" title="${t('mobile.action.reload')}"><img src="assets/icons/mobile-reload.svg?rev=mobile-hud2" alt="" /></button>
       </div>`;
     document.body.appendChild(m);
     // fade help 
@@ -471,6 +488,6 @@
 </script>
 
 <!-- Paint the lightweight menu first, then request the full game. -->
-<script type="module" src="src/bootstrap.js?v=1.0.3&amp;rev=level-transition1"></script>
+<script type="module" src="src/bootstrap.js?v=1.0.3&amp;rev=continue-checkpoint1"></script>
 </body>
 </html>

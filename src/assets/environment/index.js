@@ -138,13 +138,6 @@ export function createEnvironmentAssetRegistry({ THREE } = {}) {
     return mesh;
   }
   
-  function outlinedBox(group, size, position, material) {
-    const mesh = box(group, size, position, material);
-    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry), new THREE.LineBasicMaterial({ color: 0x354039, transparent: true, opacity: .9 }));
-    mesh.add(edges);
-    return mesh;
-  }
-  
   function buildCheckpoint() {
     const group = new THREE.Group();
     box(group, [.28, 3.05, .28], [-2.45, 1.5, 0], materials.charcoal, [0, 0, -.035]);
@@ -188,7 +181,7 @@ export function createEnvironmentAssetRegistry({ THREE } = {}) {
     cage.position.set(...position);
     cage.scale.set(...scale);
     group.add(cage);
-    const core = outlinedBox(cage, [2.15, 1.05, 1.15], [0, .53, 0], materials.rockA);
+    const core = box(cage, [2.15, 1.05, 1.15], [0, .53, 0], materials.rockA);
     core.material = materials.concrete;
     for (let x = -1; x <= 1; x += 1) for (let z = -1; z <= 1; z += 1) {
       const rock = finish(new THREE.Mesh(new THREE.IcosahedronGeometry(.31 + ((x + z + 4) % 2) * .06, 0), (x + z) % 2 ? materials.rockA : materials.rockB));
@@ -387,7 +380,7 @@ export function createEnvironmentAssetRegistry({ THREE } = {}) {
     const group = new THREE.Group();
     box(group, [3.6, .24, 2.35], [0, .12, 0], materials.concrete);
     for (let i = 0; i < 5; i += 1) box(group, [3.45, .12, .28], [0, .29, -1 + i * .5], materials.charcoal);
-    outlinedBox(group, [3.45, 2.35, 2.25], [0, 1.48, 0], materials.glass);
+    box(group, [3.45, 2.35, 2.25], [0, 1.48, 0], materials.glass);
     box(group, [1.62, 1.02, 1.18], [-.78, .84, .18], materials.cyan, [0, -.08, 0]);
     box(group, [1.18, .78, 1.0], [.82, .72, -.36], materials.concreteLight, [0, .1, 0]);
     box(group, [1.26, .72, .92], [.58, 1.5, .22], materials.orange, [0, -.1, 0]);
@@ -493,7 +486,7 @@ export function createEnvironmentAssetRegistry({ THREE } = {}) {
   }
   
   function hescoCell(group, x, y, z, scale = 1) {
-    const cell = outlinedBox(group, [1.42 * scale, 1.25 * scale, 1.05], [x, y, z], materials.sand);
+    const cell = box(group, [1.42 * scale, 1.25 * scale, 1.05], [x, y, z], materials.sand);
     for (let i = -1; i <= 1; i += 1) box(cell, [.05, 1.08, .06], [i * .38, 0, .54], materials.charcoal, [0, 0, .04 * i]);
     return cell;
   }

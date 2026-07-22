@@ -236,6 +236,19 @@ test('moderate-range world-blocked recovery commits to one direction around cove
   }), ['KeyS', 'KeyD', 'KeyA']);
 });
 
+test('long-range production aim recovery cannot repeat a blocked forward approach forever', () => {
+  const order = buildCampaignCombatRepositionOrder({
+    productionAimMismatch: true,
+    aimDistance: 50.6,
+    worldDistance: 50.5,
+    stableSide: 'KeyA',
+    oppositeSide: 'KeyD'
+  });
+  assert.deepEqual(order, ['KeyW', 'KeyA', 'KeyW', 'KeyD', 'KeyS']);
+  assert.equal(order.includes('KeyA'), true);
+  assert.equal(order.includes('KeyD'), true);
+});
+
 test('ending-choice and multi-capture alignment require the intended active target', () => {
   assert.equal(isCampaignObjectiveAlignmentActive({ kind: 'ending-choice', activeChoice: 'free' }, { id: 'free' }), true);
   assert.equal(isCampaignObjectiveAlignmentActive({ kind: 'ending-choice', activeChoice: null }, { id: 'free' }), false);
@@ -547,6 +560,8 @@ test('browser campaign machine is production-backed and keeps the 50-error stop 
   assert.match(main, /qaPlanFiringRoute/);
   assert.match(main, /production_aim_mismatch_approach/);
   assert.match(main, /firing_route_complete/);
+  assert.match(main, /stationary_mechanic_firing_position/);
+  assert.match(main, /type\.startsWith\('boss_node_'\)/);
   assert.match(main, /combat_hold_released/);
   assert.match(main, /boss_support_gravity_well/);
   assert.match(main, /activateById\?\.\('gravity_well'/);

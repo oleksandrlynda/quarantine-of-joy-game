@@ -43,10 +43,13 @@ export class ShooterEnemy {
     // Firing cadence and telegraph
     this.cooldown = 0;                               // general cooldown timer
     this.baseCadence = 0.6 + this.rng() * 0.4;   // intra-burst spacing
-    this.interBurstBase = 1.6 + this.rng() * 0.6; // long delay between bursts
+    this.singleCadence = 1.2 + this.rng() * 0.4; // normal pressure between specials
+    this.burstRechargeSeconds = 10;
+    this.burstCooldown = 0;                       // first special is available immediately
     this.inBurst = false;                            // currently executing a burst sequence
     this.windupTime = 0;                             // time spent charging current shot (telegraph before burst)
-    this.windupRequired = 0.5 + this.rng() * 0.2; // 0.5–0.7s telegraph
+    this.windupRequired = 0.75 + this.rng() * 0.2; // burst telegraph; singles override this
+    this._attackMode = null;
     this.strafeDir = this.rng() < 0.5 ? 1 : -1;
     this.switchCooldown = 0;                         // control strafe dir switching
   
@@ -163,6 +166,7 @@ export class ShooterEnemy {
       this._releaseAllyCover(ctx, 'no_known_target');
       this.inBurst = false;
       this.windupTime = 0;
+      this._attackMode = null;
       this._setHeadGlow(false);
       this._updateAimLine(null, ctx.scene);
       ctx.setAIState?.(e, sense.searchActive ? 'searching' : 'idle_unaware');
@@ -179,6 +183,7 @@ export class ShooterEnemy {
     const tacticalFireClear = sense.tacticalFireClear;
     this._meleeCooldown = Math.max(0, this._meleeCooldown - dt);
     if (this.cooldown > 0) this.cooldown = Math.max(0, this.cooldown - dt);
+    if (this.burstCooldown > 0) this.burstCooldown = Math.max(0, this.burstCooldown - dt);
     if (this._meleePhase !== 'idle') {
       this._updateGunButt(dt, ctx, playerPos, sense);
       return;
@@ -237,6 +242,7 @@ export class ShooterEnemy {
       // break telegraph/burst immediately
       this.inBurst = false;
       this.windupTime = 0;
+      this._attackMode = null;
       this._setHeadGlow(false);
       this._updateAimLine(null, ctx.scene);
       // also consider relocation next
@@ -309,6 +315,7 @@ export class ShooterEnemy {
       if (this._allyBlockedTimer >= 0.2) {
         this.inBurst = false;
         this.windupTime = 0;
+        this._attackMode = null;
         movementState = 'repositioning_for_clear_shot';
       }
     } else if (visibilityOccluded) {
@@ -318,6 +325,7 @@ export class ShooterEnemy {
       if (close.lengthSq() > .0001) desired.add(close.normalize());
       this.inBurst = false;
       this.windupTime = 0;
+      this._attackMode = null;
       movementState = 'closing_through_storm';
     } else if (!hasLOS && dist <= this.engageRange.max) {
       // Try to find a peek direction that reveals LOS around nearby cover
@@ -450,7 +458,9 @@ export class ShooterEnemy {
     else if (this._counterAimActive) ctx.setAIState?.(e, allyCoverState || 'counter_aim_evading');
     else if (this.evasiveTimer > 0) ctx.setAIState?.(e, 'evading');
     else if (this.relocating) ctx.setAIState?.(e, 'relocating');
-    else if (this.windupTime > 0) ctx.setAIState?.(e, coverPlan ? 'aim_windup_from_ally_cover' : 'aim_windup');
+    else if (this.windupTime > 0) ctx.setAIState?.(e, this._attackMode === 'burst'
+      ? (coverPlan ? 'burst_windup_from_ally_cover' : 'burst_windup')
+      : (coverPlan ? 'single_windup_from_ally_cover' : 'single_windup'));
     else if (this.inBurst) ctx.setAIState?.(e, coverPlan ? 'firing_from_ally_cover' : 'firing_burst');
     else if (allyCoverState) ctx.setAIState?.(e, allyCoverState, { coverRoot: this.selectedCoverRoot });
     else if (movementState) ctx.setAIState?.(e, movementState, { blockerRoot: sense.blockingAlly || null });
@@ -465,13 +475,14 @@ export class ShooterEnemy {
     if (this.evasiveTimer > 0) {
       if (this.windupTime > 0) {
         this.windupTime = 0;
+        this._attackMode = null;
         this._setHeadGlow(false);
         this._updateAimLine(null, ctx.scene);
       }
       return; // skip shooting when dashing away
     }
   
-    // Active burst: fire without additional telegraph while LOS/inBand hold
+    // Active special burst: fire without additional telegraph while LOS/inBand hold.
     if (this.inBurst) {
       // Ensure telegraph visuals are off during burst
       if (this._aimLine) this._updateAimLine(null, ctx.scene);
@@ -484,7 +495,7 @@ export class ShooterEnemy {
         this.cooldown = Math.max(this.cooldown, 0.4 + this.rng() * 0.3);
       } else if (this.cooldown <= 0) {
         // Fire next shot in the burst
-        const fired = this._fireProjectile(this._predictAimPoint(playerPos), ctx);
+        const fired = this._fireProjectile(this._predictAimPoint(playerPos), ctx, 'burst');
         if (!fired) {
           this.inBurst = false;
           this.shotsThisBurst = 0;
@@ -495,60 +506,79 @@ export class ShooterEnemy {
         if (fired && ctx.blackboard && playerStationary) ctx.blackboard.suppression = true;
   
         if (fired && this.shotsThisBurst >= this.maxBurst) {
-          // End burst: long inter-burst delay and relocation to vary angle
+          // End the special. Singles continue while the 10 second recharge runs.
           this.inBurst = false;
           this.shotsThisBurst = 0;
-          this.cooldown = this.interBurstBase;
+          this.cooldown = this.singleCadence;
           if (!this.selectedCoverRoot && !this.relocating) {
             this.relocating = true;
             this.relocateTarget = null;
             this.relocateTimer = 0;
           }
-          // Reroll next burst parameters for variety
+          // Reroll the next special for variety.
           this.maxBurst = 3 + ((this.rng() * 2) | 0); // 3–4
           this.baseCadence = 0.6 + this.rng() * 0.4; // intra-burst spacing
-          this.interBurstBase = 1.6 + this.rng() * 0.6;
-          this.windupRequired = 0.5 + this.rng() * 0.2;
+          this.windupRequired = 0.75 + this.rng() * 0.2;
         } else if (fired) {
           // Space next intra-burst shot
           this.cooldown = this.baseCadence;
         }
       }
     } else if (inBand && hasLOS && tacticalFireClear && this.cooldown <= 0) {
-      // Telegraph with head glow and aim line; keep checking LOS
+      if (!this._attackMode) {
+        this._attackMode = this.burstCooldown <= 0 ? 'burst' : 'single';
+        this.windupRequired = this._attackMode === 'burst'
+          ? 0.75 + this.rng() * 0.2
+          : 0.25 + this.rng() * 0.1;
+        if (this._attackMode === 'burst') {
+          ctx.emitAIEvent?.(this.root, 'shooter_burst_windup', {
+            rechargeSeconds: this.burstRechargeSeconds
+          });
+        }
+      }
+      // Both attacks remain readable; the special uses the longer amber tell.
       this.windupTime += dt;
       this._setHeadGlow(true);
-      this._updateAimLine(playerPos, ctx.scene, 0x10b981);
+      this._updateAimLine(playerPos, ctx.scene, this._attackMode === 'burst' ? 0xffb020 : 0x10b981);
       // Mark suppression while telegraphing at a stationary, exposed player
       if (ctx.blackboard && playerStationary) ctx.blackboard.suppression = true;
       if (!hasLOS) {
         // cancel windup if LOS broken
         this.windupTime = 0;
+        this._attackMode = null;
         this._setHeadGlow(false);
         this._updateAimLine(null, ctx.scene);
       } else if (this.windupTime >= this.windupRequired) {
-        // Begin burst and fire first shot immediately
+        const attackMode = this._attackMode || 'single';
         this._setHeadGlow(false);
         this.windupTime = 0;
+        this._attackMode = null;
         this._updateAimLine(null, ctx.scene);
-        // fresh parameters for this burst
-        this.maxBurst = 3 + ((this.rng() * 2) | 0);   // 3–4 shots per burst
-        this.baseCadence = 0.6 + this.rng() * 0.4;  // intra-burst spacing
-        this.interBurstBase = 1.6 + this.rng() * 0.6; // inter-burst gap
-        // First shot now, then set spacing for next
-        const fired = this._fireProjectile(this._predictAimPoint(playerPos), ctx);
-        this.inBurst = fired;
+        if (attackMode === 'burst') {
+          this.maxBurst = 3 + ((this.rng() * 2) | 0);
+          this.baseCadence = 0.6 + this.rng() * 0.4;
+        }
+        const fired = this._fireProjectile(this._predictAimPoint(playerPos), ctx, attackMode);
+        this.inBurst = attackMode === 'burst' && fired;
         if (fired && ctx.blackboard && playerStationary) ctx.blackboard.suppression = true;
         if (!fired) {
           this.shotsThisBurst = 0;
           this.cooldown = Math.max(this.cooldown, 0.25);
           this._allyBlockedTimer = Math.max(this._allyBlockedTimer, 0.2);
+        } else if (attackMode === 'single') {
+          this.cooldown = this.singleCadence;
+          ctx.emitAIEvent?.(this.root, 'shooter_single_fired', { nextShotSeconds: this.singleCadence });
         } else if (this.shotsThisBurst >= this.maxBurst) {
           // Degenerate rare case: maxBurst==1; end immediately
           this.inBurst = false;
           this.shotsThisBurst = 0;
-          this.cooldown = this.interBurstBase;
+          this.cooldown = this.singleCadence;
         } else {
+          this.burstCooldown = this.burstRechargeSeconds;
+          ctx.emitAIEvent?.(this.root, 'shooter_burst_started', {
+            shots: this.maxBurst,
+            rechargeSeconds: this.burstRechargeSeconds
+          });
           this.cooldown = this.baseCadence;
         }
       }
@@ -556,6 +586,7 @@ export class ShooterEnemy {
       if (this.windupTime > 0) {
         // cancel windup if leaving inBand/engage/LOS
         this.windupTime = 0;
+        this._attackMode = null;
         this._setHeadGlow(false);
         this._updateAimLine(null, ctx.scene);
       }
@@ -668,6 +699,7 @@ export class ShooterEnemy {
     this.inBurst = false;
     this.shotsThisBurst = 0;
     this.windupTime = 0;
+    this._attackMode = null;
     this._setHeadGlow(false);
     this._updateAimLine(null, ctx.scene);
 
@@ -717,6 +749,7 @@ export class ShooterEnemy {
     this.inBurst = false;
     this.shotsThisBurst = 0;
     this.windupTime = 0;
+    this._attackMode = null;
     this._setHeadGlow(true);
     this._updateAimLine(null, ctx.scene);
     ctx.emitAIEvent?.(this.root, 'melee_started', {
@@ -852,7 +885,7 @@ export class ShooterEnemy {
     return playerPos.clone().add(this._playerVelocity.clone().multiplyScalar(travelSeconds));
   }
 
-  _fireProjectile(targetPos, ctx) {
+  _fireProjectile(targetPos, ctx, attackMode = 'single') {
     const THREE = this.THREE;
     // Fire from gun muzzle if available; otherwise from chest height
     let origin;
@@ -913,7 +946,8 @@ export class ShooterEnemy {
     const speed = 25; // units/s
   
     const velocity = dir.multiplyScalar(speed);
-    const pooled = ctx._spawnBullet?.('shooter', origin, velocity, 2.5, 22, this.root);
+    const projectileDamage = 20;
+    const pooled = ctx._spawnBullet?.('shooter', origin, velocity, 2.5, projectileDamage, this.root);
     if (!pooled) {
       const mesh = new THREE.Mesh(
         getCachedRenderResource(
@@ -927,12 +961,12 @@ export class ShooterEnemy {
       mesh.material.transparent = true;
       mesh.material.opacity = 1;
       ctx.scene.add(mesh);
-      this.projectiles.push({ mesh, velocity, life: 0, maxLife: 2.5, damage: 22, ownerRoot: this.root });
+      this.projectiles.push({ mesh, velocity, life: 0, maxLife: 2.5, damage: projectileDamage, ownerRoot: this.root });
     }
-    this.shotsThisBurst += 1;
+    if (attackMode === 'burst') this.shotsThisBurst += 1;
     ctx.emitAIEvent?.(this.root, 'projectile_fired', {
       kind: 'shooter', origin: origin.clone(), target: targetPos.clone(),
-      worldClear: true, tacticalClear: true
+      attackMode, damage: projectileDamage, worldClear: true, tacticalClear: true
     });
     return true;
   }  

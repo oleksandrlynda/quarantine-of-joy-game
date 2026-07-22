@@ -1,9 +1,9 @@
 import * as THREE from 'https://unpkg.com/three@0.159.0/build/three.module.js';
-import { PointerLockControls } from 'https://unpkg.com/three@0.159.0/examples/jsm/controls/PointerLockControls.js?module';
+import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { WeatherSystem } from './weather.js?rev=sanitizer-atmosphere2';
 import { createWorld, setArenaRadius, DEFAULT_ARENA_RADIUS } from './world.js?v=2&rev=relay-level1-final7';
 import { makeSeededRng, makeNamespacedRng, generateSeedString } from './util/rng.js';
-import { EnemyManager } from './enemies.js?v=1.0.7&rev=boss-pressure7';
+import { EnemyManager } from './enemies.js?v=1.0.7&rev=wave46-recovery1';
 import { PlayerController } from './player.js?rev=collision7-ceiling1';
 import { Effects, createEffectsShaderWarmupExtras } from './effects.js';
 import { Pickups } from './pickups.js?rev=campaign-turbo-stability2';
@@ -16,7 +16,7 @@ import { WeaponView } from './weapons/view.js';
 import { AbilitySystem } from './abilities/system.js?v=1.0.3&rev=ammo-rescue2';
 import { ABILITY_DEFINITIONS, resolveDebugAbility } from './abilities/definitions.js?v=1.0.3-dynamite-grade2';
 import { startEditor } from './editor.js';
-import { Progression } from './progression.js?v=1.0.3&rev=smg-sidearm1';
+import { Progression } from './progression.js?v=1.0.3&rev=continue-checkpoint1';
 import {
   clonePrefab,
   loadAllModels,
@@ -28,11 +28,23 @@ import { StoryManager } from './story.js?rev=story-narrative2';
 import { t } from './i18n/index.js?v=1.0.3&rev=tutorial-complete1';
 import { logError, setDiagnosticErrorSink } from './util/log.js';
 import { cullGrassUnderObjects } from './graphics/grass.js';
-import { AchievementsManager } from './achievements.js?v=1.0.3&rev=archive-icons1-i18n-shared1';
+import { AchievementsManager } from './achievements.js?v=1.0.3&rev=continue-checkpoint1';
 import { TutorialManager } from './tutorial-manager.js?rev=blind-room11';
 import { GameSession } from './game/session.js?rev=ammo-rescue2';
 import { formatPlaytime, PlaytimeTracker } from './game/playtime.js';
 import { createWaveStartHandler } from './game/wave-flow.js';
+import {
+  getCampaignCheckpoint,
+  getCampaignCheckpointState,
+  hasSavedCampaignProgress,
+  isCampaignChapterStart,
+  isCampaignComplete,
+  markLastOrderComplete,
+  recordCampaignChapterPosition,
+  resetCampaignPosition,
+  resolveSavedCampaignStartWave,
+  saveCampaignCheckpointState
+} from './game/campaign-checkpoint.js?rev=continue-checkpoint1';
 import { getPlayerHudStats } from './game/hud-stats.js';
 import { LevelTransitionController } from './game/level-transition.js?rev=1';
 import { createDprBudget, nextAdaptiveDpr, scheduleCappedFrame, shouldPrewarmShaders, TARGET_FRAME_MS } from './game/render-budget.js';
@@ -79,7 +91,7 @@ import {
   summarizeRoster,
   validateCampaignSnapshot,
   validateWaveCompletion
-} from './debug/campaign-simulation.js?rev=wave41-qa2';
+} from './debug/campaign-simulation.js?rev=wave46-recovery1';
 import { GameplayEventAggregator } from './debug/gameplay-event-aggregator.js';
 import { MotionEventAggregator } from './debug/motion-event-aggregator.js';
 import { MovementRenderProbe } from './debug/movement-render-probe.js';
@@ -94,14 +106,14 @@ import { TREND_WASTES, TREND_WASTES_ASSET_IDS } from './levels/trend-wastes.js?r
 import { FREIGHT_ANNEX, FREIGHT_ANNEX_ASSET_IDS } from './levels/freight-annex.js?rev=boss-health-packages1&ammo-rescue=2';
 import { MIRROR_GARDEN, MIRROR_GARDEN_ASSET_IDS } from './levels/mirror-garden.js?rev=boss-health-packages1&ammo-rescue=2';
 import { CONTENT_COURT, CONTENT_COURT_ASSET_IDS } from './levels/content-court.js?rev=boss-health-packages1&ammo-rescue=2';
-import { SERVER_CATHEDRAL, SERVER_CATHEDRAL_ASSET_IDS } from './levels/server-cathedral.js?rev=boss-health-packages1&ammo-rescue=2';
+import { SERVER_CATHEDRAL, SERVER_CATHEDRAL_ASSET_IDS } from './levels/server-cathedral.js?rev=cathedral-route-collision3&ammo-rescue=2';
 import { LAST_ORDER_BASE, LAST_ORDER_BASE_ASSET_IDS } from './levels/last-order-base.js?rev=last-order-collisions1';
-import { SANDSTORM_EXPANSE, SANDSTORM_EXPANSE_ASSET_IDS } from './levels/sandstorm-expanse.js?rev=expanse-level9-first1&ammo-rescue=2';
-import { FLOODGATE_CONTINUITY, FLOODGATE_CONTINUITY_ASSET_IDS } from './levels/floodgate-continuity.js?rev=floodgate-level10-first1&ammo-rescue=2';
-import { BLACKOUT_CISTERN, BLACKOUT_CISTERN_ASSET_IDS } from './levels/blackout-cistern.js?rev=boss-health-packages1&ammo-rescue=2';
+import { SANDSTORM_EXPANSE, SANDSTORM_EXPANSE_ASSET_IDS } from './levels/sandstorm-expanse.js?rev=expanse-level9-first1&ammo-rescue=3';
+import { FLOODGATE_CONTINUITY, FLOODGATE_CONTINUITY_ASSET_IDS } from './levels/floodgate-continuity.js?rev=floodgate-level10-first1&ammo-rescue=3';
+import { BLACKOUT_CISTERN, BLACKOUT_CISTERN_ASSET_IDS } from './levels/blackout-cistern.js?rev=boss-health-packages1&ammo-rescue=3';
 import { TUTORIAL_YARD, TUTORIAL_YARD_ASSET_IDS } from './levels/tutorial-yard.js?rev=blind-room11&ammo-rescue=2';
 import { isAuthoredCampaignWave } from './levels/campaign-range.js';
-import { LevelRuntime } from './levels/runtime.js?rev=blind-room8';
+import { LevelRuntime } from './levels/runtime.js?rev=wave40-clear1';
 import { destructiblesForLevel } from './levels/destructibles.js';
 import { findPath } from './path.js?rev=campaign-turbo-stability2';
 import { createMenuBackground, MENU_BACKGROUND_ASSET_IDS } from './menu-background.js';
@@ -181,13 +193,7 @@ const debugStartWave = Number.isFinite(requestedDebugWave)
 const hasDebugWaveOverride = debugPerf && params.has('wave') && debugStartWave > 1;
 function resolveStandardStartWave() {
   if (hasDebugWaveOverride) return debugStartWave;
-  if (getString('bs3d_lastlight_complete', '0') === '1') return 1;
-  if (getString('bs3d_greywater_complete', '0') === '1') return 73;
-  const checkpoint = Math.floor(getNumber('bs3d_floodgate_checkpoint', 0));
-  if (checkpoint >= 66) return 66;
-  if (checkpoint >= 59) return 59;
-  if (getString('bs3d_sandstorm_complete', '0') === '1') return 52;
-  return 1;
+  return resolveSavedCampaignStartWave();
 }
 const initialRunStartWave = resolveStandardStartWave();
 const debugAbilityId = debugPerf ? resolveDebugAbility(params) : null;
@@ -438,8 +444,8 @@ try {
     if (diagnosticLogsEnabled) perfLog.event('loading', 'shader_warmup_skipped', { reason: 'warmup=0' }, 'warning');
   }
   setLoading(1.0, t('loading.ready'));
-  // Hide overlay
-  if (loadingEl) loadingEl.style.display = 'none';
+  // The runtime-enemy warmup below still has to compile first-wave shader and
+  // instancing variants. Keep the veil up until that work has fully drained.
 } catch(e) {
   console.warn('Warmup failed — continuing without precompiled shaders');
   if (diagnosticLogsEnabled) perfLog.event('loading', 'startup_failed', { error: e }, 'error');
@@ -754,6 +760,11 @@ function transitionToNextCampaignLevel(result = {}) {
     // escape snapshot until Wave 41 is recorded instead of asynchronously
     // replacing it with Expanse Wave 42 during the objective checkpoint.
     if (qaSimulationMode) return;
+    // Write the earned Wave 41 build under the destination checkpoint before
+    // advancing position. Wave 42 replaces this provisional state after its
+    // authored entry offer is created.
+    persistCampaignCheckpointState(42, { provisional: true });
+    markLastOrderComplete();
     showToast(t('level.lastOrder.completeToast'));
     beginLiveLevelTransition({
       fromId: 'last-order-base',
@@ -1545,6 +1556,9 @@ updateHUD();
 
 let debugWaveBaseline = null;
 let debugRunStartedAt = 0;
+let hasCommittedRunWave = false;
+let checkpointForceWeaponOffer = false;
+let activeCheckpointSnapshotWave = 0;
 
 function captureGameplayState(){
   const currentWeapon = weaponSystem?.current;
@@ -1626,9 +1640,16 @@ const handleWaveStart = createWaveStartHandler({
   showToast
 });
 function commitWaveStart(wave, startingAlive, plannedTypes, { levelPrepared = false } = {}) {
+  const recordPreviousWave = hasCommittedRunWave;
+  const runEntry = !hasCommittedRunWave;
+  const forceWeaponOffer = runEntry
+    && !currentRunTutorial
+    && !hasDebugWaveOverride
+    && !qaSimulationMode
+    && checkpointForceWeaponOffer;
   const waveStartState = diagnosticLogsEnabled ? captureGameplayState() : null;
   const plannedComposition = diagnosticLogsEnabled ? countPlannedEnemies(plannedTypes, wave) : null;
-  if (diagnosticLogsEnabled && wave > 1) {
+  if (diagnosticLogsEnabled && wave > 1 && recordPreviousWave) {
     perfLog.event('game', 'wave_complete', {
       wave: wave - 1,
       durationSeconds: Math.max(0, Math.round((gameTime - lastWaveStartTime) * 10) / 10),
@@ -1656,7 +1677,20 @@ function commitWaveStart(wave, startingAlive, plannedTypes, { levelPrepared = fa
       gameplayLog.record('enemies', startingAlive, performance.now(), wave, session.score, 'unknown');
     }
   }
-  handleWaveStart(wave, startingAlive);
+  handleWaveStart(wave, startingAlive, { recordPreviousWave, forceWeaponOffer });
+  if (!currentRunTutorial && !hasDebugWaveOverride && !qaSimulationMode) {
+    const previousCheckpoint = getCampaignCheckpoint();
+    const checkpoint = recordCampaignChapterPosition(wave);
+    if (wave <= 40 && checkpoint > previousCheckpoint) {
+      const chapterName = t(authoredLevelForWave(checkpoint)?.nameKey || 'level.relay.name');
+      showToast(t('start.checkpointSaved').replace('{chapter}', chapterName));
+    }
+    if (isCampaignChapterStart(wave) && activeCheckpointSnapshotWave !== wave) {
+      persistCampaignCheckpointState(wave, {
+        forceWeaponOffer: runEntry && checkpointForceWeaponOffer
+      });
+    }
+  }
   if (!levelPrepared) {
     relayLevel.onWaveStart(wave);
     syncAuthoredAmmoPackages(wave);
@@ -1675,6 +1709,23 @@ function commitWaveStart(wave, startingAlive, plannedTypes, { levelPrepared = fa
     });
     debugWaveBaseline = { ...waveStartState, wave };
   }
+  hasCommittedRunWave = true;
+}
+
+function persistCampaignCheckpointState(wave, { forceWeaponOffer = false, provisional = false } = {}) {
+  const checkpointSaved = saveCampaignCheckpointState({
+    wave,
+    provisional,
+    forceWeaponOffer,
+    mutations: mutations.exportRunCheckpoint?.(),
+    progression: progression?.exportRunCheckpoint?.(),
+    weapons: weaponSystem?.exportCheckpointState?.(),
+    session: session.exportCheckpointState?.(),
+    player: player.exportCheckpointState?.(),
+    achievements: achievements.exportRunCheckpoint?.()
+  });
+  if (checkpointSaved && !provisional) activeCheckpointSnapshotWave = wave;
+  return checkpointSaved;
 }
 
 function prepareTransitionWaveEnvironment(wave) {
@@ -1717,6 +1768,9 @@ enemyManager.onSpecialWave = event => {
   } else if (event.type === 'complete') {
     wave72Visuals.complete();
     setString('bs3d_lastlight_complete', '1');
+    // The next Play begins a new campaign economy cycle; earned Archive
+    // currency itself remains permanent.
+    mutations.resetCampaignRewardLedger?.();
     enemyManager.suspendWaves = true;
     session.gameOver = true;
     showToast(t('wave72.complete'));
@@ -1926,11 +1980,16 @@ story = storyDisabled ? null : new StoryManager({
 function updateMobileAltButton(){
   const altButton = document.getElementById('btnAlt');
   if (!altButton) return;
-  altButton.style.display = weaponSystem?.hasCurrentAltFire?.() ? '' : 'none';
+  const available = weaponSystem?.hasCurrentAltFire?.() === true;
+  altButton.hidden = !available;
+  altButton.disabled = !available;
+  altButton.setAttribute('aria-hidden', String(!available));
+  setDisplayIfChanged(altButton, available ? '' : 'none');
 }
 
 function updateAbilityHUD(){
   const state = abilitySystem?.getState?.();
+  if (hudRootEl) hudRootEl.classList.toggle('ability-active', Boolean(state));
   setDisplayIfChanged(abilityPillEl, state ? '' : 'none');
   if (state && abilityPillEl) {
     setTextIfChanged(abilityNameEl, t(state.definition.nameKey));
@@ -1944,7 +2003,8 @@ function updateAbilityHUD(){
   if (!abilityButton) return;
   setDisplayIfChanged(abilityButton, state ? '' : 'none');
   abilityButton.disabled = !state?.ready;
-  abilityButton.textContent = state?.ready ? 'Q' : String(Math.ceil(state?.cooldownRemaining || 0));
+  const abilityButtonValue = document.getElementById('btnRushValue');
+  setTextIfChanged(abilityButtonValue, state?.ready ? '' : String(Math.ceil(state?.cooldownRemaining || 0)));
 }
 
 let rushHitEnemies = new Set();
@@ -2576,6 +2636,9 @@ requestAnimationFrame(step);
 // ------ UI / Flow ------
 const panel = document.getElementById('panel');
 const playBtn = document.getElementById('play');
+const newGameBtn = document.getElementById('newGame');
+const newGameDialog = document.getElementById('newGameDialog');
+const confirmNewGameBtn = document.getElementById('confirmNewGame');
 const tutorialBtn = document.getElementById('tutorialBtn');
 const pauseMenu = document.getElementById('pauseMenu');
 const defeatMenu = document.getElementById('defeatMenu');
@@ -3200,6 +3263,43 @@ function closeDebugLog(){
   else showMenuView(debugLogReturn === 'pause' ? 'pause' : 'start');
 }
 
+function updateCampaignStartUI(){
+  if (!playBtn) return;
+  const startWave = resolveStandardStartWave();
+  const campaignComplete = isCampaignComplete();
+  const canContinue = !hasDebugWaveOverride && !campaignComplete && hasSavedCampaignProgress();
+  const label = document.getElementById('playLabel') || playBtn.querySelector('span') || playBtn;
+  const subtitle = document.getElementById('playSubtitle');
+  if (canContinue) {
+    const chapterName = t(authoredLevelForWave(startWave)?.nameKey || 'level.relay.name');
+    label.textContent = t('start.continue');
+    if (subtitle) {
+      subtitle.textContent = chapterName;
+      subtitle.hidden = false;
+    }
+  } else {
+    label.textContent = t('start.play');
+    if (subtitle) {
+      subtitle.textContent = '';
+      subtitle.hidden = true;
+    }
+  }
+  if (newGameBtn) newGameBtn.hidden = hasDebugWaveOverride || !hasSavedCampaignProgress();
+}
+
+function openNewGameDialog(){
+  if (!newGameDialog) return;
+  newGameDialog.showModal();
+}
+
+function startNewGame(){
+  resetCampaignPosition();
+  mutations.resetCampaignRewardLedger?.();
+  newGameDialog?.close?.();
+  updateCampaignStartUI();
+  startGame();
+}
+
 async function copyDebugLog(){
   if (!diagnosticLogsEnabled) return;
   debugEnvironment = collectDebugEnvironment({
@@ -3235,6 +3335,23 @@ if (diagnosticLogsEnabled) perfLog.subscribe(scheduleDebugLogRender);
 
 function reset(isTutorial = false){ // clear enemies
   currentRunTutorial = isTutorial === true;
+  const runStartWave = isTutorial ? 1 : resolveStandardStartWave();
+  const storedCheckpoint = !isTutorial && !hasDebugWaveOverride && !qaSimulationMode
+    ? getCampaignCheckpointState()
+    : null;
+  const checkpointState = storedCheckpoint?.wave === runStartWave
+    && storedCheckpoint.mutations
+    && storedCheckpoint.progression
+    && storedCheckpoint.weapons
+    && storedCheckpoint.session
+    && storedCheckpoint.player
+    && storedCheckpoint.achievements
+    ? storedCheckpoint
+    : null;
+  checkpointForceWeaponOffer = checkpointState?.forceWeaponOffer === true
+    || (!checkpointState && runStartWave > 1 && runStartWave !== 41);
+  activeCheckpointSnapshotWave = 0;
+  hasCommittedRunWave = false;
   mutations.resetRun({ tutorial: currentRunTutorial, debug: hasDebugWaveOverride || debugShopCredits != null });
   eliminationSpectacle.reset();
   algorithmRoulette.reset();
@@ -3258,10 +3375,41 @@ function reset(isTutorial = false){ // clear enemies
   pickups.resetRetentionStats();
   paused=false;
   session.reset({ weaponSystem, player, effects, sfx: S });
-  if (!isTutorial && hasDebugWaveOverride) weaponSystem.setDebugWaveLoadout();
-  const runStartWave = isTutorial ? 1 : resolveStandardStartWave();
-  if (!isTutorial && !hasDebugWaveOverride && runStartWave >= 41) weaponSystem.setPostCampaignLoadout?.();
   if (!qaSimulationMode) achievements.check({ type: 'runStart', mode: isTutorial ? 'tutorial' : 'standard' });
+  let checkpointRestored = false;
+  if (checkpointState) {
+    const mutationsRestored = mutations.restoreRunCheckpoint?.(checkpointState.mutations) === true;
+    const progressionRestored = progression?.restoreRunCheckpoint?.(checkpointState.progression) === true;
+    const weaponsRestored = weaponSystem?.restoreCheckpointState?.(checkpointState.weapons) === true;
+    const sessionRestored = session.restoreCheckpointState?.(checkpointState.session) === true;
+    const playerRestored = player.restoreCheckpointState?.(checkpointState.player) === true;
+    const achievementsRestored = achievements.restoreRunCheckpoint?.(checkpointState.achievements) === true;
+    checkpointRestored = mutationsRestored
+      && progressionRestored
+      && weaponsRestored
+      && sessionRestored
+      && playerRestored
+      && achievementsRestored;
+    if (diagnosticLogsEnabled) {
+      perfLog.event('game', 'checkpoint_restore', {
+        wave: runStartWave,
+        provisional: checkpointState.provisional === true,
+        restored: checkpointRestored,
+        mutations: mutationsRestored,
+        progression: progressionRestored,
+        weapons: weaponsRestored,
+        session: sessionRestored,
+        player: playerRestored,
+        achievements: achievementsRestored
+      }, checkpointRestored ? 'info' : 'warning');
+    }
+    if (checkpointRestored && checkpointState.provisional !== true) activeCheckpointSnapshotWave = runStartWave;
+  }
+  if (checkpointState && !checkpointRestored) {
+    checkpointForceWeaponOffer = runStartWave > 1 && runStartWave !== 41;
+  }
+  if (!isTutorial && hasDebugWaveOverride) weaponSystem.setDebugWaveLoadout();
+  if (!isTutorial && !hasDebugWaveOverride && !checkpointRestored && runStartWave >= 41) weaponSystem.setPostCampaignLoadout?.();
   const prevSuspend = enemyManager.suspendWaves;
   if (isTutorial) enemyManager.suspendWaves = true;
   enemyManager.reset({ wave: runStartWave });
@@ -3310,7 +3458,13 @@ function hideCombatHelp(){
   setTimeout(() => { help.style.display = 'none'; }, 700);
 }
 
+let standardRunHasStarted = false;
 function startGame(){
+  if (!hasDebugWaveOverride && isCampaignComplete()) {
+    resetCampaignPosition();
+    mutations.resetCampaignRewardLedger?.();
+    updateCampaignStartUI();
+  }
   if (diagnosticLogsEnabled) perfLog.event('game', 'start', { mode: 'standard' });
   wave72Visuals.stop();
   enemyManager.suspendWaves = false;
@@ -3339,9 +3493,12 @@ function startGame(){
     enemyManager.refreshColliders(objects);
     enemyManager.customSpawnPoints = levelInfo.enemySpawnPoints;
   } else if (isAuthoredCampaignWave(resolveStandardStartWave())) {
-    obstacleManager.clear();
     const nextDefinition = authoredLevelForWave(resolveStandardStartWave());
-    if (relayLevel.definition?.id === nextDefinition?.id) relayLevel.reset();
+    const canReusePristineInitialLevel = !standardRunHasStarted
+      && relayLevel.definition?.id === nextDefinition?.id;
+    if (relayLevel.definition?.id === nextDefinition?.id) {
+      if (!canReusePristineInitialLevel) relayLevel.reset();
+    }
     else relayLevel.load(nextDefinition);
     enemyManager.customSpawnPoints = null;
     levelInfo = null;
@@ -3354,6 +3511,7 @@ function startGame(){
     enemyManager.customSpawnPoints = null;
   }
   reset();
+  standardRunHasStarted = true;
   if (!qaSimulationMode) {
     if (musicChoice === 'suno') { playSuno(); } else { music.start(); }
   }
@@ -3415,6 +3573,7 @@ function showStartPanel(){
   playtimeTracker.persist();
   updatePlaytimeDisplay();
   updateArchiveAvailability();
+  updateCampaignStartUI();
   menuBackground?.show();
   showMenuView('start');
 }
@@ -3492,7 +3651,9 @@ function returnToMainMenu(){
   showStartPanel();
 }
 
-playBtn.onclick = startGame;
+playBtn.onclick = () => startGame();
+if (newGameBtn) newGameBtn.onclick = openNewGameDialog;
+if (confirmNewGameBtn) confirmNewGameBtn.onclick = startNewGame;
 if (tutorialBtn) tutorialBtn.onclick = startTutorial;
 if (tutorialCompleteYes) tutorialCompleteYes.onclick = startGame;
 if (tutorialCompleteAlsoYes) tutorialCompleteAlsoYes.onclick = startGame;
@@ -3520,6 +3681,8 @@ if (pauseDebugLogBtn) pauseDebugLogBtn.onclick = ()=>openDebugLog('pause');
 if (debugLogBack) debugLogBack.onclick = closeDebugLog;
 if (debugLogCopy) debugLogCopy.onclick = copyDebugLog;
 if (settingsOpenLog) settingsOpenLog.onclick = () => openDebugLog('settings');
+window.addEventListener('qoj:languagechange', updateCampaignStartUI);
+updateCampaignStartUI();
 if (supportLogsToggle) supportLogsToggle.onchange = () => {
   setString(SUPPORT_LOGS_KEY, supportLogsToggle.checked ? '1' : '0');
   if (diagnosticLogsEnabled) {
@@ -4221,13 +4384,32 @@ if (qaSimulationMode) {
       : blockerDistance + .75 < aim.distance
       ? 'world_blocker_circumnavigation'
       : 'standard';
-    const key = movementOrder[(Math.max(1, repositionIndex) - 1) % movementOrder.length];
+    const orderIndex = (Math.max(1, repositionIndex) - 1) % movementOrder.length;
+    const key = movementOrder[orderIndex];
     const before = controls.getObject().position.clone();
-    player.keys.add(key);
-    if (repositionIndex % 4 === 0) player.keys.add('ShiftLeft');
-    await qaCheckpoint(48, 0.35);
-    player.keys.delete(key);
-    player.keys.delete('ShiftLeft');
+    const movementKeysAttempted = [];
+    const drive = async moveKey => {
+      movementKeysAttempted.push(moveKey);
+      player.keys.add(moveKey);
+      if (repositionIndex % 4 === 0) player.keys.add('ShiftLeft');
+      try {
+        await qaCheckpoint(48, 0.35);
+      } finally {
+        player.keys.delete(moveKey);
+        player.keys.delete('ShiftLeft');
+      }
+    };
+    await drive(key);
+    // The Wave 46 report exposed an approach vector pinned against a
+    // Sandstorm Expanse sandbank for 60 shots. Try the next deterministic
+    // lateral/backoff exit immediately instead of firing again from the exact
+    // same collision-resolved position.
+    if (productionAimMismatch
+      && before.distanceTo(controls.getObject().position) < .05
+      && movementOrder.length > 1) {
+      const fallbackKey = movementOrder[(orderIndex + 1) % movementOrder.length];
+      if (fallbackKey !== key) await drive(fallbackKey);
+    }
     let objectiveLeash = null;
     if (holdPosition) {
       objectiveLeash = await qaAlignWithinObjective(holdPosition, { reason: 'combat_reposition' });
@@ -4235,7 +4417,7 @@ if (qaSimulationMode) {
     qaRecord('combat', 'reposition', {
       key, target: qaRootData(target), player: qaSnapshot().player,
       objectiveLeash, blockage,
-      recoveryMode, movementOrder,
+      recoveryMode, movementOrder, movementKeysAttempted,
       moved: roundedMs(before.distanceTo(controls.getObject().position)),
       lineOfFire: qaProbeLineOfFire(target)
     });
@@ -4256,6 +4438,7 @@ if (qaSimulationMode) {
       holdPosition
     });
     const obstacles = enemyManager.objectBBs || [];
+    const clearCandidates = [];
     let sliceStartedAt = performance.now();
     for (let index = 0; index < candidates.length; index++) {
       // Candidate raycasts and A* are intentionally synchronous, but a full
@@ -4269,14 +4452,61 @@ if (qaSimulationMode) {
       const candidate = candidates[index];
       const lineOfFire = qaProbeLineOfFireFrom(target, candidate);
       if (!lineOfFire.clear) continue;
+      if (clearCandidates.length < 8) clearCandidates.push({ candidate, lineOfFire });
       const path = findPath(current, candidate, obstacles, {
         gridSize: 1,
         radius: 3,
         agentRadius: .55
       });
-      if (path.length > 1) return { candidate, path, lineOfFire, candidatesChecked: index + 1 };
+      if (path.length > 1) return {
+        candidate,
+        path,
+        lineOfFire,
+        clearCandidates,
+        candidatesChecked: index + 1
+      };
     }
-    return { candidate: null, path: [], lineOfFire: null, candidatesChecked: candidates.length };
+    return {
+      candidate: clearCandidates[0]?.candidate || null,
+      path: [],
+      lineOfFire: clearCandidates[0]?.lineOfFire || null,
+      clearCandidates,
+      candidatesChecked: candidates.length
+    };
+  };
+  const qaRelocateForStationaryMechanic = async (target, routePlan) => {
+    const type = String(target?.userData?.type || '');
+    if (!type.startsWith('boss_node_') || !routePlan?.clearCandidates?.length) return null;
+    const before = controls.getObject().position.clone();
+    const attempts = [];
+    for (const entry of routePlan.clearCandidates) {
+      const candidate = entry.candidate;
+      player.resetPosition(candidate.x, candidate.y, candidate.z);
+      await qaCheckpoint(2, .15);
+      const actual = controls.getObject().position;
+      const lineOfFire = qaProbeLineOfFire(target);
+      attempts.push({
+        requested: candidate,
+        actual: {
+          x: roundedSigned(actual.x),
+          y: roundedSigned(actual.y),
+          z: roundedSigned(actual.z)
+        },
+        lineOfFire
+      });
+      if (!lineOfFire.clear) continue;
+      const result = {
+        success: true,
+        target: qaRootData(target),
+        moved: roundedMs(before.distanceTo(actual)),
+        attempts
+      };
+      qaRecord('combat', 'stationary_mechanic_firing_position', result);
+      return result;
+    }
+    const result = { success: false, target: qaRootData(target), attempts };
+    qaRecord('combat', 'stationary_mechanic_firing_position_failed', result, 'warning');
+    return result;
   };
   const qaDriveFiringRoute = async (target, routePlan, holdPosition = null) => {
     const started = controls.getObject().position.clone();
@@ -4377,6 +4607,7 @@ if (qaSimulationMode) {
       objectiveHoldReleased: false,
       objectiveDefenseWaits: 0,
       objectiveProgressResets: 0,
+      stationaryMechanicRelocations: 0,
       gravityWells: 0,
       gravityWellCooldownSeconds: DEFAULT_CAMPAIGN_BOSS_SUPPORT_COOLDOWN_SECONDS,
       progressTimeoutMs: DEFAULT_CAMPAIGN_COMBAT_PROGRESS_TIMEOUT_MS,
@@ -4541,8 +4772,14 @@ if (qaSimulationMode) {
             const routeResult = await qaDriveFiringRoute(target, routePlan, activeHoldPosition);
             stats.alignmentDistance += routeResult.moved;
           } else {
-            stats.repositions++;
-            await qaRepositionForCombat(target, stats.repositions, activeHoldPosition, lineOfFire);
+            const mechanicRelocation = await qaRelocateForStationaryMechanic(target, routePlan);
+            if (mechanicRelocation?.success) {
+              stats.stationaryMechanicRelocations++;
+              targetProgressAt = gameTime * 1000;
+            } else {
+              stats.repositions++;
+              await qaRepositionForCombat(target, stats.repositions, activeHoldPosition, lineOfFire);
+            }
           }
           if (evaluateCampaignCombatStall({ nowMs: gameTime * 1000, lastProgressAtMs: targetProgressAt })) {
             qaError('combat_alignment_stalled', `Wave ${wave} could not align a clear shot on ${target.userData?.type || 'enemy'}.`, {
@@ -5626,23 +5863,73 @@ window.addEventListener('pagehide', () => { if (!qaSimulationMode) achievements.
 // Ensure audio resume on first input (mobile/desktop)
 window.addEventListener('pointerup', ()=> S.ensure(), {once:true});
 
-// Optional: pre-warm enemy assets to avoid first-spawn hitches
+// Materialize, compile, and upload every regular enemy archetype before the
+// player can start. Template construction alone does not pay the first-render
+// shader/geometry cost, which otherwise appears as a hitch when a later wave
+// introduces a specialist for the first time.
 try {
   const prewarm = (new URL(window.location.href)).searchParams.get('prewarm') !== '0';
   if (prewarm) {
-    const kinds = ['grunt', 'rusher', 'shooter', 'sniper', 'tank'];
-    const base = new THREE.Vector3(0, 0.8, -60);
-    for (let i=0;i<kinds.length;i++) {
-      const pos = base.clone().add(new THREE.Vector3(i*2, 0, 0));
-      const root = enemyManager.spawnAt(kinds[i], pos, { countsTowardAlive: false });
-      scene.remove(root);
-      enemyManager.remove(root);
+    const enemyWarmStartedAt = diagnosticLogsEnabled ? performance.now() : 0;
+    const kinds = Object.keys(enemyManager.typeConfig || {});
+    const roots = [];
+    const base = new THREE.Vector3(-((kinds.length - 1) * 0.9), 0.8, -60);
+    try {
+      for (let i = 0; i < kinds.length; i++) {
+        const pos = base.clone().add(new THREE.Vector3(i * 1.8, 0, 0));
+        const root = enemyManager.spawnAt(kinds[i], pos, { countsTowardAlive: false });
+        if (root) roots.push(root);
+      }
+      if (relayLevel.active) {
+        // Upload the same geometry the player will see from the authored spawn,
+        // not just the subset visible from the generic pre-level camera.
+        if (relayLevel.playerSpawn) {
+          player.resetPosition(...relayLevel.playerSpawn);
+          player.yawObject.rotation.y = 0;
+        }
+        relayLevel.onWaveStart(resolveStandardStartWave());
+        weather.update(gameTime, controls.getObject());
+        // Populate per-enemy instanced readability/contact-shadow buffers so
+        // their shader variants are part of the warm frame as well.
+        relayLevel.update(0, controls.getObject());
+      }
+      repairSceneMaterialBuildHooks('enemy_runtime_warmup');
+      if (typeof renderer.compileAsync === 'function') await renderer.compileAsync(scene, camera);
+      else renderer.compile?.(scene, camera);
+      renderProductionScene();
+      // A rendered frame can enqueue parallel shader finalization after
+      // compileAsync resolves. Keep representatives alive through a second
+      // warm render and two compositor turns so Play cannot race that work.
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      renderProductionScene();
+      await new Promise(resolve => requestAnimationFrame(resolve));
+    } finally {
+      for (const root of roots) enemyManager.remove(root);
+      renderer.renderLists?.dispose?.();
+    }
+    // Some specialists carry their own light, so compiling every representative
+    // together produces three-light programs while the ordinary level uses two.
+    // Recompile the cleaned scene to cover the baseline variants used on Play.
+    repairSceneMaterialBuildHooks('enemy_runtime_baseline_warmup');
+    if (typeof renderer.compileAsync === 'function') await renderer.compileAsync(scene, camera);
+    else renderer.compile?.(scene, camera);
+    renderProductionScene();
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    renderProductionScene();
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    if (diagnosticLogsEnabled) {
+      perfLog.event('loading', 'enemy_runtime_warmup_complete', {
+        durationMs: Math.round((performance.now() - enemyWarmStartedAt) * 10) / 10,
+        archetypes: roots.length,
+        requestedArchetypes: kinds.length
+      });
     }
   }
-} catch (e) { logError(e); }
+} catch (e) { logError(e, 'enemy runtime warmup'); }
 
 // Pre-warm VFX pools
 try { effects.prewarm({ tracers: 64, rings: 8 }); } catch (e) { logError(e); }
+if (loadingEl) loadingEl.style.display = 'none';
 
 // ---- Hitmarker helpers ----
 function showHitmarker(){
@@ -5902,6 +6189,7 @@ if (enemyManager && enemyManager.bossManager) {
 // Deterministic art-review camera: expose a selected authored campaign wave and
 // hold the player at the authored spawn without requiring pointer lock.
 if (relayPlayerPreviewMode && relayLevel.active) {
+  standardRunHasStarted = true;
   reset(false);
   enemyManager.wave = relayPreviewWave;
   relayLevel.onWaveStart(relayPreviewWave);

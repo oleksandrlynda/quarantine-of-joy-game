@@ -473,6 +473,43 @@ test('wave and boss progression is disabled in tutorials and wave-skipped debug 
   assert.equal(archive.getPersistentState().fragments, 4);
 });
 
+test('chapter retries cannot claim the same campaign rewards again', () => {
+  const storage = makeStorage();
+  const archive = new ArchiveMutations({ storage });
+  assert.equal(archive.onWaveStarted(3), 1);
+  assert.equal(archive.onBossDefeated(5), 2);
+
+  archive.resetRun();
+  assert.equal(archive.onWaveStarted(3), 0);
+  assert.equal(archive.onBossDefeated(5), 0);
+  assert.equal(archive.getPersistentState().fragments, 3);
+
+  archive.resetCampaignRewardLedger();
+  archive.resetRun();
+  assert.equal(archive.onWaveStarted(3), 1, 'a deliberate New Game starts a new reward cycle');
+  assert.equal(archive.onBossDefeated(5), 2);
+  assert.equal(archive.getPersistentState().fragments, 6);
+});
+
+test('mutation checkpoint restores ranks, trials, and run counters', () => {
+  const archive = new ArchiveMutations({ storage: makeStorage() });
+  archive.revealSurvivalMutations(10);
+  archive._awardFragments(10);
+  assert.equal(archive.purchase('irony_armor').ok, true);
+  assert.equal(archive.applyRank('irony_armor').ok, true);
+  archive.revealClassifiedWeapon('grenade');
+  assert.equal(archive.grantWeaponTrial('grenade'), true);
+  for (let i = 0; i < 5; i += 1) archive.recordElimination();
+  const checkpoint = archive.exportRunCheckpoint();
+
+  archive.resetRun();
+  assert.equal(archive.restoreRunCheckpoint(checkpoint), true);
+  assert.equal(archive.getRank('irony_armor'), 1);
+  assert.equal(archive.getRunState().points, 1);
+  assert.deepEqual(archive.getRunState().trialWeapons, ['grenade']);
+  assert.equal(archive.getRunState().callbackEliminations, 0, 'locked Callback progress is harmless without a rank');
+});
+
 test('owned mutation is guaranteed in an offer and mastery never enters the pool', () => {
   const archive = new ArchiveMutations({ storage: makeStorage(), rng: () => 0.99 });
   archive.revealSurvivalMutations(10);

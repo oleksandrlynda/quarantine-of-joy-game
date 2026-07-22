@@ -1035,6 +1035,12 @@ export class LevelRuntime {
           ? Math.min(width, depth) / 2
           : null;
       },
+      getNavigationBounds: () => {
+        const [width, depth] = this.definition?.size || [];
+        return Number.isFinite(width) && Number.isFinite(depth)
+          ? { minX: -width / 2, maxX: width / 2, minZ: -depth / 2, maxZ: depth / 2 }
+          : null;
+      },
       getWaveDefinition: wave => this.definition?.waves?.[wave] || null,
       getSpawnCandidates: ({ wave, type }) => this._spawnCandidates(wave, type),
       configureSpawnedEnemy: ({ root, instance, type, wave }) => {
@@ -6033,8 +6039,12 @@ export class LevelRuntime {
     this._setTaggedCollidersActive('cathedralRightLock', rightLocked);
     this._setGroupVisible('choirDressing', !liberated && wave === 38);
     this._setTaggedCollidersActive('choirDressing', !liberated && wave === 38);
-    this._setGroupVisible('rootDressing', liberated || wave >= 39);
-    this._setTaggedCollidersActive('rootDressing', liberated || wave >= 39);
+    // Wave 39 owns the Root Altar. The Algorithm brings its own pedestal at
+    // the same origin, so retaining the altar in Wave 40 violates the authored
+    // 15.5 m boss-clear zone and blocks rays to two Control nodes.
+    const rootDressingVisible = liberated || wave === 39;
+    this._setGroupVisible('rootDressing', rootDressingVisible);
+    this._setTaggedCollidersActive('rootDressing', rootDressingVisible);
     this._setGroupVisible('logicDressing', !liberated && wave === 39);
     this._setTaggedCollidersActive('logicDressing', !liberated && wave === 39);
     this._setGroupVisible('endChoice', liberated);

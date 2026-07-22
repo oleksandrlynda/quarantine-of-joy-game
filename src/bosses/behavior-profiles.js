@@ -41,6 +41,18 @@ export const BOSS_BEHAVIOR_PROFILES = Object.freeze({
     id: 'hydraclone', role: 'melee', collisionRadius: 0.78,
     collisionHeight: 2.1, bodyPriority: 5, preferredRange: [0, 2.3]
   }),
+  hydraclone_gen1: freezeProfile({
+    id: 'hydraclone_gen1', role: 'melee', collisionRadius: 0.64,
+    collisionHeight: 1.8, bodyPriority: 4, preferredRange: [0, 2.3]
+  }),
+  hydraclone_gen2: freezeProfile({
+    id: 'hydraclone_gen2', role: 'melee', collisionRadius: 0.46,
+    collisionHeight: 1.4, bodyPriority: 2, preferredRange: [0, 2.1]
+  }),
+  hydraclone_gen3: freezeProfile({
+    id: 'hydraclone_gen3', role: 'melee', collisionRadius: 0.32,
+    collisionHeight: 1.05, bodyPriority: 1, preferredRange: [0, 1.9]
+  }),
   boss_strike_adjudicator: freezeProfile({
     id: 'boss_strike_adjudicator', role: 'hybrid', collisionRadius: 1.85,
     collisionHeight: 3.8, bodyPriority: 8, preferredRange: [3, 7]

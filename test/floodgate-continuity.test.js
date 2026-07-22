@@ -259,5 +259,5 @@ test('campaign routing, persistence, preview range, and post-campaign loadout in
   assert.match(main, /bs3d_greywater_complete/);
   assert.match(weapons, /setPostCampaignLoadout\(\)/);
   const checkpointLoadout = weapons.slice(weapons.indexOf('setPostCampaignLoadout()'));
-  assert.match(checkpointLoadout, /new Rifle[\s\S]*new SMG[\s\S]*new Pistol/);
+  assert.match(checkpointLoadout, /isWeaponOwned\?\.\('rifle'\)[\s\S]*new Rifle[\s\S]*new SMG[\s\S]*new Pistol/);
 });

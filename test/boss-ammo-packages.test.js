@@ -19,7 +19,7 @@ const CASES = Object.freeze([
   [MIRROR_GARDEN, 30, 8],
   [CONTENT_COURT, 35, 8],
   [SERVER_CATHEDRAL, 40, 7],
-  [BLACKOUT_CISTERN, 73, 7]
+  [BLACKOUT_CISTERN, 73, 4]
 ]);
 
 function overlapsCollider([x, z], collider, margin = 1.05) {

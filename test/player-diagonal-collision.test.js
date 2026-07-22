@@ -30,7 +30,7 @@ const controlsStub = `class PointerLockControls {
 }
 `;
 playerSource = playerSource.replace(
-  /import \{ PointerLockControls \} from 'https:\/\/unpkg\.com\/three@0\.159\.0\/examples\/jsm\/controls\/PointerLockControls\.js\?module';\r?\n/,
+  /import \{ PointerLockControls \} from 'three\/addons\/controls\/PointerLockControls\.js';\r?\n/,
   controlsStub
 );
 const temporaryModule = path.resolve(testDirectory, './_player_diagonal_temp.mjs');
@@ -71,6 +71,27 @@ test('production player cannot cross a thin Level 1 collider on a straight diago
   assert.equal(crossedStraightThrough, false);
 });
 
+test('high-speed production player cannot tunnel through a Wave 40 route column', () => {
+  const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 100);
+  // A .12 x .48 x .12 nave post at the Cathedral route placement's 2.65x
+  // authored scale. Its bottom is seated on the raised route floor.
+  const collider = new THREE.Mesh(new THREE.BoxGeometry(.318, 1.272, .318));
+  collider.position.set(0, 1.007, 0);
+  collider.updateMatrixWorld(true);
+  const player = new PlayerController(THREE, camera, document.body, [collider], Infinity);
+  player.refreshColliders([collider]);
+  const root = player.controls.getObject();
+  root.position.set(0, 1.7, 2);
+  player.damping = 0;
+  player.velXZ.set(0, 0, -240);
+
+  player.update(1 / 60);
+
+  const nearestLegalCenterZ = collider.geometry.parameters.depth / 2 + player.colliderHalf.z;
+  assert.ok(root.position.z >= nearestLegalCenterZ,
+    `expected player before the column, got z=${root.position.z}`);
+});
+
 test('ground sampling cannot snap a player from beside a tall collider onto its roof', () => {
   const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 100);
   const tallProp = new THREE.Mesh(new THREE.BoxGeometry(4, 5.5, 4));
@@ -107,4 +128,21 @@ test('player can move out of an existing collider overlap without moving deeper 
   player.keys.clear();
 
   assert.ok(root.position.x > 2.45, `expected overlap escape, got x=${root.position.x}`);
+});
+
+test('an overlapped player may escape outward but cannot tunnel through the collider center', () => {
+  const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 100);
+  const collider = new THREE.Mesh(new THREE.BoxGeometry(4, 4, 4));
+  collider.position.set(0, 2, 0);
+  collider.updateMatrixWorld(true);
+  const player = new PlayerController(THREE, camera, document.body, [collider], Infinity);
+  player.refreshColliders([collider]);
+  const root = player.controls.getObject();
+
+  root.position.set(2.3, 1.7, 0);
+  player.damping = 0;
+  player.velXZ.set(-600, 0, 0);
+  player.update(1 / 60);
+
+  assert.ok(root.position.x > 2, `expected player to remain on the original side, got x=${root.position.x}`);
 });

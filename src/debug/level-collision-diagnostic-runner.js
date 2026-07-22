@@ -786,7 +786,7 @@ async function simulateJourney(entry) {
   const enemyProfile = journey.actor === 'enemy' ? resolveBehaviorProfile(journey.enemyType || 'grunt') : null;
   const agentRadius = journey.agentRadius ?? (journey.actor === 'player' ? 0.5 : 0.73);
   const path = findPath(start, goal, probeManager.objectBBs, {
-    gridSize: 0.75,
+    gridSize: journey.gridSize ?? 0.75,
     radius: journey.pathRadius ?? 56,
     agentRadius
   });

@@ -87,7 +87,13 @@ export function buildCampaignCombatRepositionOrder({
   const blockerDistance = worldDistance == null || worldDistance === ''
     ? Infinity
     : finite(worldDistance, Infinity);
-  if (productionAimMismatch && targetDistance > 12) return ['KeyW'];
+  if (productionAimMismatch && targetDistance > 12) {
+    // A long-range mismatch usually benefits from closing distance, but an
+    // approach-only order can hold W forever when low cover blocks the player
+    // while the ideal camera probe still sees the target. Preserve a forward
+    // bias and cycle through both lateral exits plus one backoff.
+    return ['KeyW', stableSide, 'KeyW', oppositeSide, 'KeyS'];
+  }
   // Back off when the muzzle is almost touching world geometry. On the next
   // probe the bot can commit to a single strafe direction around the blocker.
   if (blockerDistance < 1.5) {
