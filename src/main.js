@@ -3,7 +3,7 @@ import { PointerLockControls } from 'three/addons/controls/PointerLockControls.j
 import { WeatherSystem } from './weather.js?rev=sanitizer-atmosphere2';
 import { createWorld, setArenaRadius, DEFAULT_ARENA_RADIUS } from './world.js?v=2&rev=relay-level1-final7';
 import { makeSeededRng, makeNamespacedRng, generateSeedString } from './util/rng.js';
-import { EnemyManager } from './enemies.js?v=1.0.7&rev=wave46-recovery1';
+import { EnemyManager } from './enemies.js?v=1.0.4';
 import { PlayerController } from './player.js?rev=collision7-ceiling1';
 import { Effects, createEffectsShaderWarmupExtras } from './effects.js';
 import { Pickups } from './pickups.js?rev=campaign-turbo-stability2';
@@ -25,10 +25,10 @@ import {
   repairInvalidMaterialBuildHooks
 } from '../loader.js?v=9&rev=level-transition1';
 import { StoryManager } from './story.js?rev=story-narrative2';
-import { t } from './i18n/index.js?v=1.0.3&rev=tutorial-complete1';
+import { t } from './i18n/index.js?v=1.0.4';
 import { logError, setDiagnosticErrorSink } from './util/log.js';
 import { cullGrassUnderObjects } from './graphics/grass.js';
-import { AchievementsManager } from './achievements.js?v=1.0.3&rev=continue-checkpoint1';
+import { AchievementsManager } from './achievements.js?v=1.0.4';
 import { TutorialManager } from './tutorial-manager.js?rev=blind-room11';
 import { GameSession } from './game/session.js?rev=ammo-rescue2';
 import { formatPlaytime, PlaytimeTracker } from './game/playtime.js';
@@ -54,7 +54,7 @@ import { selectFinalCutVariant } from './game/final-cut-animations.js';
 import { applyGrassWeatherUniforms, createGrassWeatherMotion, updateGrassWeatherMotion } from './game/grass-weather-motion.js';
 import { getNumber, getString, setMaxNumber, setNumber, setString } from './util/storage.js';
 import { clampSettingVolume, normalizeQuality, resolveAudioVolumes } from './settings.js';
-import { APP_VERSION_LABEL } from './version.js?v=1.0.3';
+import { APP_VERSION_LABEL } from './version.js?v=1.0.4';
 import { collectDebugEnvironment, formatDiagnosticEvent, PerformanceEventLog } from './debug/performance-event-log.js';
 import {
   buildCampaignCombatRepositionOrder,

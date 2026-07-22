@@ -77,7 +77,7 @@ async function start() {
   }
 
   try {
-    await import('./main.js?v=1.0.3&rev=continue-checkpoint1');
+    await import('./main.js?v=1.0.4');
   } catch (error) {
     console.error('[bootstrap] Game startup failed', error);
     loadingEl?.classList.add('has-error');

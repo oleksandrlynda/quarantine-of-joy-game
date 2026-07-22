@@ -1,5 +1,5 @@
 import { logError } from './util/log.js';
-import { t } from './i18n/index.js?v=1.0.3&rev=archive-achievements4-i18n-shared1';
+import { t } from './i18n/index.js?v=1.0.4';
 import { getJSON, setJSON } from './util/storage.js';
 
 const STORAGE_KEY = 'achievements_v2';

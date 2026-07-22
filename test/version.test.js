@@ -14,14 +14,17 @@ test('displayed app version matches package metadata', () => {
   const main = fs.readFileSync(path.join(repoRoot, 'src', 'main.js'), 'utf8');
   const achievements = fs.readFileSync(path.join(repoRoot, 'src', 'achievements.js'), 'utf8');
   const version = pkg.version.replaceAll('.', '\\.');
+  const expectsVersion = (source, pattern, label) => {
+    assert.ok(pattern.test(source), `${label} must use cache version ${pkg.version}`);
+  };
 
   assert.equal(APP_VERSION, pkg.version);
   assert.equal(APP_VERSION_LABEL, `v${pkg.version}`);
-  assert.match(index, new RegExp(`src="src/bootstrap\\.js\\?v=${version}(?:&amp;rev=[a-z0-9-]+)?"`));
-  assert.match(bootstrap, new RegExp(`import\\('./main\\.js\\?v=${version}(?:&rev=[a-z0-9-]+)?'\\)`));
-  assert.match(index, new RegExp(`from './src/i18n/index\\.js\\?v=${version}(?:&rev=[a-z0-9-]+)?'`));
-  assert.match(main, new RegExp(`from './i18n/index\\.js\\?v=${version}(?:&rev=[a-z0-9-]+)?'`));
-  assert.match(main, new RegExp(`from './achievements\\.js\\?v=${version}(?:&rev=[a-z0-9-]+)?'`));
-  assert.match(main, new RegExp(`from './version\\.js\\?v=${version}'`));
-  assert.match(achievements, new RegExp(`from './i18n/index\\.js\\?v=${version}(?:&rev=[a-z0-9-]+)?'`));
+  expectsVersion(index, new RegExp(`src="src/bootstrap\\.js\\?v=${version}(?:&amp;rev=[a-z0-9-]+)?"`), 'index bootstrap');
+  expectsVersion(bootstrap, new RegExp(`import\\('./main\\.js\\?v=${version}(?:&rev=[a-z0-9-]+)?'\\)`), 'bootstrap main import');
+  expectsVersion(index, new RegExp(`from './src/i18n/index\\.js\\?v=${version}(?:&rev=[a-z0-9-]+)?'`), 'index i18n import');
+  expectsVersion(main, new RegExp(`from './i18n/index\\.js\\?v=${version}(?:&rev=[a-z0-9-]+)?'`), 'main i18n import');
+  expectsVersion(main, new RegExp(`from './achievements\\.js\\?v=${version}(?:&rev=[a-z0-9-]+)?'`), 'main achievements import');
+  expectsVersion(main, new RegExp(`from './version\\.js\\?v=${version}'`), 'main version import');
+  expectsVersion(achievements, new RegExp(`from './i18n/index\\.js\\?v=${version}(?:&rev=[a-z0-9-]+)?'`), 'achievements i18n import');
 });
